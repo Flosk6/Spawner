@@ -1,280 +1,171 @@
 <template>
-  <div class="max-w-5xl mx-auto">
+  <div>
     <div class="mb-6">
-      <router-link to="/" class="text-blue-600 hover:text-blue-800">
-        ← Back to Dashboard
-      </router-link>
+      <Button label="Back to Dashboard" icon="pi pi-arrow-left" text @click="$router.push('/')" />
     </div>
 
-    <div v-if="loading" class="text-gray-600">Loading environment...</div>
+    <div v-if="loading" class="flex justify-center py-20">
+      <ProgressSpinner />
+    </div>
 
-    <div v-else-if="environment" class="space-y-6">
-      <div class="bg-white shadow rounded-lg p-6">
-        <div class="flex justify-between items-start mb-4">
-          <div>
-            <h1 class="text-3xl font-bold text-gray-900">{{ environment.name }}</h1>
-            <p class="text-sm text-gray-500 mt-1">
-              Created {{ formatDate(environment.createdAt) }}
-            </p>
+    <div v-else-if="environment">
+      <!-- Environment Header -->
+      <Card class="mb-6">
+        <template #content>
+          <div class="flex justify-between items-start">
+            <div>
+              <h1 class="text-4xl font-bold mb-2">{{ environment.name }}</h1>
+              <p class="opacity-70 text-lg">
+                Created {{ formatDate(environment.createdAt) }}
+              </p>
+            </div>
+            <Tag :value="environment.status" :severity="getStatusSeverity(environment.status)"
+              class="text-lg px-4 py-2" />
           </div>
-          <span
-            :class="getStatusClass(environment.status)"
-            class="px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full"
-          >
-            {{ environment.status }}
-          </span>
-        </div>
-
-        <div class="mt-4">
-          <h3 class="text-sm font-medium text-gray-700 mb-2">Branches:</h3>
-          <div class="grid grid-cols-2 gap-2">
-            <div
-              v-for="(branch, name) in environment.branches"
-              :key="name"
-              class="text-sm"
-            >
-              <span class="font-medium">{{ name }}:</span>
-              <span class="text-gray-600 ml-2">{{ branch }}</span>
+          <div v-if="environment.branches" class="mt-6">
+            <h3 class="text-sm font-semibold opacity-70 mb-3">BRANCHES:</h3>
+            <div class="flex flex-wrap gap-2">
+              <Chip v-for="(branch, name) in environment.branches" :key="name" :label="`${name}: ${branch}`"
+                icon="pi pi-code-branch" />
             </div>
           </div>
-        </div>
-      </div>
+        </template>
+      </Card>
 
-      <div class="bg-white shadow rounded-lg p-6">
-        <h2 class="text-xl font-semibold mb-4">Resources</h2>
+      <!-- Tabs -->
+      <TabView>
+        <TabPanel value="0">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <i class="pi pi-box"></i>
+              <span>Resources</span>
+            </div>
+          </template>
 
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200">
-            <thead>
-              <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Name
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Type
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Branch
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  URL
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Status
-                </th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-              <tr v-for="resource in environment.resources" :key="resource.name">
-                <td class="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
-                  {{ resource.name }}
-                </td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                  {{ resource.type }}
-                </td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                  {{ resource.branch || '-' }}
-                </td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm">
-                  <a
-                    v-if="resource.url"
-                    :href="resource.url"
-                    target="_blank"
-                    class="text-blue-600 hover:text-blue-800"
-                  >
-                    {{ resource.url }}
-                  </a>
-                  <span v-else class="text-gray-400">-</span>
-                </td>
-                <td class="px-4 py-3 whitespace-nowrap">
-                  <span
-                    :class="getContainerStatusClass(resource.containerStatus)"
-                    class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full"
-                  >
-                    {{ resource.containerStatus }}
-                  </span>
-                </td>
-                <td class="px-4 py-3 whitespace-nowrap text-right text-sm space-x-2">
-                  <button
-                    @click="viewLogs(resource.name)"
-                    class="text-blue-600 hover:text-blue-900"
-                    title="View static logs"
-                  >
-                    Logs
-                  </button>
-                  <button
-                    v-if="resource.type !== 'mysql-db'"
-                    @click="openTerminal(resource.name)"
-                    class="text-green-600 hover:text-green-900"
-                    title="Open terminal"
-                  >
-                    Terminal
-                  </button>
-                  <button
-                    @click="viewLiveLogs(resource.name)"
-                    class="text-purple-600 hover:text-purple-900"
-                    title="Stream live logs"
-                  >
-                    Live
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+          <DataTable :value="environment.resources" stripedRows responsiveLayout="scroll">
+            <Column field="resourceName" header="Name" sortable style="min-width: 150px">
+              <template #body="{ data }: { data: EnvironmentResource }">
+                <span class="font-semibold">{{ data.resourceName }}</span>
+              </template>
+            </Column>
 
-      <div class="bg-white shadow rounded-lg p-6">
-        <h2 class="text-xl font-semibold mb-4 text-red-600">Danger Zone</h2>
-        <p class="text-sm text-gray-600 mb-4">
-          Deleting this environment will stop all containers, remove volumes, and delete all data.
-          This action cannot be undone.
+            <Column field="resourceType" header="Type" sortable style="min-width: 120px">
+              <template #body="{ data }: { data: EnvironmentResource }">
+                <Tag :value="data.resourceType" severity="info" icon="pi pi-box" />
+              </template>
+            </Column>
+
+            <Column field="branch" header="Branch" style="min-width: 150px">
+              <template #body="{ data }: { data: EnvironmentResource }">
+                <Chip v-if="data.branch" :label="data.branch" icon="pi pi-code-branch" />
+                <span v-else class="opacity-50">-</span>
+              </template>
+            </Column>
+
+            <Column field="url" header="URL" style="min-width: 250px">
+              <template #body="{ data }: { data: EnvironmentResource }">
+                <a v-if="data.url" :href="data.url" target="_blank"
+                  class="text-blue-500 hover:text-blue-600 flex items-center gap-2">
+                  {{ data.url }}
+                  <i class="pi pi-external-link text-xs"></i>
+                </a>
+                <span v-else class="opacity-50">-</span>
+              </template>
+            </Column>
+
+            <Column header="Actions" style="min-width: 200px">
+              <template #body="{ data }: { data: EnvironmentResource }">
+                <div class="flex gap-2">
+                  <Button icon="pi pi-file" severity="secondary" outlined rounded @click="viewLogs(data.resourceName)"
+                    v-tooltip.top="'View Logs'" />
+                  <Button v-if="data.resourceType !== 'mysql-db'" icon="pi pi-desktop" severity="success" outlined rounded
+                    @click="openTerminal(data.resourceName)" v-tooltip.top="'Open Terminal'" />
+                  <Button icon="pi pi-video" severity="info" outlined rounded @click="viewLiveLogs(data.resourceName)"
+                    v-tooltip.top="'Live Logs'" />
+                </div>
+              </template>
+            </Column>
+          </DataTable>
+        </TabPanel>
+
+        <TabPanel value="1">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <i class="pi pi-cog"></i>
+              <span>Settings</span>
+            </div>
+          </template>
+
+          <div class="py-6">
+            <h3 class="text-2xl font-semibold mb-4">Environment Settings</h3>
+            <p class="opacity-70 mb-6">Coming soon: Environment configuration options</p>
+          </div>
+        </TabPanel>
+
+        <TabPanel value="2">
+          <template #header>
+            <div class="flex items-center gap-2 text-red-500">
+              <i class="pi pi-exclamation-triangle"></i>
+              <span>Danger Zone</span>
+            </div>
+          </template>
+
+          <div class="py-6">
+            <h3 class="text-2xl font-semibold mb-4">Delete Environment</h3>
+            <Message severity="warn" :closable="false" class="mb-6">
+              Deleting this environment will stop all containers, remove volumes, and delete all data.
+              This action cannot be undone.
+            </Message>
+            <Button label="Delete Environment" icon="pi pi-trash" severity="danger" size="large" @click="handleDelete"
+              :disabled="deleting" />
+          </div>
+        </TabPanel>
+      </TabView>
+    </div>
+
+    <!-- Logs Dialog -->
+    <Dialog v-model:visible="showLogsModal" :header="`Logs: ${currentLogsResource}`" :modal="true"
+      :style="{ width: '80vw' }" :maximizable="true">
+      <ScrollPanel style="width: 100%; height: 60vh" class="border rounded">
+        <pre class="p-4 text-sm font-mono whitespace-pre-wrap">{{ logs }}</pre>
+      </ScrollPanel>
+    </Dialog>
+
+    <!-- Terminal Dialog -->
+    <Dialog
+      v-model:visible="showTerminalModal"
+      :header="`Terminal: ${currentTerminalResource}`"
+      :modal="true"
+      :style="{ width: '90vw', height: '85vh' }"
+      :maximizable="true"
+    >
+      <XtermTerminal
+        v-if="showTerminalModal && environment"
+        :environment-id="environment.id"
+        :resource-name="currentTerminalResource"
+      />
+    </Dialog>
+
+    <!-- Live Logs Dialog -->
+    <Dialog v-model:visible="showLiveLogsModal" :header="`Live Logs: ${currentLiveLogsResource}`" :modal="true"
+      :style="{ width: '80vw' }" :maximizable="true" @hide="closeLiveLogs">
+      <ScrollPanel style="width: 100%; height: 60vh" ref="liveLogsContainer" class="border rounded">
+        <pre class="p-4 text-sm font-mono whitespace-pre-wrap">{{ liveLogs || 'Connecting to live logs...' }}</pre>
+      </ScrollPanel>
+    </Dialog>
+
+    <!-- Delete Progress Dialog -->
+    <Dialog v-model:visible="showDeleteModal" header="Deleting Environment" :modal="true" :closable="false"
+      :style="{ width: '450px' }">
+      <div class="text-center py-4">
+        <ProgressSpinner class="mb-4" />
+        <p class="mb-4 text-lg font-semibold">{{ deletionStep }}</p>
+        <ProgressBar :value="deletionProgress" :showValue="false" />
+        <p class="opacity-60 text-sm mt-4">
+          This may take up to 15 seconds...
         </p>
-        <button
-          @click="handleDelete"
-          :disabled="deleting"
-          class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
-        >
-          Delete Environment
-        </button>
       </div>
-
-      <!-- Delete Progress Modal -->
-      <div
-        v-if="showDeleteModal"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      >
-        <div class="bg-white rounded-lg p-6 max-w-md w-full">
-          <div class="text-center">
-            <div class="mb-4">
-              <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
-            </div>
-            <h3 class="text-xl font-semibold text-gray-900 mb-2">
-              Deleting Environment
-            </h3>
-            <p class="text-gray-600 mb-4">
-              {{ deletionStep }}
-            </p>
-            <div class="bg-gray-100 rounded-full h-2 overflow-hidden">
-              <div
-                class="bg-red-600 h-full transition-all duration-500"
-                :style="{ width: deletionProgress + '%' }"
-              ></div>
-            </div>
-            <p class="text-sm text-gray-500 mt-2">
-              This may take up to 15 seconds...
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Logs Modal -->
-      <div
-        v-if="showLogsModal"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-        @click.self="showLogsModal = false"
-      >
-        <div class="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] flex flex-col">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-semibold">
-              Logs: {{ currentLogsResource }}
-            </h3>
-            <button
-              @click="showLogsModal = false"
-              class="text-gray-500 hover:text-gray-700"
-            >
-              ✕
-            </button>
-          </div>
-          <div class="flex-1 overflow-auto">
-            <pre
-              class="bg-gray-900 text-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap"
-            >{{ logs }}</pre>
-          </div>
-        </div>
-      </div>
-
-      <!-- Terminal Modal -->
-      <div
-        v-if="showTerminalModal"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-        @click.self="showTerminalModal = false"
-      >
-        <div class="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] flex flex-col">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-semibold">
-              Terminal: {{ currentTerminalResource }}
-            </h3>
-            <button
-              @click="showTerminalModal = false"
-              class="text-gray-500 hover:text-gray-700"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div class="mb-4">
-            <div class="flex gap-2">
-              <input
-                v-model="terminalCommand"
-                @keyup.enter="executeCommand"
-                type="text"
-                placeholder="Enter command (e.g., php artisan migrate, ls -la)"
-                class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                @click="executeCommand"
-                :disabled="executing || !terminalCommand.trim()"
-                class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400"
-              >
-                {{ executing ? 'Running...' : 'Execute' }}
-              </button>
-            </div>
-          </div>
-
-          <div class="flex-1 overflow-auto">
-            <pre
-              class="bg-gray-900 text-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap"
-            >{{ terminalOutput || 'No output yet. Enter a command above.' }}</pre>
-          </div>
-        </div>
-      </div>
-
-      <!-- Live Logs Modal -->
-      <div
-        v-if="showLiveLogsModal"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-        @click.self="closeLiveLogs"
-      >
-        <div class="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] flex flex-col">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-semibold">
-              Live Logs: {{ currentLiveLogsResource }}
-            </h3>
-            <button
-              @click="closeLiveLogs"
-              class="text-gray-500 hover:text-gray-700"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div class="flex-1 overflow-auto">
-            <pre
-              ref="liveLogsContainer"
-              class="bg-gray-900 text-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap"
-            >{{ liveLogs || 'Connecting to live logs...' }}</pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="error" class="mt-4 p-3 bg-red-50 border border-red-200 rounded">
-      <p class="text-red-800 text-sm">{{ error }}</p>
-    </div>
+    </Dialog>
   </div>
 </template>
 
@@ -282,10 +173,26 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { environmentApi } from '../services/api';
-import type { EnvironmentDetail } from '../types';
+import type { EnvironmentDetail, EnvironmentResource } from '../types';
+import Button from 'primevue/button';
+import Card from 'primevue/card';
+import TabView from 'primevue/tabview';
+import TabPanel from 'primevue/tabpanel';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Tag from 'primevue/tag';
+import Chip from 'primevue/chip';
+import Dialog from 'primevue/dialog';
+import ScrollPanel from 'primevue/scrollpanel';
+import Message from 'primevue/message';
+import ProgressSpinner from 'primevue/progressspinner';
+import ProgressBar from 'primevue/progressbar';
+import { useNotification } from '../composables/useNotification';
+import XtermTerminal from '../components/XtermTerminal.vue';
 
 const route = useRoute();
 const router = useRouter();
+const { showSuccess, showError } = useNotification();
 
 const environment = ref<EnvironmentDetail | null>(null);
 const loading = ref(true);
@@ -303,9 +210,6 @@ const deletionProgress = ref(0);
 // Terminal state
 const showTerminalModal = ref(false);
 const currentTerminalResource = ref('');
-const terminalCommand = ref('');
-const terminalOutput = ref('');
-const executing = ref(false);
 
 // Live logs state
 const showLiveLogsModal = ref(false);
@@ -325,6 +229,7 @@ async function loadEnvironment() {
     environment.value = await environmentApi.getOne(id);
   } catch (err: any) {
     error.value = err.response?.data?.message || 'Failed to load environment';
+    showError(error.value);
   } finally {
     loading.value = false;
   }
@@ -339,39 +244,13 @@ async function viewLogs(resourceName: string) {
     showLogsModal.value = true;
   } catch (err: any) {
     error.value = err.response?.data?.message || 'Failed to load logs';
+    showError(error.value);
   }
 }
 
 function openTerminal(resourceName: string) {
   currentTerminalResource.value = resourceName;
-  terminalCommand.value = '';
-  terminalOutput.value = '';
   showTerminalModal.value = true;
-}
-
-async function executeCommand() {
-  if (!terminalCommand.value.trim()) return;
-
-  try {
-    executing.value = true;
-    const id = route.params.id as string;
-    const result = await environmentApi.execCommand(id, currentTerminalResource.value, terminalCommand.value);
-
-    // Add command to output
-    terminalOutput.value += `\n$ ${terminalCommand.value}\n`;
-
-    if (result.success) {
-      terminalOutput.value += result.output || '(no output)';
-    } else {
-      terminalOutput.value += `ERROR: ${result.error}\n${result.output}`;
-    }
-
-    terminalCommand.value = '';
-  } catch (err: any) {
-    terminalOutput.value += `\nERROR: ${err.response?.data?.message || 'Failed to execute command'}`;
-  } finally {
-    executing.value = false;
-  }
 }
 
 async function viewLiveLogs(resourceName: string) {
@@ -407,6 +286,7 @@ async function viewLiveLogs(resourceName: string) {
     pollLogs();
   } catch (err: any) {
     error.value = err.response?.data?.message || 'Failed to start live logs';
+    showError(error.value);
   }
 }
 
@@ -418,74 +298,70 @@ function closeLiveLogs() {
 async function handleDelete() {
   if (!environment.value) return;
 
-  if (!confirm(`Are you sure you want to delete environment "${environment.value.name}"? This action cannot be undone.`)) {
-    return;
-  }
+  const envName = environment.value.name;
 
-  try {
-    deleting.value = true;
-    showDeleteModal.value = true;
-    error.value = '';
+  // Use notification service for confirmation
+  const { confirmDelete } = useNotification();
+  confirmDelete(
+    envName,
+    async () => {
+      try {
+        deleting.value = true;
+        showDeleteModal.value = true;
+        error.value = '';
 
-    // Simulate progress steps
-    deletionStep.value = 'Stopping containers...';
-    deletionProgress.value = 20;
+        // Simulate progress steps
+        deletionStep.value = 'Stopping containers...';
+        deletionProgress.value = 20;
 
-    // Start deletion
-    const deletePromise = environmentApi.delete(environment.value.id);
+        // Start deletion
+        const deletePromise = environmentApi.delete(environment.value!.id);
 
-    // Simulate progress updates
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    deletionStep.value = 'Removing volumes...';
-    deletionProgress.value = 40;
+        // Simulate progress updates
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        deletionStep.value = 'Removing volumes...';
+        deletionProgress.value = 40;
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    deletionStep.value = 'Removing networks...';
-    deletionProgress.value = 60;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        deletionStep.value = 'Removing networks...';
+        deletionProgress.value = 60;
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    deletionStep.value = 'Cleaning up files...';
-    deletionProgress.value = 80;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        deletionStep.value = 'Cleaning up files...';
+        deletionProgress.value = 80;
 
-    // Wait for actual deletion to complete
-    await deletePromise;
+        // Wait for actual deletion to complete
+        await deletePromise;
 
-    deletionStep.value = 'Complete!';
-    deletionProgress.value = 100;
+        deletionStep.value = 'Complete!';
+        deletionProgress.value = 100;
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-    router.push('/');
-  } catch (err: any) {
-    showDeleteModal.value = false;
-    error.value = err.response?.data?.message || 'Failed to delete environment';
-  } finally {
-    deleting.value = false;
-  }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        showSuccess(`Environment "${envName}" deleted successfully`);
+        router.push('/');
+      } catch (err: any) {
+        showDeleteModal.value = false;
+        error.value = err.response?.data?.message || 'Failed to delete environment';
+        showError(error.value);
+      } finally {
+        deleting.value = false;
+      }
+    }
+  );
 }
 
-function getStatusClass(status: string): string {
+function getStatusSeverity(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-green-100 text-green-800';
+      return 'success';
     case 'creating':
-      return 'bg-blue-100 text-blue-800';
+      return 'info';
     case 'failed':
-      return 'bg-red-100 text-red-800';
+      return 'danger';
     case 'deleting':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'warning';
     default:
-      return 'bg-gray-100 text-gray-800';
-  }
-}
-
-function getContainerStatusClass(status: string): string {
-  switch (status) {
-    case 'running':
-      return 'bg-green-100 text-green-800';
-    case 'stopped':
-      return 'bg-red-100 text-red-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
+      return 'secondary';
   }
 }
 

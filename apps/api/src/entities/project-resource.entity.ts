@@ -39,6 +39,17 @@ export class ProjectResource {
   @Column({ name: 'post_build_commands', type: 'json', default: '[]' })
   postBuildCommands: string[];
 
+  @Column({ name: 'resource_limits', type: 'json', nullable: true })
+  resourceLimits?: {
+    cpu?: string;
+    memory?: string;
+    cpuReservation?: string;
+    memoryReservation?: string;
+  };
+
+  @Column({ name: 'exposed_port', nullable: true })
+  exposedPort?: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

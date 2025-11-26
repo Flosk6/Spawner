@@ -16,12 +16,15 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sanitizeShellArg } from '@spawner/utils';
+import { sanitizeShellArg, sanitizeGitRepo, sanitizeGitBranch, validateResourceName } from '@spawner/utils';
 import type { EnvironmentStatus, ResourceType } from '@spawner/types';
-import { isGitResource } from '@spawner/config';
+import { isGitResource, DEFAULT_EXPOSED_PORTS } from '@spawner/config';
 import { DockerComposeGenerator } from '../../common/docker-compose.generator';
 import { EnvironmentLogsEmitter } from '../../common/environment-logs.emitter';
 import { EnvVarsGenerator } from '../../common/env-vars.generator';
+import { DockerService } from '../../common/docker.service';
+import { GitKeysService } from '../git/git-keys.service';
+import type { ProjectResource } from '../../config/config.service';
 
 const execAsync = promisify(exec);
 
@@ -35,6 +38,8 @@ export class EnvironmentService {
     @InjectRepository(Project)
     private projectRepository: Repository<Project>,
     private logsEmitter: EnvironmentLogsEmitter,
+    private dockerService: DockerService,
+    private gitKeysService: GitKeysService,
   ) {}
 
   async findAll(): Promise<Environment[]> {
@@ -55,7 +60,7 @@ export class EnvironmentService {
   async findOne(id: string): Promise<Environment> {
     const environment = await this.environmentRepository.findOne({
       where: { id },
-      relations: ['resources', 'project'],
+      relations: ['resources', 'project', 'project.resources'],
     });
 
     if (!environment) {
@@ -132,6 +137,32 @@ export class EnvironmentService {
     return environment;
   }
 
+  /**
+   * Asynchronously creates a complete preview environment with all its resources.
+   *
+   * This orchestrates the complex multi-step process of environment provisioning:
+   * 1. Creates isolated filesystem directory structure
+   * 2. Clones/updates Git repositories for each service to specified branches
+   * 3. Generates environment-specific configuration and secrets
+   * 4. Builds Docker Compose configuration with proper networking and dependencies
+   * 5. Starts all containers via Docker Compose
+   * 6. Persists resource metadata to database
+   *
+   * Security: All git repositories, branches, and paths are sanitized before shell execution
+   * to prevent command injection attacks. Uses dedicated SSH keys per repository.
+   *
+   * Progress: Emits real-time logs via WebSocket to allow UI to stream creation progress.
+   * On failure, environment status is marked as 'failed' but record is preserved for debugging.
+   *
+   * @param envId - UUID of the environment record in database
+   * @param project - Project configuration containing all resource definitions
+   * @param envName - Human-readable environment name (e.g., "feature-auth-123")
+   * @param branches - Map of resource names to their target Git branches
+   * @param localMode - If true, exposes ports on localhost instead of using Traefik routing
+   *
+   * @throws Error if git clone fails, Docker Compose fails, or any filesystem operation fails
+   * @private
+   */
   private async createEnvironmentAsync(
     envId: string,
     project: Project,
@@ -145,25 +176,29 @@ export class EnvironmentService {
     };
 
     try {
+      this.logsEmitter.emitLog(envId, 'info', 'Starting environment creation...', 'init');
       log('info', 'Starting environment creation...');
 
       const envsPath = process.env.ENVS_PATH || '/opt/spawner/envs';
       const reposPath = process.env.REPOS_PATH || '/opt/spawner/repos';
-      const gitKeysPath = process.env.GIT_KEYS_PATH || '/opt/spawner/git-keys';
 
       const envDir = path.join(envsPath, `${project.name}-${envName}`);
 
       log('info', `Creating environment directory: ${envDir}`);
       await fs.mkdir(envDir, { recursive: true });
 
-      // Clone/update git repositories
       const gitResources = project.resources.filter((r) =>
         isGitResource(r.type as ResourceType),
       );
 
+      this.logsEmitter.emitLog(envId, 'info', 'Cloning and updating git repositories...', 'git');
       for (const resource of gitResources) {
         const branch = branches[resource.name];
         const repoDir = path.join(reposPath, resource.name);
+
+        const sanitizedRepo = sanitizeGitRepo(resource.gitRepo);
+        const sanitizedBranch = sanitizeGitBranch(branch);
+        const sanitizedRepoDir = sanitizeShellArg(repoDir);
 
         log('info', `Processing git resource: ${resource.name} (branch: ${branch})`);
 
@@ -174,24 +209,27 @@ export class EnvironmentService {
 
         if (!repoExists) {
           log('info', `Cloning repository for ${resource.name}...`);
-          const sshCommand = `ssh -i ${path.join(gitKeysPath, 'id_spawner')} -o StrictHostKeyChecking=no`;
+          const repoKeyPath = this.gitKeysService.getKeyPathForRepo(sanitizedRepo);
+          const sanitizedKeyPath = sanitizeShellArg(repoKeyPath);
+          const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
           await execAsync(
-            `GIT_SSH_COMMAND="${sshCommand}" git clone ${sanitizeShellArg(resource.gitRepo)} ${sanitizeShellArg(repoDir)}`,
+            `GIT_SSH_COMMAND="${sshCommand}" git clone ${sanitizedRepo} ${sanitizedRepoDir}`,
           );
         }
 
         log('info', `Checking out branch ${branch} for ${resource.name}...`);
+        const repoKeyPath = this.gitKeysService.getKeyPathForRepo(sanitizedRepo);
+        const sanitizedKeyPath = sanitizeShellArg(repoKeyPath);
+        const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
         await execAsync(
-          `cd ${sanitizeShellArg(repoDir)} && git fetch && git checkout ${sanitizeShellArg(branch)} && git pull`,
+          `cd ${sanitizedRepoDir} && GIT_SSH_COMMAND="${sshCommand}" git fetch && git checkout ${sanitizedBranch} && GIT_SSH_COMMAND="${sshCommand}" git pull`,
         );
       }
 
-      // Load environment for env vars generation
       const environment = await this.environmentRepository.findOne({
         where: { id: envId },
       });
 
-      // Generate port mappings for local mode
       const resourcePorts: Record<string, number> = {};
       if (localMode) {
         let portCounter = 8000;
@@ -202,7 +240,6 @@ export class EnvironmentService {
         }
       }
 
-      // Generate environment variables for each resource
       const resourcesEnvVars: Record<string, Record<string, string>> = {};
       for (const resource of project.resources) {
         resourcesEnvVars[resource.name] = EnvVarsGenerator.generateForResource(
@@ -216,7 +253,6 @@ export class EnvironmentService {
         );
       }
 
-      // Generate docker-compose.yml
       log('info', 'Generating docker-compose.yml...');
       const generator = new DockerComposeGenerator(
         envName,
@@ -228,16 +264,35 @@ export class EnvironmentService {
         localMode,
       );
       const composeContent = generator.generate();
-      await fs.writeFile(path.join(envDir, 'docker-compose.yml'), composeContent);
-
-      // Start containers
-      log('info', 'Starting Docker containers...');
-      const projectName = `env-${project.name}-${envName}`;
-      await execAsync(
-        `cd ${sanitizeShellArg(envDir)} && docker compose -p ${sanitizeShellArg(projectName)} up -d`,
+      await fs.writeFile(
+        path.join(envDir, 'docker-compose.yml'),
+        composeContent,
+        { mode: 0o600 }
       );
 
-      // Create environment resources
+      this.logsEmitter.emitLog(envId, 'info', 'Creating Docker resources...', 'docker');
+      log('info', 'Creating Docker network...');
+      const networkName = `net-${envName}`;
+      await this.dockerService.createNetwork(networkName);
+
+      log('info', 'Starting Docker containers...');
+      await this.createContainersWithDockerode(
+        project,
+        envName,
+        networkName,
+        reposPath,
+        resourcesEnvVars,
+        localMode,
+        resourcePorts,
+        log,
+      );
+
+      this.logsEmitter.emitLog(envId, 'info', 'Running health checks...', 'health-check');
+      await this.runHealthChecks(project, envName, log);
+
+      this.logsEmitter.emitLog(envId, 'info', 'Executing post-build commands...', 'post-build');
+      await this.executePostBuildCommands(project, envName, log);
+
       log('info', 'Creating environment resources...');
       for (const resource of project.resources) {
         const envResource = this.resourceRepository.create({
@@ -258,14 +313,13 @@ export class EnvironmentService {
         await this.resourceRepository.save(envResource);
       }
 
-      // Update environment status
       await this.environmentRepository.update(envId, {
         status: 'running' as EnvironmentStatus,
       });
 
-      // Clear shared secrets
       EnvVarsGenerator.clearSharedSecrets(envId);
 
+      this.logsEmitter.emitLog(envId, 'success', 'Environment created successfully!', 'complete');
       log('success', 'Environment created successfully!');
     } catch (error) {
       log('error', `Failed to create environment: ${error.message}`);
@@ -301,34 +355,82 @@ export class EnvironmentService {
       envsPath,
       `${environment.project.name}-${environment.name}`,
     );
-    const projectName = `env-${environment.project.name}-${environment.name}`;
+    const networkName = `net-${environment.name}`;
 
-    try {
-      // Stop and remove containers
-      await execAsync(
-        `cd ${sanitizeShellArg(envDir)} && docker compose -p ${sanitizeShellArg(projectName)} down -v`,
-      );
+    const errors: string[] = [];
 
-      // Remove directory
-      await fs.rm(envDir, { recursive: true, force: true });
-    } catch (error) {
-      console.error(`Error cleaning up environment ${environment.name}:`, error);
+    const resourcesToClean = environment.resources.length > 0
+      ? environment.resources.map(r => ({ name: r.resourceName, type: r.resourceType }))
+      : environment.project.resources.map(r => ({ name: r.name, type: r.type }));
+
+    for (const resource of resourcesToClean) {
+      const serviceName = `${resource.name}-${environment.name}`;
+
+      try {
+        console.log(`Stopping container ${serviceName}...`);
+        await this.dockerService.stopContainer(serviceName);
+      } catch (error) {
+        console.error(`Failed to stop ${serviceName}:`, error.message);
+        errors.push(`Stop ${serviceName}: ${error.message}`);
+      }
+
+      try {
+        console.log(`Removing container ${serviceName}...`);
+        await this.dockerService.removeContainer(serviceName, true);
+      } catch (error) {
+        console.error(`Failed to remove ${serviceName}:`, error.message);
+        errors.push(`Remove ${serviceName}: ${error.message}`);
+      }
+
+      if (resource.type === 'mysql-db') {
+        const volumeName = `${serviceName}-data`;
+        try {
+          console.log(`Removing volume ${volumeName}...`);
+          await this.dockerService.removeVolume(volumeName);
+        } catch (error) {
+          console.error(`Failed to remove volume ${volumeName}:`, error.message);
+          errors.push(`Remove volume ${volumeName}: ${error.message}`);
+        }
+      }
     }
 
-    // Remove from database
+    try {
+      console.log(`Removing network ${networkName}...`);
+      await this.dockerService.removeNetwork(networkName);
+    } catch (error) {
+      console.error(`Failed to remove network ${networkName}:`, error.message);
+      errors.push(`Remove network: ${error.message}`);
+    }
+
+    try {
+      console.log(`Removing directory ${envDir}...`);
+      await fs.rm(envDir, { recursive: true, force: true });
+    } catch (error) {
+      console.error(`Failed to remove directory ${envDir}:`, error.message);
+      errors.push(`Remove directory: ${error.message}`);
+    }
+
     await this.environmentRepository.remove(environment);
+
+    if (errors.length > 0) {
+      console.warn(`Environment ${environment.name} deleted with warnings:`, errors);
+    }
   }
 
   async getLogs(id: string, resourceName: string): Promise<{ logs: string }> {
+    const validatedResourceName = validateResourceName(resourceName);
     const environment = await this.findOne(id);
-    const serviceName = `${resourceName}-${environment.name}`;
-    const projectName = `env-${environment.project.name}-${environment.name}`;
+
+    const resource = environment.resources?.find(r => r.resourceName === validatedResourceName);
+    if (!resource) {
+      throw new NotFoundException(`Resource ${validatedResourceName} not found in environment`);
+    }
+
+    const serviceName = `${validatedResourceName}-${environment.name}`;
 
     try {
-      const { stdout } = await execAsync(
-        `docker compose -p ${sanitizeShellArg(projectName)} logs --tail=500 ${sanitizeShellArg(serviceName)}`,
-      );
-      return { logs: stdout };
+      const logs = await this.dockerService.getContainerLogs(serviceName, 500);
+      return { logs };
     } catch (error) {
       throw new InternalServerErrorException(
         `Failed to fetch logs: ${error.message}`,
@@ -341,15 +443,28 @@ export class EnvironmentService {
     resourceName: string,
     command: string,
   ): Promise<{ output: string }> {
+    const validatedResourceName = validateResourceName(resourceName);
     const environment = await this.findOne(id);
-    const serviceName = `${resourceName}-${environment.name}`;
-    const projectName = `env-${environment.project.name}-${environment.name}`;
+
+    const resource = environment.resources?.find(r => r.resourceName === validatedResourceName);
+    if (!resource) {
+      throw new NotFoundException(`Resource ${validatedResourceName} not found in environment`);
+    }
+
+    if (command.length > 500) {
+      throw new Error('Command too long (max 500 characters)');
+    }
+
+    const serviceName = `${validatedResourceName}-${environment.name}`;
 
     try {
-      const { stdout, stderr } = await execAsync(
-        `docker compose -p ${sanitizeShellArg(projectName)} exec -T ${sanitizeShellArg(serviceName)} ${sanitizeShellArg(command)}`,
+      const commandParts = command.split(' ');
+      const result = await this.dockerService.execInContainer(
+        serviceName,
+        commandParts,
+        30000,
       );
-      return { output: stdout + stderr };
+      return { output: result.output };
     } catch (error) {
       return { output: error.message };
     }
@@ -369,7 +484,6 @@ export class EnvironmentService {
 
       this.logsEmitter.on(`logs:${environmentId}`, handler);
 
-      // Send existing logs
       const existingLogs = this.logsEmitter.getLogs(environmentId);
       existingLogs.forEach((log) => {
         subscriber.next({
@@ -381,5 +495,340 @@ export class EnvironmentService {
         this.logsEmitter.off(`logs:${environmentId}`, handler);
       };
     });
+  }
+
+  private async createContainersWithDockerode(
+    project: Project,
+    envName: string,
+    networkName: string,
+    reposPath: string,
+    resourcesEnvVars: Record<string, Record<string, string>>,
+    localMode: boolean,
+    resourcePorts: Record<string, number>,
+    log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+  ): Promise<void> {
+    const dbResources = project.resources.filter((r) => r.type === 'mysql-db');
+    const apiResources = project.resources.filter((r) => r.type === 'laravel-api');
+    const frontResources = project.resources.filter((r) => r.type === 'nextjs-front');
+
+    for (const resource of dbResources) {
+      await this.createMySQLContainer(
+        resource,
+        envName,
+        networkName,
+        resourcesEnvVars[resource.name],
+        log,
+      );
+    }
+
+    for (const resource of apiResources) {
+      await this.createLaravelContainer(
+        resource,
+        envName,
+        networkName,
+        reposPath,
+        resourcesEnvVars[resource.name],
+        project.baseDomain,
+        localMode,
+        resourcePorts,
+        log,
+      );
+    }
+
+    for (const resource of frontResources) {
+      await this.createNextJSContainer(
+        resource,
+        envName,
+        networkName,
+        reposPath,
+        resourcesEnvVars[resource.name],
+        project.baseDomain,
+        localMode,
+        resourcePorts,
+        log,
+      );
+    }
+  }
+
+  private async createMySQLContainer(
+    resource: ProjectResource,
+    envName: string,
+    networkName: string,
+    envVars: Record<string, string>,
+    log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+  ): Promise<void> {
+    const serviceName = `${resource.name}-${envName}`;
+    const volumeName = `${serviceName}-data`;
+
+    log('info', `Creating MySQL volume ${volumeName}...`);
+    await this.dockerService.createVolume(volumeName);
+
+    log('info', `Creating MySQL container ${serviceName}...`);
+    await this.dockerService.createContainer({
+      name: serviceName,
+      image: 'mysql:8',
+      environment: envVars,
+      networks: [networkName],
+      volumes: [`${volumeName}:/var/lib/mysql`],
+      resourceLimits: {
+        cpus: resource.resourceLimits?.cpu || '2',
+        memory: resource.resourceLimits?.memory || '1G',
+        cpuReservation: resource.resourceLimits?.cpuReservation || '0.25',
+        memoryReservation: resource.resourceLimits?.memoryReservation || '256M',
+      },
+    });
+
+    await this.dockerService.startContainer(serviceName);
+    log('success', `MySQL container ${serviceName} started`);
+
+    log('info', `Waiting for MySQL ${serviceName} to be ready...`);
+    await new Promise((resolve) => setTimeout(resolve, 10000));
+  }
+
+  private async createLaravelContainer(
+    resource: ProjectResource,
+    envName: string,
+    networkName: string,
+    reposPath: string,
+    envVars: Record<string, string>,
+    baseDomain: string,
+    localMode: boolean,
+    resourcePorts: Record<string, number>,
+    log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+  ): Promise<void> {
+    const serviceName = `${resource.name}-${envName}`;
+    const buildContext = path.join(reposPath, resource.name);
+    const hostname = `${resource.name}.${envName}.${baseDomain}`;
+
+    log('info', `Building Laravel image for ${serviceName}...`);
+    const imageTag = `spawner-${resource.name}:${envName}`;
+    await this.dockerService.buildImage(buildContext, imageTag, (message) => {
+      log('info', message);
+    });
+
+    log('success', `Build completed for ${serviceName}`);
+    log('info', `Creating Laravel container ${serviceName}...`);
+
+    const exposedPort = resource.exposedPort || DEFAULT_EXPOSED_PORTS['laravel-api'];
+    const ports = localMode && resourcePorts[resource.name]
+      ? [`${resourcePorts[resource.name]}:${exposedPort}`]
+      : [];
+
+    await this.dockerService.createContainer({
+      name: serviceName,
+      image: imageTag,
+      environment: envVars,
+      networks: [networkName],
+      ports,
+      labels: {
+        'traefik.enable': 'true',
+        [`traefik.http.routers.${serviceName}.rule`]: `Host(\`${hostname}\`)`,
+        [`traefik.http.services.${serviceName}.loadbalancer.server.port`]: `${exposedPort}`,
+      },
+      resourceLimits: {
+        cpus: resource.resourceLimits?.cpu || '2',
+        memory: resource.resourceLimits?.memory || '1G',
+        cpuReservation: resource.resourceLimits?.cpuReservation || '0.25',
+        memoryReservation: resource.resourceLimits?.memoryReservation || '256M',
+      },
+    });
+
+    await this.dockerService.startContainer(serviceName);
+    log('success', `Laravel container ${serviceName} started`);
+
+    // Fix permissions for www-data user
+    log('info', `Setting permissions for Laravel directories...`);
+    try {
+      await this.dockerService.execInContainer(serviceName, [
+        'chown', '-R', 'www-data:www-data',
+        '/var/www/storage',
+        '/var/www/bootstrap/cache',
+        '/var/www/.config'
+      ]);
+      log('success', `Permissions set successfully`);
+    } catch (error) {
+      log('warning', `Could not set permissions: ${error.message}`);
+    }
+  }
+
+  private async createNextJSContainer(
+    resource: ProjectResource,
+    envName: string,
+    networkName: string,
+    reposPath: string,
+    envVars: Record<string, string>,
+    baseDomain: string,
+    localMode: boolean,
+    resourcePorts: Record<string, number>,
+    log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+  ): Promise<void> {
+    const serviceName = `${resource.name}-${envName}`;
+    const buildContext = path.join(reposPath, resource.name);
+    const hostname = `${resource.name}.${envName}.${baseDomain}`;
+
+    log('info', `Generating .env file for Next.js build...`);
+    const envFileContent = Object.entries(envVars)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+    await fs.writeFile(
+      path.join(buildContext, '.env'),
+      envFileContent,
+      { mode: 0o600 }
+    );
+
+    log('info', `Building Next.js image for ${serviceName}...`);
+    const imageTag = `spawner-${resource.name}:${envName}`;
+    await this.dockerService.buildImage(buildContext, imageTag, (message) => {
+      log('info', message);
+    });
+
+    log('success', `Build completed for ${serviceName}`);
+    log('info', `Creating Next.js container ${serviceName}...`);
+
+    const exposedPort = resource.exposedPort || DEFAULT_EXPOSED_PORTS['nextjs-front'];
+    const ports = localMode && resourcePorts[resource.name]
+      ? [`${resourcePorts[resource.name]}:${exposedPort}`]
+      : [];
+
+    const extraHosts = localMode ? ['host.docker.internal:host-gateway'] : [];
+
+    await this.dockerService.createContainer({
+      name: serviceName,
+      image: imageTag,
+      environment: envVars,
+      networks: [networkName],
+      ports,
+      extraHosts,
+      labels: {
+        'traefik.enable': 'true',
+        [`traefik.http.routers.${serviceName}.rule`]: `Host(\`${hostname}\`)`,
+        [`traefik.http.services.${serviceName}.loadbalancer.server.port`]: `${exposedPort}`,
+      },
+      resourceLimits: {
+        cpus: resource.resourceLimits?.cpu || '2',
+        memory: resource.resourceLimits?.memory || '1G',
+        cpuReservation: resource.resourceLimits?.cpuReservation || '0.25',
+        memoryReservation: resource.resourceLimits?.memoryReservation || '256M',
+      },
+    });
+
+    await this.dockerService.startContainer(serviceName);
+    log('success', `Next.js container ${serviceName} started`);
+  }
+
+  private async runHealthChecks(
+    project: Project,
+    envName: string,
+    log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+  ): Promise<void> {
+    const dbResources = project.resources.filter(r => r.type === 'mysql-db');
+    const apiResources = project.resources.filter(r => r.type === 'laravel-api');
+    const frontResources = project.resources.filter(r => r.type === 'nextjs-front');
+
+    for (const resource of dbResources) {
+      const serviceName = `${resource.name}-${envName}`;
+      log('info', `Health check for MySQL ${serviceName}...`);
+
+      let retries = 30;
+      let healthy = false;
+
+      while (retries > 0 && !healthy) {
+        try {
+          const result = await this.dockerService.execInContainer(
+            serviceName,
+            ['mysqladmin', 'ping', '-h', 'localhost'],
+            5000,
+          );
+
+          if (result.exitCode === 0) {
+            healthy = true;
+            log('success', `MySQL ${serviceName} is healthy`);
+          }
+        } catch (error) {
+          retries--;
+          if (retries === 0) {
+            log('error', `MySQL ${serviceName} health check failed: ${error.message}`);
+            throw new Error(`Health check failed for ${serviceName}`);
+          }
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    }
+
+    for (const resource of [...apiResources, ...frontResources]) {
+      const serviceName = `${resource.name}-${envName}`;
+      const exposedPort = resource.exposedPort || DEFAULT_EXPOSED_PORTS[resource.type as ResourceType];
+      log('info', `Health check for ${resource.type} ${serviceName}...`);
+
+      let retries = 30;
+      let healthy = false;
+
+      while (retries > 0 && !healthy) {
+        try {
+          const result = await this.dockerService.execInContainer(
+            serviceName,
+            ['sh', '-c', `curl -f http://localhost:${exposedPort}/api/health || curl -f http://localhost:${exposedPort}/health || curl -f http://localhost:${exposedPort}/ || exit 0`],
+            5000,
+          );
+
+          if (result.exitCode === 0) {
+            healthy = true;
+            log('success', `${resource.type} ${serviceName} is healthy`);
+          }
+        } catch (error) {
+          retries--;
+          if (retries === 0) {
+            log('warning', `${resource.type} ${serviceName} health check timed out, continuing anyway...`);
+            healthy = true;
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+      }
+    }
+  }
+
+  private async executePostBuildCommands(
+    project: Project,
+    envName: string,
+    log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+  ): Promise<void> {
+    for (const resource of project.resources) {
+      if (resource.postBuildCommands && resource.postBuildCommands.length > 0) {
+        const serviceName = `${resource.name}-${envName}`;
+        log('info', `Executing ${resource.postBuildCommands.length} post-build command(s) for ${serviceName}...`);
+
+        for (const command of resource.postBuildCommands) {
+          log('info', `Running: ${command}`);
+
+          try {
+            const commandParts = command.split(' ');
+            const result = await this.dockerService.execInContainer(
+              serviceName,
+              commandParts,
+              120000,
+            );
+
+            if (result.exitCode === 0) {
+              log('success', `Command completed: ${command}`);
+              if (result.output) {
+                log('info', result.output);
+              }
+            } else {
+              log('error', `Command failed with exit code ${result.exitCode}: ${command}`);
+              if (result.output) {
+                log('error', result.output);
+              }
+              throw new Error(`Post-build command failed: ${command}`);
+            }
+          } catch (error) {
+            log('error', `Failed to execute command "${command}": ${error.message}`);
+            throw error;
+          }
+        }
+
+        log('success', `All post-build commands completed for ${serviceName}`);
+      }
+    }
   }
 }

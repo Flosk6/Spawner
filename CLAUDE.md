@@ -4,248 +4,329 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Spawner is a self-hosted environment management system for creating and managing preview environments based on Git branches. It enables teams to quickly spin up complete development environments containing multiple services (Laravel APIs, Next.js frontends, MySQL databases) with automatic Docker Compose orchestration and Git repository management via SSH deploy keys.
+Spawner is a self-hosted environment management system for creating and managing preview environments based on Git branches. It enables teams to quickly spin up complete development environments containing multiple services (Laravel APIs, Next.js frontends, MySQL databases) with automatic Docker orchestration and Git repository management via SSH deploy keys.
+
+**Key Features:**
+- GitHub OAuth authentication with team-based access control
+- Multi-project support with isolated environments
+- Interactive browser-based terminal access to containers
+- Dockerode library for secure Docker operations (no shell command injection)
+- Audit logging for all user actions
+- Real-time build progress and container logs
 
 ## Monorepo Architecture
 
-This is a **pnpm + Turborepo** monorepo with three main parts:
-- **apps/api**: NestJS backend (port 3000)
-- **apps/web**: Vue.js 3 frontend with Vite (port 5173 in dev)
-- **packages/**: Shared TypeScript packages (`@spawner/types`, `@spawner/config`, `@spawner/utils`)
+This is a **pnpm + Turborepo** monorepo:
 
-All packages use `workspace:*` dependencies to reference each other. Shared packages must be built before running apps.
+- **apps/api**: NestJS backend (port 3000) with TypeORM + SQLite
+- **apps/web**: Vue.js 3 frontend (port 5173 in dev) with Vite + Tailwind CSS
+- **packages/types**: Shared TypeScript type definitions
+- **packages/config**: Constants, defaults, validation patterns
+- **packages/utils**: Utility functions (validation, URL generation, security)
+
+All packages use `workspace:*` dependencies. **Shared packages must be built before running apps.**
+
+## Code Style
+
+### Important Rules
+
+- **NO EMOJIS**: Never use emojis in code, comments, error messages, or any output.
+- **NEVER modify files in `local-data/repos/`**: These are Git repositories cloned by Spawner. If you find a bug:
+  1. STOP - Do not modify the cloned repo
+  2. INFORM the user about the issue and required fix
+  3. LET THE USER make changes in their real repository and push to GitHub
+
+  **Rationale**: Prevents divergence between real codebase and Spawner's local copies.
+
+### Comment Guidelines
+
+- Avoid inline comments inside functions (only for extremely complex logic)
+- Use JSDoc for function/method/class documentation
+- Document complexity and intent, not obvious code
+- Refactor bad comments when modifying code
+
+**Good example:**
+
+```typescript
+/**
+ * Creates isolated Docker environment with network, volumes, and containers.
+ *
+ * @param envName - Environment identifier (e.g., "feature-123")
+ * @param projectName - Project identifier for namespacing
+ * @param resources - Array of project resources to include
+ * @returns Environment creation result with container details
+ */
+async createEnvironment(envName: string, projectName: string, resources: ProjectResource[]) {
+  // Implementation without inline comments
+}
+```
 
 ## Development Commands
 
 ### Initial Setup
+
 ```bash
-pnpm install              # Install all dependencies across monorepo
-pnpm build                # Build all packages (required first!)
+pnpm install              # Install all dependencies
+pnpm build                # Build all packages (required!)
 ```
 
 ### Development
+
 ```bash
-pnpm dev                  # Start both API and Web in parallel watch mode
-pnpm api:dev              # Start only NestJS backend (watch mode)
-pnpm web:dev              # Start only Vue.js frontend (Vite dev server)
+pnpm dev                  # Start API + Web in parallel
+pnpm api:dev              # Start only backend (watch mode)
+pnpm web:dev              # Start only frontend (Vite dev server)
 ```
 
-### Building
-```bash
-pnpm build                # Build all packages and apps (uses Turborepo cache)
-pnpm api:build            # Build only backend
-pnpm web:build            # Build only frontend
-pnpm --filter @spawner/types build    # Build specific shared package
-```
+### Building & Quality
 
-### Code Quality
 ```bash
+pnpm build                # Build all (uses Turborepo cache)
+pnpm api:build            # Build backend only
+pnpm web:build            # Build frontend only
 pnpm lint                 # Lint all code
-pnpm format               # Format all code with Prettier
-pnpm clean                # Clean all build artifacts + node_modules
+pnpm format               # Format with Prettier
+pnpm clean                # Clean build artifacts + node_modules
 ```
 
 ### Adding Dependencies
+
 ```bash
-# To root (build tools only)
-pnpm add -w -D <package>
-
-# To specific app
-pnpm --filter @spawner/api add <package>
-pnpm --filter @spawner/web add <package>
-
-# To shared package
-pnpm --filter @spawner/types add <package>
+pnpm add -w -D <package>                    # Root (build tools only)
+pnpm --filter @spawner/api add <package>    # Backend
+pnpm --filter @spawner/web add <package>    # Frontend
+pnpm --filter @spawner/types add <package>  # Shared package
 ```
 
 ## Backend Architecture (apps/api)
 
-NestJS application structured as feature modules:
+NestJS application with feature modules:
 
 ### Module Structure
-- **modules/project/**: Single project management (original POC - reads from project.config.yml)
-- **modules/projects/**: Multi-project CRUD (new feature supporting multiple projects via database)
-- **modules/git/**: SSH key generation, Git repository testing
-- **modules/environment/**: Environment lifecycle (create, list, view, delete, logs)
+
+- **auth**: GitHub OAuth, session management, audit logging, WebSocket tokens
+- **projects**: Multi-project CRUD (database-backed)
+- **project**: Legacy single project (reads from project.config.yml)
+- **git**: SSH key generation and repository testing
+- **environment**: Environment lifecycle (create, list, view, delete, logs)
+- **terminal**: WebSocket gateway for interactive container terminals
 
 ### Key Files
-- [app.module.ts](apps/api/src/app.module.ts): Root module with TypeORM configuration
-- [main.ts](apps/api/src/main.ts): Bootstrap, CORS, global prefix `/api`
-- **entities/**: TypeORM entities (Setting, Environment, EnvironmentResource, Project, ProjectResource)
-- **common/**: Shared guards, interceptors, filters
 
-### Database
-SQLite with TypeORM. Default path: `/opt/spawner/data/spawner.db` (configurable via `DATABASE_PATH` env var).
+- **app.module.ts**: Root module with TypeORM, session setup
+- **main.ts**: Bootstrap, CORS, session middleware, Passport
+- **entities/**: User, AuditLog, Setting, Environment, EnvironmentResource, Project, ProjectResource
+- **common/docker.service.ts**: Dockerode integration for all Docker operations
+- **common/docker-compose.generator.ts**: Container configuration generation
+- **modules/terminal/terminal.gateway.ts**: WebSocket terminal with security constraints
 
-Tables:
-- `settings`: Key-value store for SSH keys, paths
+### Database (SQLite + TypeORM)
+
+Path: `/opt/spawner/data/spawner.db` (configurable via `DATABASE_PATH`)
+
+**Tables:**
+- `users`: GitHub OAuth accounts (githubId, username, email, role, lastLoginAt)
+- `audit_logs`: Action tracking (action, details, ipAddress, userAgent, timestamp)
+- `sessions`: Express session storage (managed by connect-sqlite3)
 - `environments`: Environment metadata (name, status, config_json, project_id)
-- `environment_resources`: Per-environment resource details (branch, URL, status)
+- `environment_resources`: Resource details per environment (branch, URL, status)
 - `projects`: Multi-project support (name, baseDomain, config)
 - `project_resources`: Resources per project
+- `settings`: Key-value store for SSH keys and paths
 
-### Environment Variables (Backend)
+### Environment Variables
+
+**OAuth & Session:**
+- `GITHUB_CLIENT_ID`: GitHub OAuth Client ID (required)
+- `GITHUB_CLIENT_SECRET`: GitHub OAuth Client Secret (required)
+- `GITHUB_CALLBACK_URL`: OAuth callback (e.g., http://localhost:3000/api/auth/github/callback)
+- `GITHUB_ORG`: Organization name for access control (required)
+- `GITHUB_TEAM`: Team slug for access control (required)
+- `SESSION_SECRET`: Session encryption secret (`openssl rand -base64 32`)
+- `SESSION_MAX_AGE`: Session duration in ms (default: 86400000 = 24h)
+- `FRONTEND_URL`: Frontend URL for redirects (default: http://localhost:8080)
+
+**Application:**
 - `PORT`: API server port (default: 3000)
-- `DATABASE_PATH`: SQLite file path (default: /opt/spawner/data/spawner.db)
-- `PROJECT_CONFIG_PATH`: Legacy single project config (default: /opt/spawner/project.config.yml)
+- `DATABASE_PATH`: SQLite path (default: /opt/spawner/data/spawner.db)
 - `GIT_KEYS_PATH`: SSH keys directory (default: /opt/spawner/git-keys)
-- `REPOS_PATH`: Git clones directory (default: /opt/spawner/repos)
-- `ENVS_PATH`: Environment docker-compose files (default: /opt/spawner/envs)
+- `REPOS_PATH`: Git clones (default: /opt/spawner/repos)
+- `ENVS_PATH`: Environment files (default: /opt/spawner/envs)
+- `DOCKER_SOCKET`: Docker socket (default: /var/run/docker.sock)
 
 ## Frontend Architecture (apps/web)
 
-Vue.js 3 with Composition API, Vue Router 4, and Tailwind CSS.
+Vue.js 3 with Composition API, Vue Router 4, Tailwind CSS.
 
-### Views (apps/web/src/views)
-- **Dashboard.vue**: Git SSH key management + environment list
-- **EnvironmentNew.vue**: Create environment form with branch selection
-- **EnvironmentDetail.vue**: Resource status, URLs, logs viewer, delete action
-- **Projects.vue**: Multi-project management (list, create, edit, delete)
+### Key Views
 
-### Key Patterns
-- **Composition API**: All components use `<script setup>` syntax
-- **Services**: API calls centralized in `services/api.ts`
-- **Routing**: Vue Router with route params for environment IDs
-- **State**: No global state manager (uses props/composition for now)
+- **Login.vue**: GitHub OAuth login
+- **ProjectList.vue**: Multi-project dashboard
+- **ProjectForm.vue**: Create/edit project configuration
+- **EnvironmentList.vue**: Environments for a project
+- **EnvironmentNew.vue**: Create environment with branch selection
+- **EnvironmentDetail.vue**: Resource status, URLs, terminal, logs, delete
+- **GitSettings.vue**: SSH key generation and testing
+- **Dashboard.vue**: Legacy single-project view
 
-### Environment Variables (Frontend)
-- `VITE_API_URL`: Backend URL (defaults to `/api` for production proxying)
+### Architecture Patterns
 
-## Shared Packages
+- **Composition API**: All components use `<script setup>`
+- **State**: Pinia store for authentication (`stores/auth.ts`)
+- **API**: Centralized in `services/api.ts`
+- **Routing**: Navigation guards for authentication
+- **WebSocket**: Socket.IO client in `components/XtermTerminal.vue`
 
-### @spawner/types (packages/types)
-TypeScript type definitions shared across frontend and backend.
+### Environment Variables
 
-**Key Types:**
-- `ResourceType`: Union type `'laravel-api' | 'nextjs-front' | 'mysql-db'`
-- `EnvironmentStatus`: `'creating' | 'running' | 'failed' | 'stopped'`
-- `ProjectConfig`: Project configuration structure
-- `Environment`: Environment entity interface
-- `EnvironmentResource`: Resource entity interface
+- `VITE_API_URL`: Backend URL (defaults to `/api` for proxying)
 
-**Usage:**
-```typescript
-import type { Environment, ResourceType } from '@spawner/types';
-```
+## Authentication & Security
 
-### @spawner/config (packages/config)
-Constants, defaults, and validation patterns.
+### GitHub OAuth Flow
 
-**Exports:**
-- `ENV_VARS`: Environment variable names
-- `DEFAULTS`: Default ports, passwords, Docker images
-- `VALIDATION`: Regex patterns (e.g., environment name: `^[a-z0-9-]+$`)
-- `RESOURCE_CONFIGS`: Resource type metadata (requiresGit, requiresDb, etc.)
-- Helper functions: `isGitResource()`, `requiresDatabase()`
+1. User clicks "Login with GitHub" → `/api/auth/github`
+2. GitHub authorization → callback to `/api/auth/github/callback`
+3. Backend validates organization and team membership
+4. Session created in SQLite, user redirected to frontend
+5. All API requests authenticated via session cookie (`connect.sid`)
 
-### @spawner/utils (packages/utils)
-Utility functions for validation, URL generation, security.
+**Endpoints:**
+- `GET /api/auth/github` - Initiate OAuth
+- `GET /api/auth/github/callback` - OAuth callback
+- `GET /api/auth/logout` - Destroy session
+- `GET /api/auth/me` - Current user
+- `GET /api/auth/status` - Auth status
+- `GET /api/auth/ws-token` - Temporary WebSocket token (60s expiration)
 
-**Key Functions:**
-- `validateEnvironmentName(name: string): boolean`
-- `generateResourceUrl(resourceName: string, envName: string, baseDomain: string): string`
-- `sanitizeShellArg(arg: string): string` - Critical for security
-- `generateServiceName(resourceName: string, envName: string): string`
+### Security Features
+
+**Authentication & Sessions:**
+- GitHub OAuth with org/team validation
+- Encrypted sessions, HttpOnly cookies
+- Configurable session expiration (default 24h)
+- Audit logging (LOGIN, LOGOUT, CREATE_ENV, DELETE_ENV, terminal commands)
+
+**Terminal Security:**
+- Non-root execution (www-data for Laravel, node for Next.js)
+- Blocked commands: `rm -rf /`, `mkfs`, `dd`, fork bombs, `wget`, `curl`, `nc`
+- Restricted directories: `/root`, `/etc`, `/sys`, `/proc`, `/boot`, `/dev`, `/bin`, `/sbin`
+- Max 3 concurrent terminals per user
+- Max command length: 1000 characters
+- 30 second timeout per command
+- All commands logged with userId
+
+**Docker Security:**
+- Dockerode library (not shell commands) prevents injection
+- All user input sanitized via `sanitizeShellArg()`
+- Resource limits enforced (CPU, memory)
+- Isolated networks per environment
+
+**WebSocket Authentication:**
+- Temporary JWT tokens (60s expiration)
+- Token validation before connection
+- User identification for audit trail
 
 ## API Endpoints
 
 Base: `/api`
 
-### Project (Legacy Single Project)
-- `GET /api/project`: Returns baseDomain and resources from project.config.yml
+### Projects
 
-### Projects (Multi-Project)
-- `GET /api/projects`: List all projects
-- `POST /api/projects`: Create project with baseDomain, resources
-- `GET /api/projects/:id`: Get single project
-- `PUT /api/projects/:id`: Update project configuration
-- `DELETE /api/projects/:id`: Delete project and all its environments
+- `GET /api/projects` - List all projects
+- `POST /api/projects` - Create project
+- `GET /api/projects/:id` - Get project
+- `PUT /api/projects/:id` - Update project
+- `DELETE /api/projects/:id` - Delete project and environments
 
 ### Git Management
-- `GET /api/git/key`: Check if SSH deploy key exists, return public key
-- `POST /api/git/key/generate`: Generate ed25519 SSH key pair
-- `POST /api/git/test`: Test Git repo access via `git ls-remote`
-  - Body: `{ "resourceName": "main-api" }`
+
+- `GET /api/git/key` - Get public SSH key
+- `POST /api/git/key/generate` - Generate ed25519 SSH key pair
+- `POST /api/git/test` - Test repository access (body: `{ "resourceName": "main-api" }`)
 
 ### Environments
-- `GET /api/environments`: List all environments (optional `?projectId=X`)
-- `POST /api/environments`: Create new environment
-  - Body: `{ "name": "feature-auth-123", "branches": { "main-api": "feature/auth" }, "projectId": 1 }`
+
+- `GET /api/environments` - List environments (optional `?projectId=X`)
+- `POST /api/environments` - Create environment
+  - Body: `{ "name": "feature-123", "branches": { "main-api": "feature/auth" }, "projectId": 1 }`
   - Name validation: `^[a-z0-9-]+$`
-  - Returns 409 if name exists for that project
-- `GET /api/environments/:id`: Get environment with resource status
-- `DELETE /api/environments/:id`: Destroy (`docker compose down -v` + cleanup)
-- `GET /api/environments/:id/logs/:resourceName`: Fetch container logs
+- `GET /api/environments/:id` - Get environment details
+- `DELETE /api/environments/:id` - Destroy environment
+- `GET /api/environments/:id/logs/:resourceName` - Container logs
+
+### Terminal (WebSocket)
+
+**Namespace:** `/terminal`
+**Auth:** WS token in query params
+
+**Events:**
+- Client → `start-terminal`: `{ environmentId, resourceName }`
+- Client → `terminal-input`: `{ input, resourceName }`
+- Client → `stop-terminal`: `{ resourceName }`
+- Server → `terminal-output`: Terminal output data
+- Server → `terminal-error`: Error message
+- Server → `terminal-exit`: Exit code
 
 ## Environment Creation Workflow
 
 When `POST /api/environments` is called:
-1. Validate input (name regex, branches for all git resources)
-2. Create `environments` record with `status="creating"`
-3. Create directory `/opt/spawner/envs/<projectName>-<envName>/`
-4. For each git resource:
-   - Clone repo to `/opt/spawner/repos/<resourceName>/` (first time)
-   - Or: `git fetch && git checkout <branch>`
-5. Generate `docker-compose.yml` with:
-   - Network: `net-<projectName>-<envName>`
-   - Services: `<resourceName>-<envName>`
-   - Volumes: `<dbResourceName>-<envName>-data`
-   - Traefik labels: `<resourceName>.<envName>.<baseDomain>`
-   - Auto-wired env vars (DB_HOST, NEXT_PUBLIC_API_URL, etc.)
-6. Execute: `docker compose -p env-<projectName>-<envName> up -d`
-7. Populate `environment_resources` table
-8. Update environment status to "running" or "failed"
 
-**Implementation:** See [environment.service.ts](apps/api/src/modules/environment/environment.service.ts) `createEnvironment()` method.
+1. **Validate** input (name regex, branches for git resources)
+2. **Database** - Create `environments` record with `status="creating"`
+3. **Directory** - Create `/opt/spawner/envs/<projectName>-<envName>/`
+4. **Git** - Clone or fetch/checkout branches to `/opt/spawner/repos/`
+5. **Network** - Create Docker network via dockerode: `net-<projectName>-<envName>`
+6. **Volumes** - Create volumes for databases
+7. **Containers** - For each resource:
+   - Build image via dockerode (if Dockerfile exists)
+   - Create container with env vars, networks, volumes, resource limits
+   - Start container
+   - Wait for dependencies (databases first)
+8. **Database** - Populate `environment_resources` table
+9. **Status** - Update environment to "running" or "failed"
+10. **Audit** - Log CREATE_ENV action with user details
 
-## Docker Compose Generation
+**Files:** [environment.service.ts](apps/api/src/modules/environment/environment.service.ts), [docker.service.ts](apps/api/src/common/docker.service.ts)
 
-Example for environment "feature-123" in project "myapp" with baseDomain "preview.example.com":
+## Docker Container Configuration
 
-- **Service naming:** `main-api-feature-123`
-- **Network:** `net-myapp-feature-123`
-- **Volume:** `main-db-feature-123-data`
-- **URL:** `main-api.feature-123.preview.example.com`
+**Naming Convention:**
+- Container: `env-<project>-<env>-<resource>-1` (e.g., `env-myapp-feature-123-main-api-1`)
+- Network: `net-<project>-<env>` (e.g., `net-myapp-feature-123`)
+- Volume: `<resource>-<env>-data` (e.g., `main-db-feature-123-data`)
+- URL: `<resource>.<env>.<baseDomain>` (e.g., `main-api.feature-123.preview.example.com`)
 
-### Laravel API Service
-```yaml
-build:
-  context: /opt/spawner/repos/main-api
-environment:
-  - DB_HOST=main-db-feature-123
-  - DB_DATABASE=myapp
-  - DB_USERNAME=spawner
-  - DB_PASSWORD=<generated>
-depends_on:
-  - main-db-feature-123
-labels:
-  - "traefik.enable=true"
-  - "traefik.http.routers.main-api-feature-123.rule=Host(`main-api.feature-123.preview.example.com`)"
+**Example Laravel API Container:**
+
+```javascript
+{
+  name: 'main-api-feature-123',
+  buildContext: '/opt/spawner/repos/main-api',
+  environment: {
+    DB_HOST: 'main-db-feature-123',
+    DB_DATABASE: 'myapp',
+    DB_USERNAME: 'spawner',
+    DB_PASSWORD: '<generated>'
+  },
+  networks: ['net-myapp-feature-123'],
+  labels: {
+    'traefik.enable': 'true',
+    'traefik.http.routers.main-api-feature-123.rule': 'Host(`main-api.feature-123.preview.example.com`)'
+  },
+  resourceLimits: {
+    cpus: '2',           // Max: 8
+    memory: '1G',        // Max: 16G
+    cpuReservation: '0.25',     // Max: 4
+    memoryReservation: '256M'   // Max: 8G
+  }
+}
 ```
 
-### Next.js Frontend Service
-```yaml
-build:
-  context: /opt/spawner/repos/main-front
-environment:
-  - NEXT_PUBLIC_API_URL=https://main-api.feature-123.preview.example.com
-```
+## Project Configuration
 
-### MySQL Service
-```yaml
-image: mysql:8
-environment:
-  - MYSQL_DATABASE=myapp
-  - MYSQL_USER=spawner
-  - MYSQL_PASSWORD=<generated>
-  - MYSQL_ROOT_PASSWORD=<generated>
-volumes:
-  - main-db-feature-123-data:/var/lib/mysql
-```
+### YAML Format (legacy single project mode)
 
-## Configuration Format
-
-`project.config.yml` (legacy single project mode):
 ```yaml
 baseDomain: "preview.example.com"
 
@@ -255,6 +336,11 @@ resources:
     gitRepo: "git@github.com:org/main-api.git"
     defaultBranch: "develop"
     dbResource: "main-db"
+    resourceLimits:              # Optional
+      cpu: "4"
+      memory: "2G"
+      cpuReservation: "1"
+      memoryReservation: "1G"
 
   - name: "main-front"
     type: "nextjs-front"
@@ -266,63 +352,175 @@ resources:
     type: "mysql-db"
 ```
 
-**Resource Types:**
-- `laravel-api`: Requires `gitRepo`, `defaultBranch`, `dbResource`
-- `nextjs-front`: Requires `gitRepo`, `defaultBranch`, `apiResource`
-- `mysql-db`: No additional fields
+### Resource Types
 
-## Security Constraints
+- **laravel-api**: Requires `gitRepo`, `defaultBranch`, `dbResource`
+- **nextjs-front**: Requires `gitRepo`, `defaultBranch`, `apiResource`
+- **mysql-db**: No git repository required
 
-- **SSH Keys**: Private key NEVER exposed via API (stored at `/opt/spawner/git-keys/id_spawner`)
-- **Environment Names**: Strictly validated with regex `^[a-z0-9-]+$` to prevent injection
-- **Shell Commands**: All user input MUST use `sanitizeShellArg()` from `@spawner/utils`
-- **Deploy Keys**: Should be read-only on GitHub/GitLab
-- **Production**: Use HTTPS reverse proxy, Basic Auth or IP allowlist
+### Resource Limits
 
-## Turborepo Pipeline
+Defaults defined in `packages/config/src/index.ts`. Override per-resource with:
+- `cpu`: CPU cores (e.g., "2", "0.5"). Max: 8
+- `memory`: RAM (e.g., "1G", "512M"). Max: 16G
+- `cpuReservation`: Guaranteed min CPUs. Max: 4
+- `memoryReservation`: Guaranteed min RAM. Max: 8G
 
-The `turbo.json` defines task dependencies:
-- `build`: Depends on `^build` (builds dependencies first), caches `dist/**`
-- `dev`: No cache, persistent (keeps running)
-- `lint`: Depends on `^build` (needs types built first)
+## Docker Management via Dockerode
 
-**Caching:** Second builds are instant. Run `pnpm build` frequently without worry.
+All Docker operations use the [dockerode](https://github.com/apocas/dockerode) library instead of shell commands.
 
-## Infrastructure Notes
+**Benefits:**
+- Eliminates command injection vulnerabilities
+- Structured error responses from Docker API
+- Real-time progress streams for builds
+- Programmatic control of Docker daemon
 
-- **Deployment Target:** Ubuntu 22.04+ VPS
-- **Docker Socket:** Backend needs access to `/var/run/docker.sock`
-- **Directory Structure:** All data under `/opt/spawner/` (data, git-keys, repos, envs)
-- **Reverse Proxy:** Nginx or Traefik
-  - `spawner.yourdomain.com` → Spawner UI/API
-  - `*.preview.yourdomain.com` → Wildcard for environments
+**Operations:**
+- Network/volume creation and deletion
+- Image building with progress streams
+- Container lifecycle (create, start, stop, remove)
+- Command execution inside containers
+- Log retrieval and container inspection
 
-## Out of Scope (POC)
+**Implementation:** [docker.service.ts](apps/api/src/common/docker.service.ts)
 
-- User authentication/authorization (Basic Auth recommended for now)
-- UI for editing project configs (manual YAML or DB edits)
-- Advanced env var templating
-- SQL dump imports
-- Webhook integration
-- Auto-expiration
-- Advanced monitoring/metrics
+## Interactive Terminal Feature
+
+Browser-based terminal access to running containers.
+
+**Stack:**
+- Backend: `node-pty` for PTY allocation
+- Frontend: `xterm.js` for terminal emulation
+- Transport: Socket.IO WebSocket
+- Auth: Temporary JWT tokens
+
+**Flow:**
+1. User clicks "Open Terminal" on environment detail
+2. Frontend fetches WS token: `GET /api/auth/ws-token`
+3. Connect to `/terminal` namespace with token
+4. Backend spawns: `docker exec -it -u <user> <container> /bin/sh`
+5. Bidirectional streaming via WebSocket
+6. Commands logged with userId for audit
+7. Security constraints enforced
+
+**Files:** [terminal.gateway.ts](apps/api/src/modules/terminal/terminal.gateway.ts), [XtermTerminal.vue](apps/web/src/components/XtermTerminal.vue)
 
 ## Common Tasks
 
 ### Adding a New Resource Type
-1. Add type to `ResourceType` union in `packages/types/src/index.ts`
-2. Add config to `RESOURCE_CONFIGS` in `packages/config/src/index.ts`
-3. Update docker-compose generation in `apps/api/src/modules/environment/environment.service.ts`
-4. Update frontend form in `apps/web/src/views/EnvironmentNew.vue`
+
+1. Add to `ResourceType` union: `packages/types/src/index.ts`
+2. Add config: `packages/config/src/index.ts` → `RESOURCE_CONFIGS`
+3. Update container creation: `apps/api/src/modules/environment/environment.service.ts`
+4. Update frontend form: `apps/web/src/views/EnvironmentNew.vue`
 5. Rebuild: `pnpm build`
 
-### Debugging Environment Creation
-- Check [environment.service.ts](apps/api/src/modules/environment/environment.service.ts) `createEnvironment()` method
-- Look at database: `sqlite3 /opt/spawner/data/spawner.db`
-- Check Docker logs: `docker logs spawner-api`
-- Check generated docker-compose: `cat /opt/spawner/envs/<env-name>/docker-compose.yml`
+### Setting Up GitHub OAuth (Development)
 
-### Working with Local Development Data
-- Local test data stored in `local-data/` (git-ignored)
-- Script: `./setup-local.sh` creates dummy project config for testing
-- Use `project.config.local.yml` for local development
+1. **Create OAuth App** on GitHub:
+   - Organization → Settings → Developer settings → OAuth Apps
+   - Homepage: `http://localhost:8080`
+   - Callback: `http://localhost:3000/api/auth/github/callback`
+   - Save Client ID and Secret
+
+2. **Configure** `apps/api/.env`:
+   ```env
+   GITHUB_CLIENT_ID=your_client_id
+   GITHUB_CLIENT_SECRET=your_client_secret
+   GITHUB_CALLBACK_URL=http://localhost:3000/api/auth/github/callback
+   GITHUB_ORG=your_org_name
+   GITHUB_TEAM=your_team_slug
+   SESSION_SECRET=$(openssl rand -base64 32)
+   FRONTEND_URL=http://localhost:8080
+   ```
+
+3. **Create team** in GitHub organization, add members
+
+4. **Test** at `http://localhost:8080`
+
+### Debugging Environment Creation
+
+```bash
+# Check database
+sqlite3 /opt/spawner/data/spawner.db
+SELECT * FROM environments WHERE name = '<env-name>';
+SELECT * FROM environment_resources WHERE environmentId = <id>;
+
+# Check Docker
+docker ps -a --filter "label=com.docker.compose.project=env-<env-name>"
+docker logs <container-name>
+docker network inspect net-<project>-<env>
+
+# Check API logs
+docker logs spawner-api
+```
+
+**Code inspection:**
+- [environment.service.ts](apps/api/src/modules/environment/environment.service.ts) - `createEnvironment()`
+- [docker.service.ts](apps/api/src/common/docker.service.ts) - Docker operations
+
+### Debugging Authentication
+
+```bash
+# Check session
+sqlite3 /opt/spawner/data/spawner.db
+SELECT * FROM sessions;
+SELECT * FROM audit_logs ORDER BY createdAt DESC LIMIT 10;
+
+# Test API
+curl http://localhost:3000/api/auth/status -H "Cookie: connect.sid=<cookie>"
+
+# Check browser
+# Verify connect.sid cookie exists
+# Check browser console for errors
+```
+
+- Verify user in correct GitHub org/team
+- Check API logs for OAuth errors
+- Ensure `SESSION_SECRET` is set
+
+## Infrastructure
+
+### Deployment Requirements
+
+- Ubuntu 22.04+ VPS
+- Docker and Docker Compose installed
+- Node.js 20+ with pnpm 8+
+- Access to `/var/run/docker.sock`
+- Wildcard DNS:
+  - `spawner.yourdomain.com` → VPS IP
+  - `*.preview.yourdomain.com` → VPS IP
+
+### Directory Structure
+
+All data under `/opt/spawner/`:
+- `data/` - SQLite database and sessions
+- `git-keys/` - SSH deploy keys
+- `repos/` - Git repository clones
+- `envs/` - Environment configuration files
+
+### Reverse Proxy
+
+Use Nginx or Traefik:
+- Main app: `spawner.yourdomain.com` → Spawner UI/API
+- Environments: `*.preview.yourdomain.com` → Dynamic routing
+
+### Turborepo Caching
+
+- `build`: Depends on `^build`, caches `dist/**`
+- `dev`: No cache, persistent
+- `lint`: Depends on `^build`
+
+Second builds are instant due to caching.
+
+## Future Enhancements
+
+Out of scope for v1:
+- Advanced env var templating (secrets management)
+- SQL dump imports for database initialization
+- Webhook integration (GitHub PR comments, Slack)
+- Auto-expiration of old environments
+- Advanced monitoring (Prometheus, Grafana)
+- Multi-node Docker Swarm support
+- Custom Docker registry support

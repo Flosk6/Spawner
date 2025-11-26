@@ -1,194 +1,182 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
+  <div>
     <div class="mb-6">
-      <router-link to="/projects" class="text-blue-600 hover:text-blue-700">
-        ← Back to Projects
-      </router-link>
+      <Button
+        label="Back to Projects"
+        icon="pi pi-arrow-left"
+        text
+        @click="$router.push('/projects')"
+      />
     </div>
 
-    <div class="flex justify-between items-center mb-8">
+    <div class="flex justify-between items-center mb-6">
       <div>
-        <h1 class="text-3xl font-bold text-gray-800">Environments</h1>
-        <p v-if="project" class="text-gray-600 mt-1">
+        <h1 class="text-4xl font-bold mb-2">Environments</h1>
+        <p v-if="project" class="text-lg opacity-70">
           Project: <strong>{{ project.name }}</strong>
         </p>
       </div>
-      <router-link
-        :to="`/projects/${projectId}/environments/new`"
-        class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-      >
-        + New Environment
-      </router-link>
+      <Button
+        label="New Environment"
+        icon="pi pi-plus"
+        size="large"
+        @click="$router.push(`/projects/${projectId}/environments/new`)"
+      />
     </div>
 
-    <div v-if="loading" class="text-center py-12">
-      <p class="text-gray-600">Loading environments...</p>
+    <div v-if="loading" class="flex justify-center py-20">
+      <ProgressSpinner />
     </div>
 
-    <div v-else-if="environments.length === 0" class="text-center py-12">
-      <p class="text-gray-600 mb-4">No environments yet</p>
-      <router-link
-        :to="`/projects/${projectId}/environments/new`"
-        class="text-blue-600 hover:text-blue-700 font-medium"
-      >
-        Create your first environment
-      </router-link>
+    <div v-else-if="environments.length === 0" class="text-center py-20">
+      <i class="pi pi-server text-6xl mb-6 block opacity-30"></i>
+      <p class="text-xl mb-6 opacity-60">No environments yet</p>
+      <Button
+        label="Create your first environment"
+        icon="pi pi-plus"
+        size="large"
+        @click="$router.push(`/projects/${projectId}/environments/new`)"
+      />
     </div>
 
-    <div v-else class="bg-white rounded-lg shadow-md overflow-hidden">
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Name
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Status
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Branches
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Created
-            </th>
-            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
-          <tr
-            v-for="env in environments"
-            :key="env.id"
-            class="hover:bg-gray-50 transition"
-          >
-            <td class="px-6 py-4 whitespace-nowrap">
-              <div class="font-medium text-gray-900">{{ env.name }}</div>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span
-                :class="{
-                  'bg-green-100 text-green-800': env.status === 'running',
-                  'bg-yellow-100 text-yellow-800': env.status === 'creating',
-                  'bg-red-100 text-red-800': env.status === 'failed',
-                  'bg-gray-100 text-gray-800': env.status === 'deleting',
-                }"
-                class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-              >
-                {{ env.status }}
-              </span>
-            </td>
-            <td class="px-6 py-4">
-              <div class="text-sm text-gray-600">
-                <div v-for="(branch, resourceName) in env.branches" :key="resourceName">
-                  <span class="font-medium">{{ resourceName }}:</span> {{ branch }}
-                </div>
+    <Card v-else>
+      <template #content>
+        <DataTable
+          :value="environments"
+          :paginator="environments.length > 10"
+          :rows="10"
+          :rowsPerPageOptions="[5, 10, 20, 50]"
+          :globalFilterFields="['name', 'status']"
+          v-model:filters="filters"
+          filterDisplay="row"
+          stripedRows
+          responsiveLayout="scroll"
+        >
+          <template #header>
+            <div class="flex justify-between items-center">
+              <span class="font-semibold text-lg">All Environments ({{ environments.length }})</span>
+              <IconField iconPosition="left">
+                <InputIcon class="pi pi-search" />
+                <InputText
+                  v-model="filters.global.value"
+                  placeholder="Search environments..."
+                  class="w-64"
+                />
+              </IconField>
+            </div>
+          </template>
+
+          <Column field="name" header="Name" sortable style="min-width: 200px">
+            <template #body="{ data }: { data: Environment }">
+              <div class="font-semibold">{{ data.name }}</div>
+            </template>
+          </Column>
+
+          <Column field="status" header="Status" sortable style="min-width: 120px">
+            <template #body="{ data }: { data: Environment }">
+              <Tag
+                :value="data.status"
+                :severity="getStatusSeverity(data.status)"
+                :icon="getStatusIcon(data.status)"
+              />
+            </template>
+          </Column>
+
+          <Column field="createdAt" header="Created" sortable style="min-width: 180px">
+            <template #body="{ data }: { data: Environment }">
+              <span class="opacity-70">{{ formatDate(data.createdAt) }}</span>
+            </template>
+          </Column>
+
+          <Column header="Actions" style="min-width: 150px">
+            <template #body="{ data }: { data: Environment }">
+              <div class="flex gap-2">
+                <Button
+                  icon="pi pi-eye"
+                  severity="info"
+                  outlined
+                  rounded
+                  @click="$router.push(`/environments/${data.id}`)"
+                  v-tooltip.top="'View Details'"
+                />
+                <Button
+                  icon="pi pi-trash"
+                  severity="danger"
+                  outlined
+                  rounded
+                  @click="confirmDelete(data)"
+                  v-tooltip.top="'Delete Environment'"
+                />
               </div>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-              {{ formatDate(env.createdAt) }}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-              <router-link
-                :to="`/environments/${env.id}`"
-                class="text-blue-600 hover:text-blue-900 mr-4"
-              >
-                View
-              </router-link>
-              <button
-                @click="confirmDelete(env)"
-                class="text-red-600 hover:text-red-900"
-              >
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+            </template>
+          </Column>
+        </DataTable>
+      </template>
+    </Card>
 
-    <!-- Delete confirmation modal -->
-    <div
-      v-if="envToDelete && !deleting"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      @click="envToDelete = null"
+    <!-- Delete Progress Dialog -->
+    <Dialog
+      v-model:visible="deleting"
+      header="Deleting Environment"
+      :modal="true"
+      :closable="false"
+      :style="{ width: '450px' }"
     >
-      <div class="bg-white rounded-lg p-6 max-w-md w-full" @click.stop>
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Delete Environment?</h3>
-        <p class="text-gray-600 mb-2">
-          Are you sure you want to delete <strong>{{ envToDelete.name }}</strong>?
+      <div class="text-center py-4">
+        <ProgressSpinner class="mb-4" />
+        <p class="mb-4 text-lg font-semibold">{{ deletionStep }}</p>
+        <ProgressBar :value="deletionProgress" :showValue="false" />
+        <p class="opacity-60 text-sm mt-4">
+          This may take up to 15 seconds...
         </p>
-        <p class="text-sm text-red-600 mb-6">
-          All containers and data will be removed. This cannot be undone.
-        </p>
-        <div class="flex gap-3">
-          <button
-            @click="envToDelete = null"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded font-medium transition"
-          >
-            Cancel
-          </button>
-          <button
-            @click="deleteEnvironment"
-            class="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-medium transition"
-          >
-            Delete
-          </button>
-        </div>
       </div>
-    </div>
-
-    <!-- Delete Progress Modal -->
-    <div
-      v-if="deleting"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-    >
-      <div class="bg-white rounded-lg p-6 max-w-md w-full">
-        <div class="text-center">
-          <div class="mb-4">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
-          </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-2">
-            Deleting Environment
-          </h3>
-          <p class="text-gray-600 mb-4">
-            {{ deletionStep }}
-          </p>
-          <div class="bg-gray-100 rounded-full h-2 overflow-hidden">
-            <div
-              class="bg-red-600 h-full transition-all duration-500"
-              :style="{ width: deletionProgress + '%' }"
-            ></div>
-          </div>
-          <p class="text-sm text-gray-500 mt-2">
-            This may take up to 15 seconds...
-          </p>
-        </div>
-      </div>
-    </div>
+    </Dialog>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import Button from 'primevue/button';
+import Card from 'primevue/card';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import InputText from 'primevue/inputtext';
+import IconField from 'primevue/iconfield';
+import InputIcon from 'primevue/inputicon';
+import Tag from 'primevue/tag';
+import Dialog from 'primevue/dialog';
+import ProgressSpinner from 'primevue/progressspinner';
+import ProgressBar from 'primevue/progressbar';
+import { useNotification } from '../composables/useNotification';
+import type { Environment } from '../types';
+
+interface Project {
+  id: number;
+  name: string;
+}
 
 const route = useRoute();
+const { showSuccess, showError, confirmDelete: confirmDeleteDialog } = useNotification();
 
-const projectId = ref(null);
-const project = ref(null);
-const environments = ref([]);
+const projectId = ref<number>(0);
+const project = ref<Project | null>(null);
+const environments = ref<Environment[]>([]);
 const loading = ref(true);
-const envToDelete = ref(null);
 
 // Delete progress state
 const deleting = ref(false);
 const deletionStep = ref('');
 const deletionProgress = ref(0);
 
+// DataTable filters
+const filters = ref({
+  global: { value: null, matchMode: 'contains' }
+});
+
 async function loadData() {
-  projectId.value = parseInt(route.params.projectId);
+  projectId.value = parseInt(route.params.projectId as string);
 
   try {
     loading.value = true;
@@ -202,23 +190,55 @@ async function loadData() {
     environments.value = envsResponse.data;
   } catch (error) {
     console.error('Error loading data:', error);
-    alert('Failed to load environments');
+    showError('Failed to load environments');
   } finally {
     loading.value = false;
   }
 }
 
-function formatDate(dateString) {
-  const date = new Date(dateString);
+function formatDate(dateString: string | Date): string {
+  const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
 
-function confirmDelete(env) {
-  envToDelete.value = env;
+function getStatusSeverity(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'success';
+    case 'creating':
+      return 'info';
+    case 'failed':
+      return 'danger';
+    case 'deleting':
+      return 'warning';
+    default:
+      return 'secondary';
+  }
 }
 
-async function deleteEnvironment() {
-  const env = envToDelete.value;
+function getStatusIcon(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'pi pi-check-circle';
+    case 'creating':
+      return 'pi pi-spin pi-spinner';
+    case 'failed':
+      return 'pi pi-times-circle';
+    case 'deleting':
+      return 'pi pi-spin pi-spinner';
+    default:
+      return 'pi pi-circle';
+  }
+}
+
+function confirmDelete(env: Environment) {
+  confirmDeleteDialog(
+    env.name,
+    () => deleteEnvironment(env)
+  );
+}
+
+async function deleteEnvironment(env: Environment) {
   try {
     deleting.value = true;
     deletionStep.value = 'Stopping containers...';
@@ -249,13 +269,13 @@ async function deleteEnvironment() {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     // Reset and reload
-    envToDelete.value = null;
     deleting.value = false;
+    showSuccess(`Environment "${env.name}" deleted successfully`);
     await loadData();
   } catch (error) {
     console.error('Error deleting environment:', error);
     deleting.value = false;
-    alert('Failed to delete environment');
+    showError('Failed to delete environment');
   }
 }
 

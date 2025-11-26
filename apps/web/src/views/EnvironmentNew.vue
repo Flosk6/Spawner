@@ -1,207 +1,213 @@
 <template>
-  <div class="container mx-auto px-4 py-8 max-w-3xl">
+  <div>
     <div class="mb-6">
-      <router-link
-        :to="`/projects/${projectId}/environments`"
-        class="text-blue-600 hover:text-blue-700"
-      >
-        ← Back to Environments
-      </router-link>
+      <Button
+        label="Back to Environments"
+        icon="pi pi-arrow-left"
+        text
+        @click="$router.push(`/projects/${projectId}/environments`)"
+      />
     </div>
 
-    <div class="bg-white shadow-md rounded-lg p-6">
-      <h1 class="text-2xl font-bold text-gray-800 mb-2">Create New Environment</h1>
-      <p v-if="project" class="text-gray-600 mb-6">
-        Project: <strong>{{ project.name }}</strong>
-      </p>
-
-      <div v-if="loading" class="text-center py-8 text-gray-600">
-        Loading project configuration...
-      </div>
-
-      <form v-else @submit.prevent="handleSubmit" class="space-y-6">
-        <!-- Environment Name -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">
-            Environment Name <span class="text-red-500">*</span>
-          </label>
-          <input
-            v-model="envName"
-            type="text"
-            required
-            pattern="^[a-z0-9-]+$"
-            placeholder="feature-auth-123"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <p class="mt-1 text-sm text-gray-500">
-            Only lowercase letters, numbers, and hyphens allowed
-          </p>
+    <Card>
+      <template #title>Create New Environment</template>
+      <template #subtitle>
+        <span v-if="project">Project: <strong>{{ project.name }}</strong></span>
+      </template>
+      <template #content>
+        <div v-if="loading" class="flex justify-center py-8">
+          <ProgressSpinner />
         </div>
 
-        <!-- Git Branches -->
-        <div v-if="gitResources.length > 0">
-          <h3 class="text-lg font-medium text-gray-800 mb-4">Select Branches</h3>
-          <div class="space-y-4">
-            <div
-              v-for="resource in gitResources"
-              :key="resource.id"
-              class="border border-gray-200 rounded-lg p-4"
-            >
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                {{ resource.name }}
-                <span class="text-xs text-gray-500 font-normal ml-2">
-                  (default: {{ resource.defaultBranch }})
-                </span>
-              </label>
-              <input
-                v-model="branches[resource.name]"
-                type="text"
-                required
-                :placeholder="resource.defaultBranch"
-                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div v-else class="text-center py-8 text-gray-500">
-          No git resources found in this project.
-        </div>
-
-        <!-- Local Mode Option -->
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <label class="flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              v-model="localMode"
-              class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+        <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-6">
+          <!-- Environment Name -->
+          <div class="flex flex-col gap-2">
+            <label for="envName" class="font-semibold">
+              Environment Name <span class="text-red-500">*</span>
+            </label>
+            <InputText
+              id="envName"
+              v-model="envName"
+              required
+              pattern="^[a-z0-9-]+$"
+              placeholder="feature-auth-123"
             />
-            <div class="ml-3">
-              <span class="text-sm font-medium text-gray-900">Local Mode</span>
-              <p class="text-xs text-gray-600 mt-1">
-                Expose ports (8000, 8001, 8002...) to access services directly on localhost without DNS/Traefik
-              </p>
+            <small class="opacity-70">
+              Only lowercase letters, numbers, and hyphens allowed
+            </small>
+          </div>
+
+          <!-- Git Branches -->
+          <div v-if="gitResources.length > 0">
+            <h3 class="text-xl font-semibold mb-4">Select Branches</h3>
+            <div class="flex flex-col gap-4">
+              <Card
+                v-for="resource in gitResources"
+                :key="resource.id"
+              >
+                <template #content>
+                  <label :for="`branch-${resource.name}`" class="font-semibold mb-2 block">
+                    {{ resource.name }}
+                    <small class="opacity-70 font-normal ml-2">
+                      (default: {{ resource.defaultBranch }})
+                    </small>
+                  </label>
+                  <InputText
+                    :id="`branch-${resource.name}`"
+                    v-model="branches[resource.name]"
+                    required
+                    :placeholder="resource.defaultBranch"
+                  />
+                </template>
+              </Card>
             </div>
-          </label>
-        </div>
+          </div>
 
-        <!-- Error Message -->
-        <div
-          v-if="error"
-          class="p-4 bg-red-50 border border-red-200 rounded-lg"
-        >
-          <p class="text-red-800 text-sm">{{ error }}</p>
-        </div>
+          <div v-else class="text-center py-8 opacity-70">
+            No git resources found in this project.
+          </div>
 
-        <!-- Actions -->
-        <div class="flex gap-3 pt-4">
-          <button
-            type="submit"
-            :disabled="creating || gitResources.length === 0"
-            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {{ creating ? 'Creating Environment...' : 'Create Environment' }}
-          </button>
-          <router-link
-            :to="`/projects/${projectId}/environments`"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg font-medium text-center transition"
-          >
-            Cancel
-          </router-link>
-        </div>
-      </form>
-    </div>
+          <!-- Local Mode Option -->
+          <Message severity="info" :closable="false">
+            <div class="flex items-start gap-3">
+              <Checkbox
+                v-model="localMode"
+                inputId="localMode"
+                binary
+              />
+              <div class="flex-1">
+                <label for="localMode" class="font-semibold cursor-pointer">Local Mode</label>
+                <p class="text-sm opacity-70 mt-1">
+                  Expose ports (8000, 8001, 8002...) to access services directly on localhost without DNS/Traefik
+                </p>
+              </div>
+            </div>
+          </Message>
 
-    <!-- Creation Logs Modal -->
-    <div
-      v-if="showLogsModal"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          <!-- Error Message -->
+          <Message v-if="error" severity="error" :closable="false">
+            {{ error }}
+          </Message>
+
+          <!-- Actions -->
+          <div class="flex gap-3 pt-4">
+            <Button
+              type="submit"
+              label="Create Environment"
+              icon="pi pi-plus"
+              :loading="creating"
+              :disabled="gitResources.length === 0"
+              class="flex-1"
+            />
+            <Button
+              label="Cancel"
+              severity="secondary"
+              outlined
+              @click="$router.push(`/projects/${projectId}/environments`)"
+              class="flex-1"
+            />
+          </div>
+        </form>
+      </template>
+    </Card>
+
+    <!-- Creation Logs Dialog -->
+    <Dialog
+      v-model:visible="showLogsModal"
+      :header="`Creating Environment: ${envName}`"
+      :modal="true"
+      :closable="creationComplete"
+      :style="{ width: '90vw', maxWidth: '1200px' }"
+      :maximizable="true"
     >
-      <div class="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] flex flex-col">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-xl font-semibold">
-            Creating Environment: {{ envName }}
-          </h3>
-          <div v-if="creationComplete" class="flex items-center gap-2">
-            <span v-if="creationSuccess" class="text-green-600 font-medium">✓ Success</span>
-            <span v-else class="text-red-600 font-medium">✗ Failed</span>
-            <button
-              @click="closeLogsModal"
-              class="text-gray-500 hover:text-gray-700 ml-4"
-            >
-              ✕
-            </button>
-          </div>
-          <div v-else class="flex items-center">
-            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-          </div>
-        </div>
-
-        <!-- Progress Steps -->
-        <div class="mb-4 flex gap-2 text-xs flex-wrap">
-          <span
-            v-for="step in steps"
-            :key="step.id"
-            :class="{
-              'bg-blue-100 text-blue-700': currentStep === step.id && !completedSteps.includes(step.id),
-              'bg-green-100 text-green-700': completedSteps.includes(step.id),
-              'bg-gray-100 text-gray-500': currentStep !== step.id && !completedSteps.includes(step.id)
-            }"
-            class="px-3 py-1 rounded font-medium"
-          >
-            {{ completedSteps.includes(step.id) ? '✓' : '' }} {{ step.label }}
-          </span>
-        </div>
-
-        <!-- Logs Display -->
-        <div class="flex-1 overflow-auto">
-          <div
-            ref="logsContainer"
-            class="bg-gray-900 p-4 rounded text-sm font-mono whitespace-pre-wrap h-full overflow-auto"
-          >
-            <div v-for="(line, index) in logsLines" :key="index" :class="getLogLineClass(line)">
-              {{ line }}
-            </div>
-            <div v-if="logsLines.length === 0" class="text-gray-500">
-              Connecting to server...
-            </div>
-          </div>
-        </div>
-
-        <div v-if="creationComplete" class="mt-4 flex gap-3">
-          <button
-            v-if="creationSuccess"
-            @click="goToEnvironment"
-            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition"
-          >
-            View Environment
-          </button>
-          <button
-            @click="closeLogsModal"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition"
-          >
-            Close
-          </button>
-        </div>
+      <div v-if="!creationComplete" class="flex items-center gap-2 mb-4">
+        <ProgressSpinner style="width: 20px; height: 20px" />
+        <span class="font-semibold">Creating environment...</span>
       </div>
-    </div>
+      <div v-else class="flex items-center gap-2 mb-4">
+        <i v-if="creationSuccess" class="pi pi-check-circle text-green-500 text-2xl"></i>
+        <i v-else class="pi pi-times-circle text-red-500 text-2xl"></i>
+        <span class="font-semibold" :class="creationSuccess ? 'text-green-600' : 'text-red-600'">
+          {{ creationSuccess ? 'Success!' : 'Failed' }}
+        </span>
+      </div>
+
+      <!-- Progress Steps -->
+      <div class="flex gap-2 mb-4 flex-wrap">
+        <Tag
+          v-for="step in steps"
+          :key="step.id"
+          :value="step.label"
+          :severity="getStepSeverity(step.id)"
+          :icon="getStepIcon(step.id)"
+        />
+      </div>
+
+      <!-- Logs Display -->
+      <ScrollPanel style="width: 100%; height: 60vh" class="border rounded" ref="logsContainer">
+        <div class="p-4 font-mono text-sm whitespace-pre-wrap">
+          <div v-for="(line, index) in logsLines" :key="index" :class="getLogLineClass(line)">
+            {{ line }}
+          </div>
+          <div v-if="logsLines.length === 0" class="opacity-50">
+            Connecting to server...
+          </div>
+        </div>
+      </ScrollPanel>
+
+      <template #footer>
+        <Button
+          v-if="creationSuccess"
+          label="View Environment"
+          icon="pi pi-eye"
+          @click="goToEnvironment"
+        />
+        <Button
+          label="Close"
+          severity="secondary"
+          outlined
+          @click="closeLogsModal"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
+import Card from 'primevue/card';
+import Button from 'primevue/button';
+import InputText from 'primevue/inputtext';
+import Checkbox from 'primevue/checkbox';
+import Message from 'primevue/message';
+import Dialog from 'primevue/dialog';
+import Tag from 'primevue/tag';
+import ScrollPanel from 'primevue/scrollpanel';
+import ProgressSpinner from 'primevue/progressspinner';
+
+interface Project {
+  id: number;
+  name: string;
+}
+
+interface Resource {
+  id: number;
+  name: string;
+  type: string;
+  defaultBranch: string;
+}
 
 const route = useRoute();
 const router = useRouter();
 
-const projectId = ref(null);
-const project = ref(null);
+const projectId = ref<number>(0);
+const project = ref<Project | null>(null);
 const envName = ref('');
-const branches = ref({});
+const branches = ref<Record<string, string>>({});
 const localMode = ref(false);
-const gitResources = ref([]);
+const gitResources = ref<Resource[]>([]);
 const loading = ref(true);
 const creating = ref(false);
 const error = ref('');
@@ -209,13 +215,13 @@ const error = ref('');
 // Logs modal state
 const showLogsModal = ref(false);
 const logsText = ref('');
-const logsContainer = ref(null);
+const logsContainer = ref<any>(null);
 const currentStep = ref('');
-const completedSteps = ref([]);
+const completedSteps = ref<string[]>([]);
 const creationComplete = ref(false);
 const creationSuccess = ref(false);
-const createdEnvironmentId = ref(null);
-const eventSource = ref(null);
+const createdEnvironmentId = ref<string | null>(null);
+const eventSource = ref<EventSource | null>(null);
 
 const steps = [
   { id: 'init', label: 'Initialize' },
@@ -226,45 +232,51 @@ const steps = [
   { id: 'complete', label: 'Complete' },
 ];
 
-// Computed property to split logs into lines
 const logsLines = computed(() => {
   return logsText.value.split('\n').filter(line => line.trim() !== '');
 });
 
-// Function to get CSS class for each log line
-function getLogLineClass(line) {
+function getLogLineClass(line: string): string {
   if (line.includes('[OK]')) {
-    return 'text-green-400';
+    return 'text-green-600';
   } else if (line.includes('[ERR]') || line.includes('[ERROR]')) {
-    return 'text-red-400';
+    return 'text-red-600';
   } else if (line.includes('[WARN]')) {
-    return 'text-yellow-400';
-  } else {
-    return 'text-gray-300';
+    return 'text-orange-600';
   }
+  return 'opacity-70';
+}
+
+function getStepSeverity(stepId: string): string {
+  if (completedSteps.value.includes(stepId)) return 'success';
+  if (currentStep.value === stepId) return 'info';
+  return 'secondary';
+}
+
+function getStepIcon(stepId: string): string {
+  if (completedSteps.value.includes(stepId)) return 'pi pi-check';
+  if (currentStep.value === stepId) return 'pi pi-spin pi-spinner';
+  return '';
 }
 
 async function loadProject() {
-  projectId.value = parseInt(route.params.projectId);
+  projectId.value = parseInt(route.params.projectId as string);
 
   try {
     loading.value = true;
 
-    // Load project details
     const projectResponse = await axios.get(`/api/projects/${projectId.value}`);
     project.value = projectResponse.data;
 
-    // Load resources
     const resourcesResponse = await axios.get(`/api/projects/${projectId.value}/resources`);
     gitResources.value = resourcesResponse.data.filter(
-      r => r.type === 'laravel-api' || r.type === 'nextjs-front'
+      (r: Resource) => r.type === 'laravel-api' || r.type === 'nextjs-front'
     );
 
-    // Initialize branches with default values
     gitResources.value.forEach(resource => {
       branches.value[resource.name] = resource.defaultBranch || '';
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error loading project:', err);
     error.value = err.response?.data?.message || 'Failed to load project';
   } finally {
@@ -283,7 +295,6 @@ async function handleSubmit() {
       localMode: localMode.value,
     };
 
-    // Open modal immediately
     showLogsModal.value = true;
     logsText.value = '';
     currentStep.value = 'init';
@@ -297,10 +308,8 @@ async function handleSubmit() {
     );
 
     createdEnvironmentId.value = response.data.id;
-
-    // Connect to SSE for real-time logs
     connectToSSE(response.data.id);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error creating environment:', err);
     error.value = err.response?.data?.message || 'Failed to create environment';
     showLogsModal.value = false;
@@ -309,69 +318,55 @@ async function handleSubmit() {
   }
 }
 
-function connectToSSE(environmentId) {
-  console.log('[SSE] Connecting to:', `/api/environments/creation-logs/${environmentId}`);
-  eventSource.value = new EventSource(`/api/environments/creation-logs/${environmentId}`);
+function scrollToBottom() {
+  setTimeout(() => {
+    if (logsContainer.value?.$el) {
+      const scrollableContent = logsContainer.value.$el.querySelector('.p-scrollpanel-content');
+      if (scrollableContent) {
+        scrollableContent.scrollTop = scrollableContent.scrollHeight;
+      }
+    }
+  }, 50);
+}
 
-  eventSource.value.onopen = () => {
-    console.log('[SSE] Connection established');
-  };
+function connectToSSE(environmentId: string) {
+  eventSource.value = new EventSource(`/api/environments/creation-logs/${environmentId}`);
 
   eventSource.value.onmessage = (event) => {
     const log = JSON.parse(event.data);
-    console.log('[SSE] Received log:', log);
 
-    // Format log message with color codes based on level
-    const timestamp = new Date(log.timestamp).toLocaleTimeString();
-    let prefix = '';
-    if (log.level === 'success') {
-      prefix = '[OK]';
-    } else if (log.level === 'error') {
-      prefix = '[ERR]';
-    } else if (log.level === 'warning') {
-      prefix = '[WARN]';
-    } else {
-      prefix = '[INFO]';
+    if (log.message && log.message.trim()) {
+      const timestamp = new Date(log.timestamp).toLocaleTimeString();
+      let prefix = '';
+      if (log.level === 'success') prefix = '[OK]';
+      else if (log.level === 'error') prefix = '[ERR]';
+      else if (log.level === 'warning') prefix = '[WARN]';
+      else prefix = '[INFO]';
+
+      logsText.value += `${timestamp} ${prefix} ${log.message}\n`;
     }
 
-    logsText.value += `${timestamp} ${prefix} ${log.message}\n`;
-
-    // Update current step
     if (log.step) {
-      console.log('[SSE] Step update:', currentStep.value, '->', log.step);
-
-      // Mark previous step as complete if moving to new step
       if (currentStep.value && currentStep.value !== log.step) {
         if (!completedSteps.value.includes(currentStep.value)) {
-          console.log('[SSE] Marking step as complete:', currentStep.value);
-          // Use array spread to force reactivity
           completedSteps.value = [...completedSteps.value, currentStep.value];
         }
       }
-
       currentStep.value = log.step;
-      console.log('[SSE] Current step is now:', currentStep.value);
-      console.log('[SSE] Completed steps:', completedSteps.value);
     }
 
-    // Check for completion
     if (log.step === 'complete' && log.level === 'success') {
       completedSteps.value.push('complete');
       creationComplete.value = true;
       creationSuccess.value = true;
-      eventSource.value.close();
+      eventSource.value?.close();
     } else if (log.step === 'error' || (log.level === 'error' && log.message.includes('creation failed'))) {
       creationComplete.value = true;
       creationSuccess.value = false;
-      eventSource.value.close();
+      eventSource.value?.close();
     }
 
-    // Auto-scroll to bottom
-    setTimeout(() => {
-      if (logsContainer.value) {
-        logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
-      }
-    }, 10);
+    scrollToBottom();
   };
 
   eventSource.value.onerror = (err) => {
@@ -381,7 +376,7 @@ function connectToSSE(environmentId) {
       creationComplete.value = true;
       creationSuccess.value = false;
     }
-    eventSource.value.close();
+    eventSource.value?.close();
   };
 }
 
@@ -392,7 +387,6 @@ function closeLogsModal() {
     eventSource.value = null;
   }
 
-  // If creation was successful, redirect to environment detail
   if (creationSuccess.value && createdEnvironmentId.value) {
     router.push(`/environments/${createdEnvironmentId.value}`);
   }
@@ -409,7 +403,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  // Close SSE connection if still open
   if (eventSource.value) {
     eventSource.value.close();
     eventSource.value = null;

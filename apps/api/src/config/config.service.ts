@@ -11,6 +11,13 @@ export interface ProjectResource {
   dbResource?: string;
   apiResource?: string;
   postBuildCommands?: string[];
+  resourceLimits?: {
+    cpu?: string;
+    memory?: string;
+    cpuReservation?: string;
+    memoryReservation?: string;
+  };
+  exposedPort?: number;
 }
 
 export interface ProjectConfig {

@@ -1,6 +1,32 @@
+/* PrimeVue Styles */
+@import 'primeicons/primeicons.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer utilities {
+  .bg-primary-spawner {
+    background-color: #574B89;
+  }
+
+  .text-primary-spawner {
+    color: #574B89;
+  }
+}
+
+/* Tooltip width override */
+.p-tooltip {
+  max-width: 32rem !important;
+  min-width: 24rem !important;
+}
+
+.p-tooltip .p-tooltip-text {
+  max-width: 32rem !important;
+  min-width: 24rem !important;
+  width: auto !important;
+  white-space: normal !important;
+}
 
 body {
   margin: 0;
@@ -13,5 +39,5 @@ body {
 
 #app {
   min-height: 100vh;
-  background-color: #f3f4f6;
+  /* Background will be set by theme */
 }

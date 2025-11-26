@@ -1,9 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ProjectResource } from '../../entities/project-resource.entity';
 import { ProjectsService } from './projects.service';
 import { EnvVarsParser } from '../../common/env-vars.parser';
+import { validateResourceLimits } from '@spawner/utils';
+import { MAX_RESOURCE_LIMITS } from '@spawner/config';
 
 @Injectable()
 export class ProjectResourcesService {
@@ -44,13 +46,27 @@ export class ProjectResourcesService {
       defaultBranch?: string;
       dbResourceId?: number;
       apiResourceId?: number;
-      staticEnvVars?: string; // Text format from textarea
+      staticEnvVars?: string;
+      postBuildCommands?: string[];
+      resourceLimits?: {
+        cpu?: string;
+        memory?: string;
+        cpuReservation?: string;
+        memoryReservation?: string;
+      };
+      exposedPort?: number;
     },
   ): Promise<ProjectResource> {
-    // Verify project exists
     await this.projectsService.findOne(projectId);
 
-    // Parse static env vars from text format to JSON
+    if (data.resourceLimits) {
+      try {
+        validateResourceLimits(data.resourceLimits, MAX_RESOURCE_LIMITS);
+      } catch (error) {
+        throw new BadRequestException(error.message);
+      }
+    }
+
     const staticEnvVars = data.staticEnvVars
       ? EnvVarsParser.parse(data.staticEnvVars)
       : {};
@@ -64,6 +80,9 @@ export class ProjectResourcesService {
       dbResourceId: data.dbResourceId || null,
       apiResourceId: data.apiResourceId || null,
       staticEnvVars,
+      postBuildCommands: data.postBuildCommands || [],
+      resourceLimits: data.resourceLimits || null,
+      exposedPort: data.exposedPort || null,
     });
 
     return this.resourceRepository.save(resource);
@@ -79,20 +98,36 @@ export class ProjectResourcesService {
       defaultBranch?: string;
       dbResourceId?: number;
       apiResourceId?: number;
-      staticEnvVars?: string; // Text format from textarea
+      staticEnvVars?: string;
       postBuildCommands?: string[];
+      resourceLimits?: {
+        cpu?: string;
+        memory?: string;
+        cpuReservation?: string;
+        memoryReservation?: string;
+      };
+      exposedPort?: number;
     },
   ): Promise<ProjectResource> {
     const resource = await this.findOne(projectId, id);
 
-    // Parse static env vars if provided
+    if (data.resourceLimits !== undefined) {
+      if (data.resourceLimits) {
+        try {
+          validateResourceLimits(data.resourceLimits, MAX_RESOURCE_LIMITS);
+        } catch (error) {
+          throw new BadRequestException(error.message);
+        }
+      }
+      resource.resourceLimits = data.resourceLimits || null;
+    }
+
     if (data.staticEnvVars !== undefined) {
       resource.staticEnvVars = data.staticEnvVars
         ? EnvVarsParser.parse(data.staticEnvVars)
         : {};
     }
 
-    // Update other fields
     if (data.name !== undefined) resource.name = data.name;
     if (data.type !== undefined) resource.type = data.type;
     if (data.gitRepo !== undefined) resource.gitRepo = data.gitRepo || null;
@@ -100,6 +135,7 @@ export class ProjectResourcesService {
     if (data.dbResourceId !== undefined) resource.dbResourceId = data.dbResourceId || null;
     if (data.apiResourceId !== undefined) resource.apiResourceId = data.apiResourceId || null;
     if (data.postBuildCommands !== undefined) resource.postBuildCommands = data.postBuildCommands || [];
+    if (data.exposedPort !== undefined) resource.exposedPort = data.exposedPort || null;
 
     return this.resourceRepository.save(resource);
   }

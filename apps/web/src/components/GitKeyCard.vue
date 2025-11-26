@@ -1,87 +1,96 @@
 <template>
-  <div class="bg-white shadow rounded-lg p-6">
-    <h2 class="text-xl font-semibold mb-4">Git Deploy Key</h2>
-
-    <div v-if="loading" class="text-gray-600">Loading...</div>
-
-    <div v-else-if="!keyInfo.exists" class="space-y-4">
-      <p class="text-gray-600">No SSH deploy key configured yet.</p>
-      <button
-        @click="handleGenerateKey"
-        :disabled="generating"
-        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
-      >
-        {{ generating ? 'Generating...' : 'Generate SSH Key' }}
-      </button>
-    </div>
-
-    <div v-else class="space-y-4">
-      <div>
-        <p class="text-sm font-medium text-gray-700 mb-2">Public Key:</p>
-        <div class="relative">
-          <textarea
-            :value="keyInfo.publicKey"
-            readonly
-            rows="3"
-            class="w-full p-2 border rounded bg-gray-50 font-mono text-sm"
-          ></textarea>
-          <button
-            @click="copyToClipboard"
-            class="absolute top-2 right-2 px-3 py-1 bg-gray-200 rounded text-sm hover:bg-gray-300"
-          >
-            {{ copied ? 'Copied!' : 'Copy' }}
-          </button>
-        </div>
-        <p class="mt-2 text-sm text-gray-600">
-          Add this key as a deploy key (read-only) to your Git repositories.
-        </p>
+  <Card>
+    <template #title>Git Deploy Key</template>
+    <template #content>
+      <div v-if="loading" class="flex justify-center py-8">
+        <ProgressSpinner />
       </div>
 
-      <div v-if="resources.length > 0">
-        <p class="text-sm font-medium text-gray-700 mb-2">Test Connection:</p>
-        <div class="flex gap-2">
-          <select
-            v-model="selectedResource"
-            class="flex-1 p-2 border rounded"
-          >
-            <option value="">Select a resource</option>
-            <option
-              v-for="resource in resources"
-              :key="resource.name"
-              :value="resource.name"
-            >
-              {{ resource.name }}
-            </option>
-          </select>
-          <button
-            @click="handleTestConnection"
-            :disabled="!selectedResource || testing"
-            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400"
-          >
-            {{ testing ? 'Testing...' : 'Test' }}
-          </button>
+      <div v-else-if="!keyInfo.exists" class="flex flex-col gap-4">
+        <p class="opacity-70">No SSH deploy key configured yet.</p>
+        <Button
+          label="Generate SSH Key"
+          icon="pi pi-key"
+          @click="handleGenerateKey"
+          :loading="generating"
+        />
+      </div>
+
+      <div v-else class="flex flex-col gap-4">
+        <div>
+          <label class="font-semibold mb-2 block">Public Key:</label>
+          <div class="relative">
+            <Textarea
+              :model-value="keyInfo.publicKey || ''"
+              readonly
+              rows="3"
+              class="font-mono text-sm"
+            />
+            <Button
+              :label="copied ? 'Copied!' : 'Copy'"
+              icon="pi pi-copy"
+              severity="secondary"
+              size="small"
+              @click="copyToClipboard"
+              class="absolute top-2 right-2"
+            />
+          </div>
+          <Message severity="info" :closable="false" class="mt-2">
+            Add this key as a deploy key (read-only) to your Git repositories.
+          </Message>
         </div>
-        <div v-if="testResult" class="mt-2">
-          <p
-            :class="testResult.ok ? 'text-green-600' : 'text-red-600'"
-            class="text-sm"
+
+        <div v-if="resources.length > 0">
+          <label class="font-semibold mb-2 block">Test Connection:</label>
+          <div class="flex gap-2">
+            <Select
+              v-model="selectedResource"
+              :options="resourceOptions"
+              optionLabel="label"
+              optionValue="value"
+              placeholder="Select a resource"
+              class="flex-1"
+            />
+            <Button
+              label="Test"
+              icon="pi pi-check"
+              severity="success"
+              @click="handleTestConnection"
+              :disabled="!selectedResource"
+              :loading="testing"
+            />
+          </div>
+          <Message
+            v-if="testResult"
+            :severity="testResult.ok ? 'success' : 'error'"
+            :closable="false"
+            class="mt-2"
           >
             {{ testResult.message }}
-          </p>
+          </Message>
         </div>
       </div>
-    </div>
 
-    <div v-if="error" class="mt-4 p-3 bg-red-50 border border-red-200 rounded">
-      <p class="text-red-800 text-sm">{{ error }}</p>
-    </div>
-  </div>
+      <Message v-if="error" severity="error" :closable="false" class="mt-4">
+        {{ error }}
+      </Message>
+    </template>
+  </Card>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
+import Card from 'primevue/card';
+import Button from 'primevue/button';
+import Textarea from 'primevue/textarea';
+import Select from 'primevue/select';
+import Message from 'primevue/message';
+import ProgressSpinner from 'primevue/progressspinner';
 import { gitApi, projectApi } from '../services/api';
 import type { GitKeyInfo, ProjectResource, GitTestResult } from '../types';
+import { useNotification } from '../composables/useNotification';
+
+const { showSuccess } = useNotification();
 
 const keyInfo = ref<GitKeyInfo>({ exists: false, publicKey: null });
 const resources = ref<ProjectResource[]>([]);
@@ -92,6 +101,10 @@ const copied = ref(false);
 const error = ref('');
 const selectedResource = ref('');
 const testResult = ref<GitTestResult | null>(null);
+
+const resourceOptions = computed(() =>
+  resources.value.map(r => ({ label: r.name, value: r.name }))
+);
 
 onMounted(async () => {
   await loadKeyInfo();
@@ -125,6 +138,7 @@ async function handleGenerateKey() {
     generating.value = true;
     error.value = '';
     keyInfo.value = await gitApi.generateKey();
+    showSuccess('SSH key generated successfully');
   } catch (err: any) {
     error.value = err.response?.data?.message || 'Failed to generate key';
   } finally {
@@ -153,6 +167,7 @@ function copyToClipboard() {
   if (keyInfo.value.publicKey) {
     navigator.clipboard.writeText(keyInfo.value.publicKey);
     copied.value = true;
+    showSuccess('Public key copied to clipboard');
     setTimeout(() => {
       copied.value = false;
     }, 2000);
