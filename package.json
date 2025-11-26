@@ -1,0 +1,26 @@
+{
+  "name": "spawner-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Spawner - Self-hosted environment management system",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "api:dev": "pnpm --filter @spawner/api dev",
+    "web:dev": "pnpm --filter @spawner/web dev",
+    "api:build": "pnpm --filter @spawner/api build",
+    "web:build": "pnpm --filter @spawner/web build"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}

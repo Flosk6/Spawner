@@ -1,0 +1,32 @@
+baseDomain: "preview.mondomaine.com"
+
+resources:
+  - name: "main-api"
+    type: "laravel-api"
+    gitRepo: "git@github.com:org/main-api.git"
+    defaultBranch: "develop"
+    dbResource: "main-db"
+
+  - name: "main-front"
+    type: "nextjs-front"
+    gitRepo: "git@github.com:org/main-front.git"
+    defaultBranch: "develop"
+    apiResource: "main-api"
+
+  - name: "micro-api"
+    type: "laravel-api"
+    gitRepo: "git@github.com:org/micro-api.git"
+    defaultBranch: "develop"
+    dbResource: "micro-db"
+
+  - name: "micro-front"
+    type: "nextjs-front"
+    gitRepo: "git@github.com:org/micro-front.git"
+    defaultBranch: "develop"
+    apiResource: "micro-api"
+
+  - name: "main-db"
+    type: "mysql-db"
+
+  - name: "micro-db"
+    type: "mysql-db"
