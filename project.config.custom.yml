@@ -1,0 +1,42 @@
+baseDomain: "preview.votre-domaine.com"
+
+resources:
+  # === IRIS STACK ===
+
+  # Base de données Iris
+  - name: "iris-db"
+    type: "mysql-db"
+
+  # API Iris (Laravel 11, PHP 8.3)
+  - name: "iris-api"
+    type: "laravel-api"
+    gitRepo: "git@github.com:VOTRE-ORG/api-iris.git"
+    defaultBranch: "feat/docker"
+    dbResource: "iris-db"
+
+  # Frontend Iris (Next.js 15.1.6)
+  - name: "iris-front"
+    type: "nextjs-front"
+    gitRepo: "git@github.com:VOTRE-ORG/iris-prevention.git"
+    defaultBranch: "main"
+    apiResource: "iris-api"
+
+  # === MODE DE VIE (MDV) STACK ===
+
+  # Base de données MDV
+  - name: "mdv-db"
+    type: "mysql-db"
+
+  # API MDV (Laravel 11, PHP 8.3)
+  - name: "mdv-api"
+    type: "laravel-api"
+    gitRepo: "git@github.com:VOTRE-ORG/api-mdv.git"
+    defaultBranch: "develop-isos"
+    dbResource: "mdv-db"
+
+  # Frontend MDV (Next.js 14)
+  - name: "mdv-front"
+    type: "nextjs-front"
+    gitRepo: "git@github.com:VOTRE-ORG/quizz-mode-de-vie.git"
+    defaultBranch: "iris-widget"
+    apiResource: "mdv-api"

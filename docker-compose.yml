@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  spawner-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spawner-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_PATH=/data/spawner.db
+      - PROJECT_CONFIG_PATH=/opt/spawner/project.config.yml
+      - GIT_KEYS_PATH=/opt/spawner/git-keys
+      - REPOS_PATH=/opt/spawner/repos
+      - ENVS_PATH=/opt/spawner/envs
+    volumes:
+      - /opt/spawner:/opt/spawner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - spawner-network
+
+  spawner-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: spawner-web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - spawner-api
+    networks:
+      - spawner-network
+
+networks:
+  spawner-network:
+    driver: bridge
