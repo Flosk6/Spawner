@@ -1,120 +1,129 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
-    <div class="flex justify-between items-center mb-8">
-      <h1 class="text-3xl font-bold text-gray-800">Projects</h1>
+  <div>
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-4xl font-bold">Projects</h1>
       <div class="flex gap-3">
-        <router-link
-          to="/settings/git"
-          class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg font-medium transition"
-        >
-          🔑 SSH Keys
-        </router-link>
-        <router-link
-          to="/projects/new"
-          class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-        >
-          + New Project
-        </router-link>
+        <Button
+          label="SSH Keys"
+          icon="pi pi-key"
+          severity="secondary"
+          outlined
+          @click="$router.push('/settings/git')"
+        />
+        <Button
+          label="New Project"
+          icon="pi pi-plus"
+          @click="$router.push('/projects/new')"
+        />
       </div>
     </div>
 
-    <div v-if="loading" class="text-center py-12">
-      <p class="text-gray-600">Loading projects...</p>
+    <div v-if="loading" class="flex justify-center py-20">
+      <ProgressSpinner />
     </div>
 
-    <div v-else-if="projects.length === 0" class="text-center py-12">
-      <p class="text-gray-600 mb-4">No projects yet</p>
-      <router-link
-        to="/projects/new"
-        class="text-blue-600 hover:text-blue-700 font-medium"
-      >
-        Create your first project
-      </router-link>
+    <div v-else-if="projects.length === 0" class="text-center py-20">
+      <i class="pi pi-folder-open text-6xl mb-6 block opacity-30"></i>
+      <p class="text-xl mb-6 opacity-60">No projects yet</p>
+      <Button
+        label="Create your first project"
+        icon="pi pi-plus"
+        size="large"
+        @click="$router.push('/projects/new')"
+      />
     </div>
 
     <div v-else class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-      <div
-        v-for="project in projects"
-        :key="project.id"
-        class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition"
-      >
-        <h2 class="text-xl font-bold text-gray-800 mb-2">{{ project.name }}</h2>
-        <p class="text-gray-600 mb-4 text-sm">{{ project.baseDomain }}</p>
+      <Card v-for="project in projects" :key="project.id" class="hover:shadow-lg transition-shadow cursor-pointer">
+        <template #header>
+          <div class="p-6 pb-0">
+            <div class="flex items-start justify-between mb-4">
+              <div class="flex-1">
+                <h2 class="text-2xl font-bold mb-2">{{ project.name }}</h2>
+                <div class="flex items-center gap-2 opacity-70">
+                  <i class="pi pi-globe"></i>
+                  <span>{{ project.baseDomain }}</span>
+                </div>
+              </div>
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                @click.stop="confirmDelete(project)"
+                v-tooltip.top="'Delete project'"
+              />
+            </div>
+          </div>
+        </template>
 
-        <div class="flex items-center gap-4 text-sm text-gray-500 mb-4">
-          <span>{{ project.resources?.length || 0 }} resources</span>
-          <span>•</span>
-          <span>{{ project.environments?.length || 0 }} environments</span>
-        </div>
+        <template #content>
+          <Divider />
 
-        <div class="flex gap-2">
-          <router-link
-            :to="`/projects/${project.id}`"
-            class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded text-center text-sm font-medium transition"
-          >
-            Edit
-          </router-link>
-          <router-link
-            :to="`/projects/${project.id}/environments`"
-            class="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded text-center text-sm font-medium transition"
-          >
-            Environments
-          </router-link>
-          <button
-            @click="confirmDelete(project)"
-            class="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded text-sm font-medium transition"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div class="text-center p-3 rounded border">
+              <div class="flex items-center justify-center gap-2 mb-2">
+                <i class="pi pi-box text-blue-500 text-xl"></i>
+                <span class="text-2xl font-bold">{{ project.resources?.length || 0 }}</span>
+              </div>
+              <div class="text-sm opacity-70">Resources</div>
+            </div>
 
-    <!-- Delete confirmation modal -->
-    <div
-      v-if="projectToDelete"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      @click="projectToDelete = null"
-    >
-      <div
-        class="bg-white rounded-lg p-6 max-w-md w-full"
-        @click.stop
-      >
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Delete Project?</h3>
-        <p class="text-gray-600 mb-2">
-          Are you sure you want to delete <strong>{{ projectToDelete.name }}</strong>?
-        </p>
-        <p class="text-sm text-red-600 mb-6">
-          This will also delete all {{ projectToDelete.environments?.length || 0 }} environments and cannot be undone.
-        </p>
-        <div class="flex gap-3">
-          <button
-            @click="projectToDelete = null"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded font-medium transition"
-          >
-            Cancel
-          </button>
-          <button
-            @click="deleteProject"
-            class="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-medium transition"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+            <div class="text-center p-3 rounded border">
+              <div class="flex items-center justify-center gap-2 mb-2">
+                <i class="pi pi-server text-green-500 text-xl"></i>
+                <span class="text-2xl font-bold">{{ project.environments?.length || 0 }}</span>
+              </div>
+              <div class="text-sm opacity-70">Environments</div>
+            </div>
+          </div>
+
+          <Divider />
+
+          <div class="flex flex-col gap-2 mt-4">
+            <Button
+              label="Manage Environments"
+              icon="pi pi-server"
+              outlined
+              class="w-full"
+              @click="$router.push(`/projects/${project.id}/environments`)"
+            />
+            <Button
+              label="Edit Project"
+              icon="pi pi-cog"
+              severity="secondary"
+              outlined
+              class="w-full"
+              @click="$router.push(`/projects/${project.id}`)"
+            />
+          </div>
+        </template>
+      </Card>
     </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import axios from 'axios';
+import Card from 'primevue/card';
+import Button from 'primevue/button';
+import Divider from 'primevue/divider';
+import ProgressSpinner from 'primevue/progressspinner';
+import { useNotification } from '../composables/useNotification';
 
-const router = useRouter();
-const projects = ref([]);
+interface Project {
+  id: number;
+  name: string;
+  baseDomain: string;
+  resources?: any[];
+  environments?: any[];
+}
+
+const { showSuccess, showError, confirmDelete: confirmDeleteDialog } = useNotification();
+
+const projects = ref<Project[]>([]);
 const loading = ref(true);
-const projectToDelete = ref(null);
 
 async function loadProjects() {
   try {
@@ -123,25 +132,27 @@ async function loadProjects() {
     projects.value = response.data;
   } catch (error) {
     console.error('Error loading projects:', error);
-    alert('Failed to load projects');
+    showError('Failed to load projects');
   } finally {
     loading.value = false;
   }
 }
 
-function confirmDelete(project) {
-  projectToDelete.value = project;
+function confirmDelete(project: Project) {
+  confirmDeleteDialog(
+    project.name,
+    () => deleteProject(project)
+  );
 }
 
-async function deleteProject() {
-  const project = projectToDelete.value;
+async function deleteProject(project: Project) {
   try {
     await axios.delete(`/api/projects/${project.id}`);
-    projectToDelete.value = null;
+    showSuccess(`Project "${project.name}" deleted successfully`);
     await loadProjects();
   } catch (error) {
     console.error('Error deleting project:', error);
-    alert('Failed to delete project');
+    showError('Failed to delete project');
   }
 }
 

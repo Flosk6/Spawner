@@ -6,6 +6,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 });
 
 export const projectApi = {
@@ -32,3 +33,6 @@ export const environmentApi = {
   streamLogs: (id: string, resourceName: string) =>
     api.get<{ containerName: string; command: string }>(`/environments/${id}/logs-stream/${resourceName}`).then(res => res.data),
 };
+
+// Export default pour pouvoir faire: import api from '../services/api'
+export default api;

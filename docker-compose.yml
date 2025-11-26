@@ -1,31 +1,76 @@
 version: '3.9'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: spawner-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-spawner}
+      POSTGRES_USER: ${DB_USER:-spawner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-spawner}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - spawner-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-spawner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   spawner-api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: spawner-api
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
+      - NODE_ENV=${NODE_ENV:-development}
       - PORT=3000
-      - DATABASE_PATH=/data/spawner.db
+      # PostgreSQL Configuration
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-spawner}
+      - DB_PASSWORD=${DB_PASSWORD:-spawner}
+      - DB_NAME=${DB_NAME:-spawner}
+      # Application Paths
       - PROJECT_CONFIG_PATH=/opt/spawner/project.config.yml
       - GIT_KEYS_PATH=/opt/spawner/git-keys
       - REPOS_PATH=/opt/spawner/repos
       - ENVS_PATH=/opt/spawner/envs
+      - DOCKER_SOCKET=/var/run/docker.sock
+      # OAuth Configuration
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_CALLBACK_URL=${GITHUB_CALLBACK_URL}
+      - GITHUB_ORG=${GITHUB_ORG}
+      - GITHUB_TEAM=${GITHUB_TEAM}
+      # Session Configuration
+      - SESSION_SECRET=${SESSION_SECRET}
+      - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
     volumes:
       - /opt/spawner:/opt/spawner
       - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - spawner-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/auth/status', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   spawner-web:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: spawner-web
     restart: unless-stopped
     ports:
@@ -34,7 +79,16 @@ services:
       - spawner-api
     networks:
       - spawner-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
 networks:
   spawner-network:
     driver: bridge
+
+volumes:
+  postgres-data:

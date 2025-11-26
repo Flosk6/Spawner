@@ -1,4 +1,6 @@
-import { ProjectResource } from '../config/config.service';
+import { ProjectResource } from "../entities/project-resource.entity";
+import { DEFAULT_RESOURCE_LIMITS, DEFAULT_EXPOSED_PORTS } from "@spawner/config";
+import type { ResourceType } from "@spawner/types";
 
 export interface DockerComposeService {
   image?: string;
@@ -13,6 +15,18 @@ export interface DockerComposeService {
   volumes?: string[];
   ports?: string[];
   extra_hosts?: string[];
+  deploy?: {
+    resources: {
+      limits: {
+        cpus: string;
+        memory: string;
+      };
+      reservations?: {
+        cpus: string;
+        memory: string;
+      };
+    };
+  };
 }
 
 export interface DockerComposeConfig {
@@ -23,7 +37,7 @@ export interface DockerComposeConfig {
 }
 
 export class DockerComposeGenerator {
-  private portCounter = 8000; // Starting port for local mode
+  private portCounter = 8000;
 
   constructor(
     private readonly envName: string,
@@ -32,12 +46,31 @@ export class DockerComposeGenerator {
     private readonly branches: Record<string, string>,
     private readonly reposPath: string,
     private readonly resourcesEnvVars?: Record<string, Record<string, string>>,
-    private readonly localMode?: boolean,
+    private readonly localMode?: boolean
   ) {}
+
+  private getResourceLimits(resource: ProjectResource): {
+    limits: { cpus: string; memory: string };
+    reservations: { cpus: string; memory: string };
+  } {
+    const defaults = DEFAULT_RESOURCE_LIMITS[resource.type as ResourceType];
+    const custom = resource.resourceLimits;
+
+    return {
+      limits: {
+        cpus: custom?.cpu || defaults.cpu,
+        memory: custom?.memory || defaults.memory,
+      },
+      reservations: {
+        cpus: custom?.cpuReservation || defaults.cpuReservation,
+        memory: custom?.memoryReservation || defaults.memoryReservation,
+      },
+    };
+  }
 
   generate(): string {
     const config: DockerComposeConfig = {
-      version: '3.9',
+      version: "3.9",
       networks: {
         [`net-${this.envName}`]: {},
       },
@@ -50,57 +83,86 @@ export class DockerComposeGenerator {
       const serviceName = `${resource.name}-${this.envName}`;
       const networkName = `net-${this.envName}`;
 
-      if (resource.type === 'mysql-db') {
-        config.services[serviceName] = this.generateMySQLService(resource, networkName);
+      if (resource.type === "mysql-db") {
+        config.services[serviceName] = this.generateMySQLService(
+          resource,
+          networkName
+        );
         config.volumes[`${serviceName}-data`] = {};
-      } else if (resource.type === 'laravel-api') {
-        config.services[serviceName] = this.generateLaravelService(resource, networkName);
-      } else if (resource.type === 'nextjs-front') {
-        config.services[serviceName] = this.generateNextJSService(resource, networkName);
+      } else if (resource.type === "laravel-api") {
+        config.services[serviceName] = this.generateLaravelService(
+          resource,
+          networkName
+        );
+      } else if (resource.type === "nextjs-front") {
+        config.services[serviceName] = this.generateNextJSService(
+          resource,
+          networkName
+        );
       }
     }
 
     return this.stringifyYAML(config);
   }
 
-  private generateMySQLService(resource: ProjectResource, networkName: string): DockerComposeService {
+  private generateMySQLService(
+    resource: ProjectResource,
+    networkName: string
+  ): DockerComposeService {
     const serviceName = `${resource.name}-${this.envName}`;
-    const dbName = `${resource.name.replace(/-/g, '_')}_${this.envName.replace(/-/g, '_')}`;
+    const dbName = `${resource.name.replace(/-/g, "_")}_${this.envName.replace(/-/g, "_")}`;
 
-    // Use pre-generated env vars if available, otherwise use defaults
     const environment = this.resourcesEnvVars?.[resource.name] || {
       MYSQL_DATABASE: dbName,
       MYSQL_USER: `${resource.name}_user`,
       MYSQL_PASSWORD: `${resource.name}_password`,
-      MYSQL_ROOT_PASSWORD: 'root_password',
+      MYSQL_ROOT_PASSWORD: "root_password",
     };
 
+    const resourceLimits = this.getResourceLimits(resource);
+
     return {
-      image: 'mysql:8',
+      image: "mysql:8",
       environment,
       volumes: [`${serviceName}-data:/var/lib/mysql`],
       networks: [networkName],
+      deploy: {
+        resources: resourceLimits,
+      },
     };
   }
 
-  private generateLaravelService(resource: ProjectResource, networkName: string): DockerComposeService {
+  private generateLaravelService(
+    resource: ProjectResource,
+    networkName: string
+  ): DockerComposeService {
     const serviceName = `${resource.name}-${this.envName}`;
-    const dbResource = this.resources.find(r => r.name === resource.dbResource);
-    const dbServiceName = `${resource.dbResource}-${this.envName}`;
-    const dbName = `${resource.dbResource.replace(/-/g, '_')}_${this.envName.replace(/-/g, '_')}`;
+    const dbResource = this.resources.find(
+      (r) => r.id === resource.dbResourceId
+    );
+
+    if (!dbResource) {
+      throw new Error(`Database resource not found for ${resource.name}`);
+    }
+
+    const dbServiceName = `${dbResource.name}-${this.envName}`;
+    const dbName = `${dbResource.name.replace(/-/g, "_")}_${this.envName.replace(/-/g, "_")}`;
 
     const hostname = `${resource.name}.${this.envName}.${this.baseDomain}`;
+    const exposedPort = resource.exposedPort || DEFAULT_EXPOSED_PORTS['laravel-api'];
 
     // Use pre-generated env vars if available, otherwise use defaults
     const environment = this.resourcesEnvVars?.[resource.name] || {
       DB_HOST: dbServiceName,
       DB_DATABASE: dbName,
-      DB_USERNAME: `${resource.dbResource}_user`,
-      DB_PASSWORD: `${resource.dbResource}_password`,
-      APP_ENV: 'local',
-      APP_DEBUG: 'true',
+      DB_USERNAME: `${dbResource.name}_user`,
+      DB_PASSWORD: `${dbResource.name}_password`,
+      APP_ENV: "local",
+      APP_DEBUG: "true",
       APP_URL: `https://${hostname}`,
     };
+
+    const resourceLimits = this.getResourceLimits(resource);
 
     const service: DockerComposeService = {
       build: {
@@ -109,17 +171,20 @@ export class DockerComposeGenerator {
       environment,
       depends_on: [dbServiceName],
       labels: [
-        'traefik.enable=true',
+        "traefik.enable=true",
         `traefik.http.routers.${serviceName}.rule=Host(\`${hostname}\`)`,
-        `traefik.http.services.${serviceName}.loadbalancer.server.port=8000`,
+        `traefik.http.services.${serviceName}.loadbalancer.server.port=${exposedPort}`,
       ],
       networks: [networkName],
+      deploy: {
+        resources: resourceLimits,
+      },
     };
 
     // Add port mapping in local mode
     if (this.localMode) {
       const hostPort = this.getNextPort();
-      service.ports = [`${hostPort}:8000`];
+      service.ports = [`${hostPort}:${exposedPort}`];
     }
 
     return service;
@@ -129,17 +194,30 @@ export class DockerComposeGenerator {
     return this.portCounter++;
   }
 
-  private generateNextJSService(resource: ProjectResource, networkName: string): DockerComposeService {
+  private generateNextJSService(
+    resource: ProjectResource,
+    networkName: string
+  ): DockerComposeService {
     const serviceName = `${resource.name}-${this.envName}`;
-    const apiResource = this.resources.find(r => r.name === resource.apiResource);
-    const apiHostname = `${resource.apiResource}.${this.envName}.${this.baseDomain}`;
+    const apiResource = this.resources.find(
+      (r) => r.id === resource.apiResourceId
+    );
+
+    if (!apiResource) {
+      throw new Error(`API resource not found for ${resource.name}`);
+    }
+
+    const apiHostname = `${apiResource.name}.${this.envName}.${this.baseDomain}`;
     const hostname = `${resource.name}.${this.envName}.${this.baseDomain}`;
+    const exposedPort = resource.exposedPort || DEFAULT_EXPOSED_PORTS['nextjs-front'];
 
     // Use pre-generated env vars if available, otherwise use defaults
     const environment = this.resourcesEnvVars?.[resource.name] || {
       NEXT_PUBLIC_API_URL: `https://${apiHostname}`,
-      NODE_ENV: 'production',
+      NODE_ENV: "production",
     };
+
+    const resourceLimits = this.getResourceLimits(resource);
 
     const service: DockerComposeService = {
       build: {
@@ -147,19 +225,22 @@ export class DockerComposeGenerator {
       },
       environment,
       labels: [
-        'traefik.enable=true',
+        "traefik.enable=true",
         `traefik.http.routers.${serviceName}.rule=Host(\`${hostname}\`)`,
-        `traefik.http.services.${serviceName}.loadbalancer.server.port=3000`,
+        `traefik.http.services.${serviceName}.loadbalancer.server.port=${exposedPort}`,
       ],
       networks: [networkName],
+      deploy: {
+        resources: resourceLimits,
+      },
     };
 
     // Add port mapping in local mode
     if (this.localMode) {
       const hostPort = this.getNextPort();
-      service.ports = [`${hostPort}:3000`];
+      service.ports = [`${hostPort}:${exposedPort}`];
       // Add host.docker.internal mapping for container to access host
-      service.extra_hosts = ['host.docker.internal:host-gateway'];
+      service.extra_hosts = ["host.docker.internal:host-gateway"];
     }
 
     return service;
@@ -177,10 +258,11 @@ export class DockerComposeGenerator {
     }
 
     // Check if value needs quoting (contains special YAML characters or quotes)
-    const needsQuoting = /[:\{\}\[\],&*#?|\-<>=!%@`"']/.test(value) ||
-                         value.startsWith(' ') ||
-                         value.endsWith(' ') ||
-                         value.includes('\n');
+    const needsQuoting =
+      /[:\{\}\[\],&*#?|\-<>=!%@`"']/.test(value) ||
+      value.startsWith(" ") ||
+      value.endsWith(" ") ||
+      value.includes("\n");
 
     if (needsQuoting) {
       // Escape any double quotes in the value and wrap in double quotes
@@ -197,14 +279,14 @@ export class DockerComposeGenerator {
     let yaml = `version: "${config.version}"\n\n`;
 
     // Networks
-    yaml += 'networks:\n';
+    yaml += "networks:\n";
     for (const network of Object.keys(config.networks)) {
       yaml += `  ${network}: {}\n`;
     }
-    yaml += '\n';
+    yaml += "\n";
 
     // Services
-    yaml += 'services:\n';
+    yaml += "services:\n";
     for (const [serviceName, service] of Object.entries(config.services)) {
       yaml += `  ${serviceName}:\n`;
 
@@ -261,12 +343,12 @@ export class DockerComposeGenerator {
         }
       }
 
-      yaml += '\n';
+      yaml += "\n";
     }
 
     // Volumes
     if (config.volumes && Object.keys(config.volumes).length > 0) {
-      yaml += 'volumes:\n';
+      yaml += "volumes:\n";
       for (const volume of Object.keys(config.volumes)) {
         yaml += `  ${volume}: {}\n`;
       }

@@ -1,0 +1,44 @@
+Spawner - Self-hosted Preview Environments
+Copyright © 2024 Florian
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+See LICENSE file for full license text.
+
+================================================================================
+
+IMPORTANT NOTICE FOR COMMERCIAL USE:
+
+If you plan to use Spawner as a network service (SaaS, managed hosting, etc.),
+the AGPL-3.0 license requires you to:
+
+1. Make your complete source code (including modifications) available to users
+2. Provide a link to the source code in your application
+3. License your modifications under AGPL-3.0
+4. Include copyright and license notices
+
+If you cannot comply with these requirements, you must obtain a commercial
+license. Contact us for pricing and terms.
+
+================================================================================
+
+Third-party Dependencies:
+
+This software includes components licensed under various open-source licenses.
+See package.json files for complete dependency information.
+
+- NestJS (MIT License)
+- Vue.js (MIT License)
+- TypeORM (MIT License)
+- PostgreSQL (PostgreSQL License)
+- Docker (Apache 2.0)
+- And many others - see package.json
+
+================================================================================
+
+Inspired by:
+- Coolify (https://github.com/coollabsio/coolify) - AGPL-3.0
+
+================================================================================
+
+For questions about licensing, commercial use, or contributions:
+GitHub: https://github.com/votre-org/spawner

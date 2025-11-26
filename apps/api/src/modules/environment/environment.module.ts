@@ -9,6 +9,7 @@ import { ProjectResource } from '../../entities/project-resource.entity';
 import { GitModule } from '../git/git.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { EnvironmentLogsEmitter } from '../../common/environment-logs.emitter';
+import { DockerService } from '../../common/docker.service';
 
 @Module({
   imports: [
@@ -17,6 +18,6 @@ import { EnvironmentLogsEmitter } from '../../common/environment-logs.emitter';
     ProjectsModule,
   ],
   controllers: [EnvironmentController],
-  providers: [EnvironmentService, EnvironmentLogsEmitter],
+  providers: [EnvironmentService, EnvironmentLogsEmitter, DockerService],
 })
 export class EnvironmentModule {}

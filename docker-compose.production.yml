@@ -1,0 +1,141 @@
+version: '3.9'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: spawner-traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - spawner-network
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      # Dashboard
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=traefik-auth"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_AUTH}"
+      # Global HTTP to HTTPS redirect
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: spawner-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - spawner-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  spawner-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: spawner-api
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # PostgreSQL Configuration
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      # Application Paths
+      - PROJECT_CONFIG_PATH=/opt/spawner/project.config.yml
+      - GIT_KEYS_PATH=/opt/spawner/git-keys
+      - REPOS_PATH=/opt/spawner/repos
+      - ENVS_PATH=/opt/spawner/envs
+      - DOCKER_SOCKET=/var/run/docker.sock
+      # OAuth Configuration
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_CALLBACK_URL=https://spawner.${DOMAIN}/api/auth/github/callback
+      - GITHUB_ORG=${GITHUB_ORG}
+      - GITHUB_TEAM=${GITHUB_TEAM}
+      # Session Configuration
+      - SESSION_SECRET=${SESSION_SECRET}
+      - SESSION_MAX_AGE=86400000
+      - FRONTEND_URL=https://spawner.${DOMAIN}
+    volumes:
+      - /opt/spawner:/opt/spawner
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spawner-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/auth/status', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  spawner-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: spawner-web
+    restart: unless-stopped
+    depends_on:
+      - spawner-api
+    networks:
+      - spawner-network
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      # HTTP router
+      - "traefik.http.routers.spawner-web.rule=Host(`spawner.${DOMAIN}`)"
+      - "traefik.http.routers.spawner-web.entrypoints=websecure"
+      - "traefik.http.routers.spawner-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.spawner-web.loadbalancer.server.port=80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  spawner-network:
+    driver: bridge
+  traefik-public:
+    external: true
+
+volumes:
+  postgres-data:
+  traefik-certs:

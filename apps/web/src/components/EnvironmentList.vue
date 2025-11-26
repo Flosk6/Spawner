@@ -1,92 +1,92 @@
 <template>
-  <div class="bg-white shadow rounded-lg p-6">
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-xl font-semibold">Environments</h2>
-      <router-link
-        to="/environments/new"
-        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        Create Environment
-      </router-link>
-    </div>
+  <Card>
+    <template #title>
+      <div class="flex justify-between items-center">
+        <span>Environments</span>
+        <Button
+          label="Create Environment"
+          icon="pi pi-plus"
+          @click="$router.push('/environments/new')"
+        />
+      </div>
+    </template>
+    <template #content>
+      <div v-if="loading" class="flex justify-center py-8">
+        <ProgressSpinner />
+      </div>
 
-    <div v-if="loading" class="text-gray-600">Loading environments...</div>
+      <div v-else-if="environments.length === 0" class="text-center py-8 opacity-70">
+        No environments created yet.
+      </div>
 
-    <div v-else-if="environments.length === 0" class="text-gray-600">
-      No environments created yet.
-    </div>
+      <DataTable v-else :value="environments" stripedRows responsiveLayout="scroll">
+        <Column field="name" header="Name" sortable style="min-width: 200px">
+          <template #body="{ data }: { data: Environment }">
+            <span class="font-semibold">{{ data.name }}</span>
+          </template>
+        </Column>
 
-    <div v-else class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead>
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-              Name
-            </th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-              Status
-            </th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-              Created
-            </th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-              Branches
-            </th>
-            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
-          <tr v-for="env in environments" :key="env.id">
-            <td class="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
-              {{ env.name }}
-            </td>
-            <td class="px-4 py-3 whitespace-nowrap">
-              <span
-                :class="getStatusClass(env.status)"
-                class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full"
-              >
-                {{ env.status }}
-              </span>
-            </td>
-            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-              {{ formatDate(env.createdAt) }}
-            </td>
-            <td class="px-4 py-3 text-sm text-gray-500">
-              <div class="max-w-xs truncate">
-                {{ formatBranches(env.branches) }}
-              </div>
-            </td>
-            <td class="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-              <router-link
-                :to="`/environments/${env.id}`"
-                class="text-blue-600 hover:text-blue-900 mr-4"
-              >
-                View
-              </router-link>
-              <button
-                @click="handleDelete(env)"
-                class="text-red-600 hover:text-red-900"
-              >
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+        <Column field="status" header="Status" sortable style="min-width: 120px">
+          <template #body="{ data }: { data: Environment }">
+            <Tag
+              :value="data.status"
+              :severity="getStatusSeverity(data.status)"
+              :icon="getStatusIcon(data.status)"
+            />
+          </template>
+        </Column>
 
-    <div v-if="error" class="mt-4 p-3 bg-red-50 border border-red-200 rounded">
-      <p class="text-red-800 text-sm">{{ error }}</p>
-    </div>
-  </div>
+        <Column field="createdAt" header="Created" sortable style="min-width: 180px">
+          <template #body="{ data }: { data: Environment }">
+            <span class="opacity-70">{{ formatDate(data.createdAt) }}</span>
+          </template>
+        </Column>
+
+        <Column header="Actions" style="min-width: 150px">
+          <template #body="{ data }: { data: Environment }">
+            <div class="flex gap-2">
+              <Button
+                icon="pi pi-eye"
+                severity="info"
+                outlined
+                rounded
+                @click="$router.push(`/environments/${data.id}`)"
+                v-tooltip.top="'View Details'"
+              />
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                outlined
+                rounded
+                @click="confirmDelete(data)"
+                v-tooltip.top="'Delete'"
+              />
+            </div>
+          </template>
+        </Column>
+      </DataTable>
+
+      <Message v-if="error" severity="error" :closable="false" class="mt-4">
+        {{ error }}
+      </Message>
+    </template>
+  </Card>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import Card from 'primevue/card';
+import Button from 'primevue/button';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Tag from 'primevue/tag';
+import Message from 'primevue/message';
+import ProgressSpinner from 'primevue/progressspinner';
 import { environmentApi } from '../services/api';
 import type { Environment } from '../types';
+import { useNotification } from '../composables/useNotification';
+
+const { showSuccess, showError, confirmDelete: confirmDeleteDialog } = useNotification();
 
 const environments = ref<Environment[]>([]);
 const loading = ref(true);
@@ -108,43 +108,52 @@ async function loadEnvironments() {
   }
 }
 
-async function handleDelete(env: Environment) {
-  if (!confirm(`Are you sure you want to delete environment "${env.name}"?`)) {
-    return;
-  }
+function confirmDelete(env: Environment) {
+  confirmDeleteDialog(env.name, () => handleDelete(env));
+}
 
+async function handleDelete(env: Environment) {
   try {
     await environmentApi.delete(env.id);
+    showSuccess(`Environment "${env.name}" deleted successfully`);
     await loadEnvironments();
   } catch (err: any) {
-    error.value = err.response?.data?.message || 'Failed to delete environment';
+    showError(err.response?.data?.message || 'Failed to delete environment');
   }
 }
 
-function getStatusClass(status: string): string {
+function getStatusSeverity(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-green-100 text-green-800';
+      return 'success';
     case 'creating':
-      return 'bg-blue-100 text-blue-800';
+      return 'info';
     case 'failed':
-      return 'bg-red-100 text-red-800';
+      return 'danger';
     case 'deleting':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'warning';
     default:
-      return 'bg-gray-100 text-gray-800';
+      return 'secondary';
+  }
+}
+
+function getStatusIcon(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'pi pi-check-circle';
+    case 'creating':
+      return 'pi pi-spin pi-spinner';
+    case 'failed':
+      return 'pi pi-times-circle';
+    case 'deleting':
+      return 'pi pi-spin pi-spinner';
+    default:
+      return 'pi pi-circle';
   }
 }
 
 function formatDate(dateStr: string | Date): string {
   const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
   return date.toLocaleString();
-}
-
-function formatBranches(branches?: Record<string, string>): string {
-  if (!branches) return '';
-  return Object.entries(branches)
-    .map(([name, branch]) => `${name}: ${branch}`)
-    .join(', ');
 }
 </script>

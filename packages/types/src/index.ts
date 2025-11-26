@@ -4,6 +4,9 @@ export type ResourceType = 'laravel-api' | 'nextjs-front' | 'mysql-db';
 // Environment Status
 export type EnvironmentStatus = 'creating' | 'running' | 'failed' | 'deleting';
 
+// User Role
+export type UserRole = 'user' | 'admin';
+
 // Project Configuration
 export interface ProjectConfig {
   baseDomain: string;
@@ -30,7 +33,7 @@ export interface Environment {
 }
 
 export interface EnvironmentDetail extends Environment {
-  resources: EnvironmentResourceDetail[];
+  resources: EnvironmentResource[];
 }
 
 // Environment Resource
@@ -61,6 +64,25 @@ export interface GitKeyInfo {
 export interface GitTestResult {
   ok: boolean;
   message: string;
+}
+
+// Authentication
+export interface User {
+  id: number;
+  githubId: string;
+  username: string;
+  email?: string;
+  avatarUrl?: string;
+  role: UserRole;
+  isActive: boolean;
+  lastLoginAt: Date | string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  user: User | null;
 }
 
 // DTOs

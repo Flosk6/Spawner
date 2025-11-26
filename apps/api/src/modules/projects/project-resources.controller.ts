@@ -7,10 +7,13 @@ import {
   Param,
   Body,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { ProjectResourcesService } from './project-resources.service';
+import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 
 @Controller('projects/:projectId/resources')
+@UseGuards(SessionAuthGuard)
 export class ProjectResourcesController {
   constructor(private readonly resourcesService: ProjectResourcesService) {}
 
@@ -30,6 +33,13 @@ export class ProjectResourcesController {
       dbResourceId?: number;
       apiResourceId?: number;
       staticEnvVars?: string;
+      postBuildCommands?: string[];
+      resourceLimits?: {
+        cpu?: string;
+        memory?: string;
+        cpuReservation?: string;
+        memoryReservation?: string;
+      };
     },
   ) {
     return this.resourcesService.create(projectId, data);
@@ -48,6 +58,12 @@ export class ProjectResourcesController {
       apiResourceId?: number;
       staticEnvVars?: string;
       postBuildCommands?: string[];
+      resourceLimits?: {
+        cpu?: string;
+        memory?: string;
+        cpuReservation?: string;
+        memoryReservation?: string;
+      };
     },
   ) {
     return this.resourcesService.update(projectId, id, data);

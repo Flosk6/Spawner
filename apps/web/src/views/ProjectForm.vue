@@ -1,123 +1,142 @@
 <template>
-  <div class="container mx-auto px-4 py-8 max-w-4xl">
-    <div class="mb-8">
-      <router-link to="/projects" class="text-blue-600 hover:text-blue-700 mb-4 inline-block">
-        ← Back to Projects
-      </router-link>
-      <h1 class="text-3xl font-bold text-gray-800">
+  <div>
+    <div class="mb-6">
+      <Button
+        label="Back to Projects"
+        icon="pi pi-arrow-left"
+        text
+        @click="$router.push('/projects')"
+      />
+    </div>
+
+    <div class="mb-6">
+      <h1 class="text-4xl font-bold">
         {{ isEdit ? 'Edit Project' : 'New Project' }}
       </h1>
     </div>
 
     <!-- Project Info -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-      <h2 class="text-xl font-bold text-gray-800 mb-4">Project Information</h2>
+    <Card class="mb-6">
+      <template #title>Project Information</template>
+      <template #content>
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-2">
+            <label for="projectName" class="font-semibold">Project Name</label>
+            <InputText
+              id="projectName"
+              v-model="form.name"
+              placeholder="my-project"
+            />
+          </div>
 
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Project Name
-          </label>
-          <input
-            v-model="form.name"
-            type="text"
-            placeholder="iris-project"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          <div class="flex flex-col gap-2">
+            <label for="baseDomain" class="font-semibold">Base Domain</label>
+            <InputText
+              id="baseDomain"
+              v-model="form.baseDomain"
+              placeholder="preview.yourdomain.com"
+            />
+          </div>
+
+          <Button
+            :label="saving ? 'Saving...' : 'Save Project Info'"
+            icon="pi pi-save"
+            @click="saveProject"
+            :disabled="saving"
+            :loading="saving"
           />
         </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Base Domain
-          </label>
-          <input
-            v-model="form.baseDomain"
-            type="text"
-            placeholder="preview.yourdomain.com"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <button
-          @click="saveProject"
-          :disabled="saving"
-          class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition disabled:opacity-50"
-        >
-          {{ saving ? 'Saving...' : 'Save Project Info' }}
-        </button>
-      </div>
-    </div>
+      </template>
+    </Card>
 
     <!-- Resources Section (only if project exists) -->
-    <div v-if="projectId" class="bg-white rounded-lg shadow-md p-6">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold text-gray-800">Resources</h2>
-        <button
-          @click="showResourceModal = true"
-          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition"
-        >
-          + Add Resource
-        </button>
-      </div>
-
-      <div v-if="loadingResources" class="text-center py-8 text-gray-600">
-        Loading resources...
-      </div>
-
-      <div v-else-if="resources.length === 0" class="text-center py-8 text-gray-500">
-        No resources yet. Click "Add Resource" to get started.
-      </div>
-
-      <div v-else class="space-y-3">
-        <div
-          v-for="resource in resources"
-          :key="resource.id"
-          class="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition"
-        >
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <div class="flex items-center gap-3 mb-2">
-                <span class="text-2xl">{{ getResourceIcon(resource.type) }}</span>
-                <h3 class="font-bold text-gray-800">{{ resource.name }}</h3>
-                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                  {{ resource.type }}
-                </span>
-              </div>
-
-              <div v-if="resource.gitRepo" class="text-sm text-gray-600 space-y-1">
-                <p>📦 {{ resource.gitRepo }}</p>
-                <p>🌿 Branch: {{ resource.defaultBranch }}</p>
-                <p v-if="resource.type === 'laravel-api'">
-                  🗄️ Database: {{ getResourceName(resource.dbResourceId) }}
-                </p>
-                <p v-if="resource.type === 'nextjs-front'">
-                  ⚙️ API: {{ getResourceName(resource.apiResourceId) }}
-                </p>
-              </div>
-            </div>
-
-            <div class="flex gap-2">
-              <button
-                @click="editResource(resource)"
-                class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm font-medium transition"
-              >
-                Edit
-              </button>
-              <button
-                @click="confirmDeleteResource(resource)"
-                class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded text-sm font-medium transition"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
+    <Card v-if="projectId">
+      <template #title>
+        <div class="flex justify-between items-center">
+          <span>Resources</span>
+          <Button
+            label="Add Resource"
+            icon="pi pi-plus"
+            @click="showResourceModal = true"
+            size="small"
+          />
         </div>
-      </div>
-    </div>
+      </template>
+      <template #content>
+        <div v-if="loadingResources" class="flex justify-center py-12">
+          <ProgressSpinner />
+        </div>
+
+        <div v-else-if="resources.length === 0" class="text-center py-12">
+          <i class="pi pi-box text-6xl mb-6 block opacity-30"></i>
+          <p class="text-xl mb-6 opacity-60">No resources yet</p>
+          <Button
+            label="Add your first resource"
+            icon="pi pi-plus"
+            @click="showResourceModal = true"
+          />
+        </div>
+
+        <div v-else class="flex flex-col gap-4">
+          <Card
+            v-for="resource in resources"
+            :key="resource.id"
+          >
+            <template #content>
+              <div class="flex items-start justify-between">
+                <div class="flex-1">
+                  <div class="flex items-center gap-3 mb-3">
+                    <i :class="getResourceIcon(resource.type)" class="text-2xl"></i>
+                    <h3 class="font-bold text-xl">{{ resource.name }}</h3>
+                    <Tag :value="resource.type" severity="info" />
+                  </div>
+
+                  <div v-if="resource.gitRepo" class="flex flex-col gap-2 opacity-70">
+                    <div class="flex items-center gap-2">
+                      <i class="pi pi-github"></i>
+                      <span>{{ resource.gitRepo }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <i class="pi pi-code-branch"></i>
+                      <span>Branch: {{ resource.defaultBranch }}</span>
+                    </div>
+                    <div v-if="resource.type === 'laravel-api'" class="flex items-center gap-2">
+                      <i class="pi pi-database"></i>
+                      <span>Database: {{ getResourceName(resource.dbResourceId) }}</span>
+                    </div>
+                    <div v-if="resource.type === 'nextjs-front'" class="flex items-center gap-2">
+                      <i class="pi pi-cog"></i>
+                      <span>API: {{ getResourceName(resource.apiResourceId) }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <Button
+                    icon="pi pi-pencil"
+                    severity="secondary"
+                    outlined
+                    @click="editResource(resource)"
+                    v-tooltip.top="'Edit resource'"
+                  />
+                  <Button
+                    icon="pi pi-trash"
+                    severity="danger"
+                    outlined
+                    @click="confirmDeleteResource(resource)"
+                    v-tooltip.top="'Delete resource'"
+                  />
+                </div>
+              </div>
+            </template>
+          </Card>
+        </div>
+      </template>
+    </Card>
 
     <!-- Resource Modal -->
     <ResourceModal
-      v-if="showResourceModal"
+      v-if="showResourceModal && projectId"
       :project-id="projectId"
       :resource="editingResource"
       :all-resources="resources"
@@ -126,45 +145,60 @@
     />
 
     <!-- Delete Resource Confirmation -->
-    <div
-      v-if="resourceToDelete"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      @click="resourceToDelete = null"
+    <Dialog
+      v-model:visible="showDeleteDialog"
+      header="Delete Resource?"
+      :modal="true"
+      :style="{ width: '450px' }"
     >
-      <div class="bg-white rounded-lg p-6 max-w-md w-full" @click.stop>
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Delete Resource?</h3>
-        <p class="text-gray-600 mb-6">
-          Are you sure you want to delete <strong>{{ resourceToDelete.name }}</strong>?
-        </p>
-        <div class="flex gap-3">
-          <button
-            @click="resourceToDelete = null"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded font-medium transition"
-          >
-            Cancel
-          </button>
-          <button
-            @click="deleteResource"
-            class="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-medium transition"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+      <p class="mb-4">
+        Are you sure you want to delete <strong>{{ resourceToDelete?.name }}</strong>?
+      </p>
+      <template #footer>
+        <Button
+          label="Cancel"
+          severity="secondary"
+          outlined
+          @click="showDeleteDialog = false"
+        />
+        <Button
+          label="Delete"
+          severity="danger"
+          @click="deleteResource"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
+import Button from 'primevue/button';
+import Card from 'primevue/card';
+import InputText from 'primevue/inputtext';
+import Tag from 'primevue/tag';
+import Dialog from 'primevue/dialog';
+import ProgressSpinner from 'primevue/progressspinner';
 import ResourceModal from '../components/ResourceModal.vue';
+import { useNotification } from '../composables/useNotification';
+
+interface Resource {
+  id: number;
+  name: string;
+  type: string;
+  gitRepo?: string;
+  defaultBranch?: string;
+  dbResourceId?: number;
+  apiResourceId?: number;
+}
 
 const route = useRoute();
 const router = useRouter();
+const { showSuccess, showError } = useNotification();
 
-const projectId = ref(null);
+const projectId = ref<number | null>(null);
 const isEdit = computed(() => !!route.params.id);
 
 const form = ref({
@@ -172,23 +206,25 @@ const form = ref({
   baseDomain: '',
 });
 
-const resources = ref([]);
+const resources = ref<Resource[]>([]);
 const saving = ref(false);
 const loadingResources = ref(false);
 const showResourceModal = ref(false);
-const editingResource = ref(null);
-const resourceToDelete = ref(null);
+const editingResource = ref<Resource | null>(null);
+const resourceToDelete = ref<Resource | null>(null);
+const showDeleteDialog = ref(false);
 
-function getResourceIcon(type) {
-  const icons = {
-    'mysql-db': '🗄️',
-    'laravel-api': '⚙️',
-    'nextjs-front': '🎨',
+function getResourceIcon(type: string): string {
+  const icons: Record<string, string> = {
+    'mysql-db': 'pi pi-database',
+    'laravel-api': 'pi pi-cog',
+    'nextjs-front': 'pi pi-palette',
   };
-  return icons[type] || '📦';
+  return icons[type] || 'pi pi-box';
 }
 
-function getResourceName(resourceId) {
+function getResourceName(resourceId?: number): string {
+  if (!resourceId) return 'Unknown';
   const resource = resources.value.find(r => r.id === resourceId);
   return resource ? resource.name : 'Unknown';
 }
@@ -204,7 +240,7 @@ async function loadProject() {
     await loadResources();
   } catch (error) {
     console.error('Error loading project:', error);
-    alert('Failed to load project');
+    showError('Failed to load project');
     router.push('/projects');
   }
 }
@@ -218,6 +254,7 @@ async function loadResources() {
     resources.value = response.data;
   } catch (error) {
     console.error('Error loading resources:', error);
+    showError('Failed to load resources');
   } finally {
     loadingResources.value = false;
   }
@@ -225,7 +262,7 @@ async function loadResources() {
 
 async function saveProject() {
   if (!form.value.name || !form.value.baseDomain) {
-    alert('Please fill in all fields');
+    showError('Please fill in all fields');
     return;
   }
 
@@ -234,22 +271,22 @@ async function saveProject() {
 
     if (isEdit.value) {
       await axios.put(`/api/projects/${projectId.value}`, form.value);
-      alert('Project updated successfully');
+      showSuccess('Project updated successfully');
     } else {
       const response = await axios.post('/api/projects', form.value);
       projectId.value = response.data.id;
-      alert('Project created successfully');
+      showSuccess('Project created successfully');
       router.push(`/projects/${projectId.value}`);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving project:', error);
-    alert(error.response?.data?.message || 'Failed to save project');
+    showError(error.response?.data?.message || 'Failed to save project');
   } finally {
     saving.value = false;
   }
 }
 
-function editResource(resource) {
+function editResource(resource: Resource) {
   editingResource.value = resource;
   showResourceModal.value = true;
 }
@@ -264,19 +301,24 @@ async function handleResourceSaved() {
   await loadResources();
 }
 
-function confirmDeleteResource(resource) {
+function confirmDeleteResource(resource: Resource) {
   resourceToDelete.value = resource;
+  showDeleteDialog.value = true;
 }
 
 async function deleteResource() {
   const resource = resourceToDelete.value;
+  if (!resource) return;
+
   try {
     await axios.delete(`/api/projects/${projectId.value}/resources/${resource.id}`);
+    showDeleteDialog.value = false;
     resourceToDelete.value = null;
+    showSuccess('Resource deleted successfully');
     await loadResources();
   } catch (error) {
     console.error('Error deleting resource:', error);
-    alert('Failed to delete resource');
+    showError('Failed to delete resource');
   }
 }
 

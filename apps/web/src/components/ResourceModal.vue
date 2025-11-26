@@ -1,204 +1,263 @@
 <template>
-  <div
-    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto"
-    @click="$emit('close')"
-  >
-    <div
-      class="bg-white rounded-lg p-6 max-w-2xl w-full my-8"
-      @click.stop
-    >
-      <h2 class="text-2xl font-bold text-gray-800 mb-6">
-        {{ isEdit ? 'Edit Resource' : 'Add Resource' }}
-      </h2>
+  <Dialog :visible="true" :modal="true" :style="{ width: '700px' }" :header="isEdit ? 'Edit Resource' : 'Add Resource'"
+    @update:visible="$emit('close')">
+    <div class="flex flex-col gap-4">
+      <!-- Name -->
+      <div class="flex flex-col gap-2">
+        <label for="resourceName" class="font-semibold">
+          Resource Name <span class="text-red-500">*</span>
+        </label>
+        <InputText id="resourceName" v-model="form.name" placeholder="my-api" />
+      </div>
 
-      <div class="space-y-4">
-        <!-- Name -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Resource Name <span class="text-red-500">*</span>
+      <!-- Type -->
+      <div class="flex flex-col gap-2">
+        <label for="resourceType" class="font-semibold">
+          Resource Type <span class="text-red-500">*</span>
+        </label>
+        <Select id="resourceType" v-model="form.type" :options="resourceTypes" optionLabel="label" optionValue="value"
+          placeholder="Select a resource type" />
+      </div>
+
+      <!-- Git Repo (for laravel-api and nextjs-front) -->
+      <div v-if="form.type !== 'mysql-db'" class="flex flex-col gap-2">
+        <label for="gitRepo" class="font-semibold">
+          Git Repository <span class="text-red-500">*</span>
+        </label>
+        <InputText id="gitRepo" v-model="form.gitRepo" placeholder="git@github.com:org/repo.git" />
+      </div>
+
+      <!-- Default Branch -->
+      <div v-if="form.type !== 'mysql-db'" class="flex flex-col gap-2">
+        <label for="defaultBranch" class="font-semibold">
+          Default Branch <span class="text-red-500">*</span>
+        </label>
+        <InputText id="defaultBranch" v-model="form.defaultBranch" placeholder="main" />
+      </div>
+
+      <!-- DB Resource (for laravel-api) -->
+      <div v-if="form.type === 'laravel-api'" class="flex flex-col gap-2">
+        <label for="dbResource" class="font-semibold">
+          Database Resource <span class="text-red-500">*</span>
+        </label>
+        <Select id="dbResource" v-model="form.dbResourceId" :options="databaseResources" optionLabel="name"
+          optionValue="id" placeholder="Select a database" />
+      </div>
+
+      <!-- API Resource (for nextjs-front) -->
+      <div v-if="form.type === 'nextjs-front'" class="flex flex-col gap-2">
+        <label for="apiResource" class="font-semibold">
+          API Resource <span class="text-red-500">*</span>
+        </label>
+        <Select id="apiResource" v-model="form.apiResourceId" :options="apiResources" optionLabel="name"
+          optionValue="id" placeholder="Select an API" />
+      </div>
+
+      <!-- Environment Variables -->
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center gap-2">
+          <label for="staticEnvVars" class="font-semibold">
+            Environment Variables
           </label>
-          <input
-            v-model="form.name"
-            type="text"
-            placeholder="iris-api"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
+          <i class="pi pi-info-circle cursor-pointer opacity-60 hover:opacity-100 transition-opacity template-help-tooltip" v-tooltip.right="{
+            value: templateHelpHTML,
+            escape: false
+          }"></i>
         </div>
-
-        <!-- Type -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Resource Type <span class="text-red-500">*</span>
-          </label>
-          <select
-            v-model="form.type"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="mysql-db">MySQL Database</option>
-            <option value="laravel-api">Laravel API</option>
-            <option value="nextjs-front">Next.js Frontend</option>
-          </select>
-        </div>
-
-        <!-- Git Repo (for laravel-api and nextjs-front) -->
-        <div v-if="form.type !== 'mysql-db'">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Git Repository <span class="text-red-500">*</span>
-          </label>
-          <input
-            v-model="form.gitRepo"
-            type="text"
-            placeholder="git@github.com:org/repo.git"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <!-- Default Branch -->
-        <div v-if="form.type !== 'mysql-db'">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Default Branch <span class="text-red-500">*</span>
-          </label>
-          <input
-            v-model="form.defaultBranch"
-            type="text"
-            placeholder="main"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <!-- DB Resource (for laravel-api) -->
-        <div v-if="form.type === 'laravel-api'">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Database Resource <span class="text-red-500">*</span>
-          </label>
-          <select
-            v-model="form.dbResourceId"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option :value="null">Select a database</option>
-            <option
-              v-for="db in databaseResources"
-              :key="db.id"
-              :value="db.id"
-            >
-              {{ db.name }}
-            </option>
-          </select>
-        </div>
-
-        <!-- API Resource (for nextjs-front) -->
-        <div v-if="form.type === 'nextjs-front'">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            API Resource <span class="text-red-500">*</span>
-          </label>
-          <select
-            v-model="form.apiResourceId"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option :value="null">Select an API</option>
-            <option
-              v-for="api in apiResources"
-              :key="api.id"
-              :value="api.id"
-            >
-              {{ api.name }}
-            </option>
-          </select>
-        </div>
-
-        <!-- Static Environment Variables -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Static Environment Variables
-          </label>
-          <p class="text-xs text-gray-500 mb-2">
-            Paste your environment variables here (KEY=value format, one per line).
-            Variables like DB_HOST, DB_PASSWORD, APP_URL will be auto-generated by Spawner.
-          </p>
-          <textarea
-            v-model="form.staticEnvVars"
-            rows="10"
-            placeholder="APP_NAME=Iris API
+        <small class="opacity-70">
+          Type <code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;</code> to autocomplete
+          templates
+        </small>
+        <TemplateAutocomplete id="staticEnvVars" v-model="form.staticEnvVars" :all-resources="allResources" :rows="10"
+          placeholder="# Static values
+APP_NAME=My Application
 ROLLBAR_TOKEN=your_token_here
-MAIL_FROM_ADDRESS=noreply@example.com
-SENDGRID_API_KEY=SG.xxx
 
-# Auto-generated by Spawner (no need to add):
-# DB_HOST, DB_DATABASE, DB_USERNAME, DB_PASSWORD
-# APP_KEY, APP_URL
-# NEXT_PUBLIC_API_URL, NODE_ENV"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-          ></textarea>
-        </div>
-
-        <!-- Post-Build Commands -->
-        <div v-if="form.type !== 'mysql-db'">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            Post-Build Commands
-          </label>
-          <p class="text-xs text-gray-500 mb-2">
-            Commands to run after containers start (one per line). Example: migrations, seeds, cache warm-up.
-          </p>
-          <textarea
-            v-model="postBuildCommandsText"
-            rows="4"
-            placeholder="php artisan migrate --force
-php artisan db:seed --force"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-          ></textarea>
-        </div>
+# Template examples
+DB_HOST={{resource.main-db.host}}
+API_URL={{resource.main-api.url}}" />
       </div>
 
-      <div class="flex gap-3 mt-6">
-        <button
-          @click="$emit('close')"
-          class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition"
-        >
-          Cancel
-        </button>
-        <button
-          @click="save"
-          :disabled="saving"
-          class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition disabled:opacity-50"
-        >
-          {{ saving ? 'Saving...' : (isEdit ? 'Update' : 'Add Resource') }}
-        </button>
+      <!-- Post-Build Commands -->
+      <div v-if="form.type !== 'mysql-db'" class="flex flex-col gap-2">
+        <label for="postBuildCommands" class="font-semibold">
+          Post-Build Commands
+        </label>
+        <small class="opacity-70">
+          Commands to run after containers start (one per line). Example: migrations, seeds, cache warm-up.
+        </small>
+        <Textarea id="postBuildCommands" v-model="postBuildCommandsText" rows="4" placeholder="php artisan migrate --force
+php artisan db:seed --force" class="font-mono text-sm" />
       </div>
+
+      <!-- Exposed Port (for Laravel/Next.js) -->
+      <div v-if="form.type !== 'mysql-db'" class="flex flex-col gap-2">
+        <label for="exposedPort" class="font-semibold">
+          Exposed Port
+        </label>
+        <small class="opacity-70 mb-2">
+          Port that your Docker container exposes. Leave empty for defaults (Laravel: 8000, Next.js: 3000).
+        </small>
+        <InputText id="exposedPort" v-model="form.exposedPort" type="number" :placeholder="getDefaultExposedPort()" />
+      </div>
+
+      <!-- Resource Limits (Advanced) -->
+      <Accordion class="mt-4">
+        <AccordionTab header="Resource Limits (Optional)">
+          <small class="block mb-4 opacity-70">
+            Configure Docker resource limits for this service. Leave empty to use defaults.
+            <strong>Max allowed:</strong> 8 CPUs, 16GB RAM.
+          </small>
+
+          <div class="grid grid-cols-2 gap-4">
+            <!-- CPU Limit -->
+            <div class="flex flex-col gap-2">
+              <label for="cpuLimit" class="font-semibold">CPU Limit</label>
+              <InputText id="cpuLimit" v-model="form.resourceLimits.cpu"
+                :placeholder="`Default: ${getDefaultLimit('cpu')}`" />
+              <small class="opacity-60">Example: 2, 0.5, 4</small>
+            </div>
+
+            <!-- Memory Limit -->
+            <div class="flex flex-col gap-2">
+              <label for="memoryLimit" class="font-semibold">Memory Limit</label>
+              <InputText id="memoryLimit" v-model="form.resourceLimits.memory"
+                :placeholder="`Default: ${getDefaultLimit('memory')}`" />
+              <small class="opacity-60">Example: 1G, 512M, 2G</small>
+            </div>
+
+            <!-- CPU Reservation -->
+            <div class="flex flex-col gap-2">
+              <label for="cpuReservation" class="font-semibold">CPU Reservation</label>
+              <InputText id="cpuReservation" v-model="form.resourceLimits.cpuReservation"
+                :placeholder="`Default: ${getDefaultLimit('cpuReservation')}`" />
+              <small class="opacity-60">Guaranteed minimum CPUs</small>
+            </div>
+
+            <!-- Memory Reservation -->
+            <div class="flex flex-col gap-2">
+              <label for="memoryReservation" class="font-semibold">Memory Reservation</label>
+              <InputText id="memoryReservation" v-model="form.resourceLimits.memoryReservation"
+                :placeholder="`Default: ${getDefaultLimit('memoryReservation')}`" />
+              <small class="opacity-60">Guaranteed minimum RAM</small>
+            </div>
+          </div>
+        </AccordionTab>
+      </Accordion>
     </div>
-  </div>
+
+    <template #footer>
+      <Button label="Cancel" severity="secondary" outlined @click="$emit('close')" />
+      <Button :label="saving ? 'Saving...' : (isEdit ? 'Update' : 'Add Resource')" :loading="saving" @click="save" />
+    </template>
+  </Dialog>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
+import Dialog from 'primevue/dialog';
+import InputText from 'primevue/inputtext';
+import Textarea from 'primevue/textarea';
+import Select from 'primevue/select';
+import Button from 'primevue/button';
+import Accordion from 'primevue/accordion';
+import AccordionTab from 'primevue/accordiontab';
+import { useNotification } from '../composables/useNotification';
+import TemplateAutocomplete from './TemplateAutocomplete.vue';
 
-const props = defineProps({
-  projectId: {
-    type: Number,
-    required: true,
-  },
-  resource: {
-    type: Object,
-    default: null,
-  },
-  allResources: {
-    type: Array,
-    default: () => [],
-  },
-});
+interface ResourceLimits {
+  cpu?: string;
+  memory?: string;
+  cpuReservation?: string;
+  memoryReservation?: string;
+}
 
-const emit = defineEmits(['close', 'saved']);
+interface Resource {
+  id: number;
+  name: string;
+  type: string;
+  gitRepo?: string;
+  defaultBranch?: string;
+  dbResourceId?: number;
+  apiResourceId?: number;
+  staticEnvVars?: Record<string, string>;
+  postBuildCommands?: string[];
+  resourceLimits?: ResourceLimits;
+  exposedPort?: number;
+}
+
+const props = defineProps<{
+  projectId: number;
+  resource?: Resource | null;
+  allResources: Resource[];
+}>();
+
+const emit = defineEmits<{
+  close: [];
+  saved: [];
+}>();
+
+const { showError } = useNotification();
 
 const isEdit = computed(() => !!props.resource);
+
+const templateHelpHTML = computed(() => `
+  <div class="space-y-2 text-sm">
+    <div class="font-semibold mb-2">Available templates:</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;self.url&rbrace;&rbrace;</code> - This resource's URL</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;resource.NAME.url&rbrace;&rbrace;</code> - Another resource's URL</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;resource.NAME.host&rbrace;&rbrace;</code> - Database host</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;resource.NAME.database&rbrace;&rbrace;</code> - Database name</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;resource.NAME.username&rbrace;&rbrace;</code> - Database username</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;resource.NAME.password&rbrace;&rbrace;</code> - Database password</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;env.name&rbrace;&rbrace;</code> - Environment name</div>
+    <div><code class="bg-primary-spawner text-white px-1 rounded">&lbrace;&lbrace;project.baseDomain&rbrace;&rbrace;</code> - Project domain</div>
+  </div>
+`);
+
+const resourceTypes = [
+  { label: 'MySQL Database', value: 'mysql-db' },
+  { label: 'Laravel API', value: 'laravel-api' },
+  { label: 'Next.js Frontend', value: 'nextjs-front' },
+];
+
+const defaultResourceLimits: Record<string, ResourceLimits> = {
+  'mysql-db': {
+    cpu: '2',
+    memory: '2G',
+    cpuReservation: '0.5',
+    memoryReservation: '512M',
+  },
+  'laravel-api': {
+    cpu: '2',
+    memory: '1G',
+    cpuReservation: '0.25',
+    memoryReservation: '256M',
+  },
+  'nextjs-front': {
+    cpu: '1',
+    memory: '1G',
+    cpuReservation: '0.25',
+    memoryReservation: '256M',
+  },
+};
 
 const form = ref({
   name: '',
   type: 'mysql-db',
   gitRepo: '',
   defaultBranch: 'main',
-  dbResourceId: null,
-  apiResourceId: null,
+  dbResourceId: null as number | null,
+  apiResourceId: null as number | null,
   staticEnvVars: '',
+  exposedPort: '',
+  resourceLimits: {
+    cpu: '',
+    memory: '',
+    cpuReservation: '',
+    memoryReservation: '',
+  },
 });
 
 const postBuildCommandsText = ref('');
@@ -212,6 +271,28 @@ const apiResources = computed(() => {
   return props.allResources.filter(r => r.type === 'laravel-api');
 });
 
+const allResources = computed(() => {
+  return props.allResources.map(r => ({
+    id: r.id,
+    name: r.name,
+    type: r.type
+  }));
+});
+
+function getDefaultLimit(field: keyof ResourceLimits): string {
+  const defaults = defaultResourceLimits[form.value.type];
+  return defaults[field] || '';
+}
+
+function getDefaultExposedPort(): string {
+  const defaults: Record<string, number> = {
+    'laravel-api': 8000,
+    'nextjs-front': 3000,
+    'mysql-db': 3306,
+  };
+  return defaults[form.value.type]?.toString() || '';
+}
+
 function initForm() {
   if (props.resource) {
     form.value = {
@@ -222,14 +303,20 @@ function initForm() {
       dbResourceId: props.resource.dbResourceId || null,
       apiResourceId: props.resource.apiResourceId || null,
       staticEnvVars: stringifyEnvVars(props.resource.staticEnvVars || {}),
+      exposedPort: props.resource.exposedPort?.toString() || '',
+      resourceLimits: {
+        cpu: props.resource.resourceLimits?.cpu || '',
+        memory: props.resource.resourceLimits?.memory || '',
+        cpuReservation: props.resource.resourceLimits?.cpuReservation || '',
+        memoryReservation: props.resource.resourceLimits?.memoryReservation || '',
+      },
     };
 
-    // Load post-build commands
     postBuildCommandsText.value = (props.resource.postBuildCommands || []).join('\n');
   }
 }
 
-function stringifyEnvVars(vars) {
+function stringifyEnvVars(vars: Record<string, string>): string {
   return Object.entries(vars)
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
@@ -238,24 +325,24 @@ function stringifyEnvVars(vars) {
 async function save() {
   // Validation
   if (!form.value.name) {
-    alert('Please enter a resource name');
+    showError('Please enter a resource name');
     return;
   }
 
   if (form.value.type !== 'mysql-db') {
     if (!form.value.gitRepo || !form.value.defaultBranch) {
-      alert('Please fill in Git repository and default branch');
+      showError('Please fill in Git repository and default branch');
       return;
     }
   }
 
   if (form.value.type === 'laravel-api' && !form.value.dbResourceId) {
-    alert('Please select a database resource');
+    showError('Please select a database resource');
     return;
   }
 
   if (form.value.type === 'nextjs-front' && !form.value.apiResourceId) {
-    alert('Please select an API resource');
+    showError('Please select an API resource');
     return;
   }
 
@@ -268,6 +355,12 @@ async function save() {
       .map(cmd => cmd.trim())
       .filter(cmd => cmd.length > 0 && !cmd.startsWith('#'));
 
+    const resourceLimits: ResourceLimits = {};
+    if (form.value.resourceLimits.cpu) resourceLimits.cpu = form.value.resourceLimits.cpu;
+    if (form.value.resourceLimits.memory) resourceLimits.memory = form.value.resourceLimits.memory;
+    if (form.value.resourceLimits.cpuReservation) resourceLimits.cpuReservation = form.value.resourceLimits.cpuReservation;
+    if (form.value.resourceLimits.memoryReservation) resourceLimits.memoryReservation = form.value.resourceLimits.memoryReservation;
+
     const payload = {
       name: form.value.name,
       type: form.value.type,
@@ -275,11 +368,13 @@ async function save() {
       defaultBranch: form.value.defaultBranch || null,
       dbResourceId: form.value.dbResourceId || null,
       apiResourceId: form.value.apiResourceId || null,
-      staticEnvVars: form.value.staticEnvVars, // Send as string, backend will parse it
+      staticEnvVars: form.value.staticEnvVars,
       postBuildCommands: postBuildCommands,
+      resourceLimits: Object.keys(resourceLimits).length > 0 ? resourceLimits : null,
+      exposedPort: form.value.exposedPort ? parseInt(form.value.exposedPort) : null,
     };
 
-    if (isEdit.value) {
+    if (isEdit.value && props.resource) {
       await axios.put(
         `/api/projects/${props.projectId}/resources/${props.resource.id}`,
         payload
@@ -289,9 +384,9 @@ async function save() {
     }
 
     emit('saved');
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving resource:', error);
-    alert(error.response?.data?.message || 'Failed to save resource');
+    showError(error.response?.data?.message || 'Failed to save resource');
   } finally {
     saving.value = false;
   }

@@ -22,6 +22,13 @@ export const DEFAULTS = {
   MYSQL_ROOT_PASSWORD: 'root_pass',
 } as const;
 
+// Default exposed ports per resource type
+export const DEFAULT_EXPOSED_PORTS: Record<ResourceType, number> = {
+  'mysql-db': 3306,
+  'laravel-api': 8000,
+  'nextjs-front': 3000,
+};
+
 // Validation regex
 export const VALIDATION = {
   ENVIRONMENT_NAME: /^[a-z0-9-]+$/,
@@ -33,6 +40,41 @@ export const DOCKER = {
   NETWORK_PREFIX: 'net-',
   VOLUME_SUFFIX: '-data',
   COMPOSE_PROJECT_PREFIX: 'env-',
+} as const;
+
+// Default Docker resource limits per resource type
+export const DEFAULT_RESOURCE_LIMITS: Record<ResourceType, {
+  cpu: string;
+  memory: string;
+  cpuReservation: string;
+  memoryReservation: string;
+}> = {
+  'mysql-db': {
+    cpu: '2',
+    memory: '2G',
+    cpuReservation: '0.5',
+    memoryReservation: '512M',
+  },
+  'laravel-api': {
+    cpu: '2',
+    memory: '1G',
+    cpuReservation: '0.25',
+    memoryReservation: '256M',
+  },
+  'nextjs-front': {
+    cpu: '1',
+    memory: '1G',
+    cpuReservation: '0.25',
+    memoryReservation: '256M',
+  },
+};
+
+// Maximum allowed resource limits (security boundary)
+export const MAX_RESOURCE_LIMITS = {
+  cpu: '8',
+  memory: '16G',
+  cpuReservation: '4',
+  memoryReservation: '8G',
 } as const;
 
 // Resource type configurations
