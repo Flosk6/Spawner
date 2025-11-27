@@ -26,6 +26,17 @@ This is a **pnpm + Turborepo** monorepo:
 
 All packages use `workspace:*` dependencies. **Shared packages must be built before running apps.**
 
+## Documentation
+
+### Project Documentation Directory
+
+Project documentation is stored in `/.ai/docs/`:
+- When you need to read project documentation, look in this directory first
+- When you need to create or update documentation files (.md), place them in `/.ai/docs/`
+- This keeps all AI-relevant documentation organized and separate from user-facing docs
+
+**Note:** This is different from user-facing documentation (like README.md) which remains in the project root.
+
 ## Code Style
 
 ### Important Rules
