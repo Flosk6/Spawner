@@ -36,7 +36,7 @@ onMounted(() => {
       background: '#1e1e1e',
       foreground: '#d4d4d4',
       cursor: '#ffffff',
-      selection: '#264f78',
+      selectionBackground: '#264f78',
     },
     rows: 30,
     cols: 100,
@@ -71,7 +71,7 @@ onMounted(() => {
 async function connectWebSocket() {
   try {
     // Get WebSocket authentication token from API
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const apiUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000';
     const response = await fetch(`${apiUrl}/api/auth/ws-token`, {
       credentials: 'include', // Send session cookie
     });

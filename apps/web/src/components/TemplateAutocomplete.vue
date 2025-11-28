@@ -132,7 +132,6 @@ const handleInput = (value: string) => {
     if (!textarea) return;
 
     const cursorPos = textarea.selectionStart;
-    const charBefore = value.charAt(cursorPos - 1);
     const twoCharsBefore = value.substring(cursorPos - 2, cursorPos);
 
     if (twoCharsBefore === '}}') {
