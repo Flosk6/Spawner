@@ -15,6 +15,9 @@ config({ path: join(__dirname, '..', '..', '..', '.env') });
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Trust proxy - required for secure cookies behind reverse proxy
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // CORS configuration with credentials support
   app.enableCors({
     origin: process.env.FRONTEND_URL || 'http://localhost:8080',
@@ -46,7 +49,7 @@ async function bootstrap() {
       maxAge: parseInt(process.env.SESSION_MAX_AGE || '86400000'), // 24 hours
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      sameSite: 'lax', // Lax works because frontend and API are on same domain
     },
   });
 

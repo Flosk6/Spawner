@@ -34,19 +34,27 @@ export class AuthController {
           return reject(err);
         }
 
-        // Log login action
-        await this.authService.logAction(
-          user.id,
-          'LOGIN',
-          { method: 'github', username: user.username },
-          req.ip,
-          req.headers['user-agent'],
-        );
+        // Force session save to ensure cookie is sent
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('Session save error:', saveErr);
+            return reject(saveErr);
+          }
 
-        // Redirect to frontend
-        const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:8080';
-        res.redirect(frontendUrl);
-        resolve(true);
+          // Log login action
+          this.authService.logAction(
+            user.id,
+            'LOGIN',
+            { method: 'github', username: user.username },
+            req.ip,
+            req.headers['user-agent'],
+          ).then(() => {
+            // Redirect to frontend
+            const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:8080';
+            res.redirect(frontendUrl);
+            resolve(true);
+          });
+        });
       });
     });
   }
