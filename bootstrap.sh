@@ -14,8 +14,8 @@ curl -fsSL "$INSTALL_URL" -o "$TMP_FILE"
 # Make it executable
 chmod +x "$TMP_FILE"
 
-# Execute it
-bash "$TMP_FILE" "$@"
+# Execute it with stdin from terminal
+bash "$TMP_FILE" "$@" < /dev/tty
 
 # Cleanup
 rm -f "$TMP_FILE"
