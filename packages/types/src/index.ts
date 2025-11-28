@@ -20,6 +20,14 @@ export interface ProjectResource {
   defaultBranch?: string;
   dbResource?: string;
   apiResource?: string;
+  postBuildCommands?: string[];
+  resourceLimits?: {
+    cpu?: string;
+    memory?: string;
+    cpuReservation?: string;
+    memoryReservation?: string;
+  };
+  exposedPort?: number;
 }
 
 // Environment
