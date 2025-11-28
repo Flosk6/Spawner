@@ -3,7 +3,7 @@ FROM node:20-alpine as builder
 WORKDIR /app
 
 # Install build tools (may be needed for some dependencies)
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 py3-setuptools make g++
 
 # Install pnpm
 RUN npm install -g pnpm
