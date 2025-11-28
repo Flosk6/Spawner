@@ -202,7 +202,8 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${BLUE}Démarrage de Spawner...${NC}"
     echo -e "${YELLOW}Cela peut prendre 5-10 minutes (build des images)...${NC}"
     echo ""
-    docker compose -f docker-compose.production.yml up -d --build
+    # Use sg to run with docker group permissions (user was just added to docker group)
+    sg docker -c "docker compose -f docker-compose.production.yml --env-file .env.production up -d --build"
 
     echo ""
     echo -e "${GREEN}=== Démarrage en cours! ===${NC}"
