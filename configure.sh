@@ -202,13 +202,13 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${BLUE}Démarrage de Spawner...${NC}"
     echo -e "${YELLOW}Cela peut prendre 5-10 minutes (build des images)...${NC}"
     echo ""
-    docker-compose -f docker-compose.production.yml up -d --build
+    docker compose -f docker-compose.production.yml up -d --build
 
     echo ""
     echo -e "${GREEN}=== Démarrage en cours! ===${NC}"
     echo ""
     echo "Suivez les logs avec:"
-    echo "  docker-compose -f docker-compose.production.yml logs -f"
+    echo "  docker compose -f docker-compose.production.yml logs -f"
     echo ""
     echo "Une fois démarré, accédez à:"
     echo -e "  ${GREEN}https://spawner.$DOMAIN${NC}"
@@ -216,7 +216,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
     echo ""
     echo "Pour démarrer Spawner plus tard:"
-    echo "  docker-compose -f docker-compose.production.yml up -d"
+    echo "  docker compose -f docker-compose.production.yml up -d"
 fi
 
 echo ""
