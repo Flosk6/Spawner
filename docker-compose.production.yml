@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:v3.2
     container_name: spawner-traefik
     restart: unless-stopped
     command:
