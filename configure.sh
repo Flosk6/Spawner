@@ -79,7 +79,7 @@ else
 fi
 
 read -p "Email pour Let's Encrypt: " ACME_EMAIL
-while [ -z "$ACME_EMAIL" ]; then
+while [ -z "$ACME_EMAIL" ]; do
     echo -e "${RED}L'email est requis!${NC}"
     read -p "Email: " ACME_EMAIL
 done
@@ -114,7 +114,7 @@ while [ -z "$GITHUB_CLIENT_SECRET" ]; do
 done
 
 read -p "GitHub Organization (nom): " GITHUB_ORG
-while [ -z "$GITHUB_ORG" ]; then
+while [ -z "$GITHUB_ORG" ]; do
     echo -e "${RED}L'organisation est requise!${NC}"
     read -p "GitHub Organization: " GITHUB_ORG
 done
