@@ -8,6 +8,9 @@
 # Version: 1.0.0
 #
 
+# Main installation function
+main() {
+
 set -e
 set -o pipefail
 
@@ -161,7 +164,7 @@ if ! command -v docker &> /dev/null; then
     fi
 
     # Add user to docker group
-    sudo usermod -aG docker $USER
+    sudo usermod -aG docker $(whoami)
 
     echo -e "${GREEN}✓ Docker installed${NC}"
 else
@@ -297,5 +300,10 @@ echo "   df -h /opt/spawner"
 echo ""
 
 echo -e "${GREEN}Installation log saved to: ${LOGFILE}${NC}"
-echo -e "${CYAN}Enjoy Spawner! 🚀${NC}"
+echo -e "${CYAN}Enjoy Spawner!${NC}"
 echo ""
+
+}
+
+# Execute main function
+main "$@"
