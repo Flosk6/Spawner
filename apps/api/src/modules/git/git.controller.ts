@@ -2,7 +2,6 @@ import { Controller, Get, Post, Body, BadRequestException, UseGuards } from '@ne
 import { Throttle } from '@nestjs/throttler';
 import { GitService } from './git.service';
 import { GitKeysService, RepoKeyInfo } from './git-keys.service';
-import { ConfigService } from '../../config/config.service';
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 
 @Controller('git')
@@ -11,7 +10,6 @@ export class GitController {
   constructor(
     private readonly gitService: GitService,
     private readonly gitKeysService: GitKeysService,
-    private readonly configService: ConfigService,
   ) {}
 
   @Get('key')
@@ -28,25 +26,12 @@ export class GitController {
 
   @Post('test')
   @Throttle({ medium: { limit: 30, ttl: 3600000 } })
-  async testConnection(@Body() body: { resourceName?: string; gitRepo?: string }) {
-    let gitRepo: string;
-
-    if (body.gitRepo) {
-      gitRepo = body.gitRepo;
-    } else if (body.resourceName) {
-      const resource = this.configService.getResourceByName(body.resourceName);
-      if (!resource) {
-        throw new BadRequestException(`Resource not found: ${body.resourceName}`);
-      }
-      if (!resource.gitRepo) {
-        throw new BadRequestException(`Resource ${body.resourceName} has no git repository`);
-      }
-      gitRepo = resource.gitRepo;
-    } else {
-      throw new BadRequestException('Either resourceName or gitRepo is required');
+  async testConnection(@Body() body: { gitRepo: string }) {
+    if (!body.gitRepo) {
+      throw new BadRequestException('gitRepo is required');
     }
 
-    return this.gitService.testConnection(gitRepo);
+    return this.gitService.testConnection(body.gitRepo);
   }
 
   @Get('keys/repos')

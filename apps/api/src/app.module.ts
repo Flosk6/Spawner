@@ -5,7 +5,6 @@ import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 import { config } from "dotenv";
 import { join } from "path";
-import { ConfigModule } from "./config/config.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { GitModule } from "./modules/git/git.module";
 import { EnvironmentModule } from "./modules/environment/environment.module";
@@ -73,7 +72,6 @@ config({ path: envPath });
       migrations: [join(__dirname, "migrations", "*.{ts,js}")],
       migrationsRun: process.env.NODE_ENV === "production",
     }),
-    ConfigModule,
     ProjectsModule,
     GitModule,
     EnvironmentModule,
