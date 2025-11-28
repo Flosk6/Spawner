@@ -17,14 +17,13 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { sanitizeShellArg, sanitizeGitRepo, sanitizeGitBranch, validateResourceName } from '@spawner/utils';
-import type { EnvironmentStatus, ResourceType } from '@spawner/types';
+import type { EnvironmentStatus, ResourceType, ProjectResource } from '@spawner/types';
 import { isGitResource, DEFAULT_EXPOSED_PORTS } from '@spawner/config';
 import { DockerComposeGenerator } from '../../common/docker-compose.generator';
 import { EnvironmentLogsEmitter } from '../../common/environment-logs.emitter';
 import { EnvVarsGenerator } from '../../common/env-vars.generator';
 import { DockerService } from '../../common/docker.service';
 import { GitKeysService } from '../git/git-keys.service';
-import type { ProjectResource } from '../../config/config.service';
 
 const execAsync = promisify(exec);
 
