@@ -27,6 +27,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install build tools needed for node-pty and other native modules
+RUN apk add --no-cache python3 make g++
+
 # Install pnpm
 RUN npm install -g pnpm
 
