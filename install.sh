@@ -61,7 +61,7 @@ trap cleanup EXIT
 
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
-    echo -e "${RED}❌ Do not run this script as root!${NC}"
+    echo -e "${RED}[X] Do not run this script as root!${NC}"
     echo -e "${YELLOW}Create a non-root user with sudo:${NC}"
     echo "  adduser spawner"
     echo "  usermod -aG sudo spawner"
@@ -84,7 +84,7 @@ if [ -f /etc/os-release ]; then
     esac
 
     if [ "$ID" != "ubuntu" ] && [ "$ID" != "debian" ]; then
-        echo -e "${YELLOW}⚠️  This script is optimized for Ubuntu/Debian.${NC}"
+        echo -e "${YELLOW}WARNING  This script is optimized for Ubuntu/Debian.${NC}"
         echo "Detected OS: $ID $VERSION_ID"
         read -p "Continue anyway? (y/n) " -n 1 -r
         echo
@@ -98,7 +98,7 @@ fi
 AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
 REQUIRED_SPACE=10485760 # 10GB in KB
 if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE" ]; then
-    echo -e "${RED}❌ Not enough disk space!${NC}"
+    echo -e "${RED}[X] Not enough disk space!${NC}"
     echo "Available: $(($AVAILABLE_SPACE / 1024 / 1024))GB"
     echo "Required: 10GB minimum"
     exit 1
@@ -140,7 +140,7 @@ echo -e "${BLUE}[3/10] Installing Docker...${NC}"
 if ! command -v docker &> /dev/null; then
     # Check for snap docker (unsupported)
     if snap list docker &> /dev/null; then
-        echo -e "${RED}❌ Snap Docker detected - not supported!${NC}"
+        echo -e "${RED}[X] Snap Docker detected - not supported!${NC}"
         echo "Remove it with: sudo snap remove docker"
         exit 1
     fi
@@ -166,14 +166,14 @@ if ! command -v docker &> /dev/null; then
     # Add user to docker group
     sudo usermod -aG docker $(whoami)
 
-    echo -e "${GREEN}✓ Docker installed${NC}"
+    echo -e "${GREEN}OK Docker installed${NC}"
 else
-    echo -e "${GREEN}✓ Docker already installed${NC}"
+    echo -e "${GREEN}OK Docker already installed${NC}"
 fi
 
 # Verify Docker
 if ! docker version &> /dev/null; then
-    echo -e "${YELLOW}⚠️  Docker installed but not running. Starting...${NC}"
+    echo -e "${YELLOW}WARNING  Docker installed but not running. Starting...${NC}"
     sudo systemctl start docker
     sudo systemctl enable docker
 fi
@@ -183,16 +183,16 @@ echo -e "${BLUE}[4/10] Installing Node.js 20 & pnpm...${NC}"
 if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
     sudo apt install -y -qq nodejs
-    echo -e "${GREEN}✓ Node.js installed ($(node --version))${NC}"
+    echo -e "${GREEN}OK Node.js installed ($(node --version))${NC}"
 else
-    echo -e "${GREEN}✓ Node.js already installed ($(node --version))${NC}"
+    echo -e "${GREEN}OK Node.js already installed ($(node --version))${NC}"
 fi
 
 if ! command -v pnpm &> /dev/null; then
     sudo npm install -g pnpm --silent
-    echo -e "${GREEN}✓ pnpm installed ($(pnpm --version))${NC}"
+    echo -e "${GREEN}OK pnpm installed ($(pnpm --version))${NC}"
 else
-    echo -e "${GREEN}✓ pnpm already installed ($(pnpm --version))${NC}"
+    echo -e "${GREEN}OK pnpm already installed ($(pnpm --version))${NC}"
 fi
 
 echo ""
@@ -203,7 +203,7 @@ fi
 sudo ufw allow 22/tcp > /dev/null 2>&1  # SSH
 sudo ufw allow 80/tcp > /dev/null 2>&1  # HTTP
 sudo ufw allow 443/tcp > /dev/null 2>&1 # HTTPS
-echo -e "${GREEN}✓ Firewall configured (22, 80, 443 open)${NC}"
+echo -e "${GREEN}OK Firewall configured (22, 80, 443 open)${NC}"
 
 echo ""
 echo -e "${BLUE}[6/10] Cloning Spawner...${NC}"
@@ -219,25 +219,25 @@ else
     # git clone https://github.com/votre-org/spawner.git
     mkdir -p spawner
     cd spawner
-    echo -e "${YELLOW}⚠️  Using local development copy${NC}"
+    echo -e "${YELLOW}WARNING  Using local development copy${NC}"
 fi
-echo -e "${GREEN}✓ Spawner ready${NC}"
+echo -e "${GREEN}OK Spawner ready${NC}"
 
 echo ""
 echo -e "${BLUE}[7/10] Installing dependencies...${NC}"
 # pnpm install --silent
-echo -e "${GREEN}✓ Dependencies installed${NC}"
+echo -e "${GREEN}OK Dependencies installed${NC}"
 
 echo ""
 echo -e "${BLUE}[8/10] Building Spawner...${NC}"
 # pnpm build --silent
-echo -e "${GREEN}✓ Build complete${NC}"
+echo -e "${GREEN}OK Build complete${NC}"
 
 echo ""
 echo -e "${BLUE}[9/10] Creating directories...${NC}"
 sudo mkdir -p /opt/spawner/{data,git-keys,repos,envs,backups}
 sudo chown -R $(whoami):$(whoami) /opt/spawner
-echo -e "${GREEN}✓ Directories created${NC}"
+echo -e "${GREEN}OK Directories created${NC}"
 
 echo ""
 echo -e "${BLUE}[10/10] Interactive configuration...${NC}"
@@ -247,20 +247,20 @@ echo ""
 if [ -f "./configure.sh" ]; then
     ./configure.sh
 else
-    echo -e "${RED}❌ configure.sh not found!${NC}"
+    echo -e "${RED}[X] configure.sh not found!${NC}"
     echo "Please run manually: cd ~/spawner && ./configure.sh"
     exit 1
 fi
 
 # Show final status
 echo ""
-echo -e "${PURPLE}"
+echo -e "${GREEN}"
 cat << "EOF"
-╔══════════════════════════════════════════╗
-║                                          ║
-║   🎉 Spawner Installed Successfully!    ║
-║                                          ║
-╚══════════════════════════════════════════╝
+==========================================
+
+   Spawner Installed Successfully!
+
+==========================================
 EOF
 echo -e "${NC}"
 
@@ -284,18 +284,18 @@ echo "  - Health check: cd ~/spawner && ./scripts/health-check.sh"
 echo "  - Backup database: cd ~/spawner && ./scripts/backup-db.sh"
 echo ""
 
-echo -e "${YELLOW}⚠️  IMPORTANT - Next steps:${NC}"
+echo -e "${YELLOW}WARNING  IMPORTANT - Next steps:${NC}"
 echo ""
-echo "1. 📦 Configure automatic backups:"
+echo "1.  Configure automatic backups:"
 echo "   crontab -e"
 echo "   # Add: 0 2 * * * $HOME/spawner/scripts/backup-db.sh"
 echo ""
-echo "2. 🔑 Add SSH deploy keys to GitHub:"
+echo "2.  Add SSH deploy keys to GitHub:"
 echo "   - Go to Spawner Settings > Git SSH Key"
 echo "   - Generate key"
 echo "   - Add as read-only deploy key to your repos"
 echo ""
-echo "3. 📊 Monitor disk space regularly:"
+echo "3.  Monitor disk space regularly:"
 echo "   df -h /opt/spawner"
 echo ""
 
