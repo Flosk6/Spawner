@@ -46,7 +46,7 @@ async function bootstrap() {
       maxAge: parseInt(process.env.SESSION_MAX_AGE || '86400000'), // 24 hours
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     },
   });
 
