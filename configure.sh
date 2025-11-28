@@ -40,7 +40,7 @@ if [ -f ".env.production" ]; then
     fi
     # Backup existing config
     cp .env.production .env.production.backup.$(date +%Y%m%d_%H%M%S)
-    echo -e "${GREEN}✓ Backup créé${NC}"
+    echo -e "${GREEN}OK Backup créé${NC}"
 fi
 
 echo -e "${CYAN}=== Configuration de Spawner ===${NC}"
@@ -62,10 +62,10 @@ EXPECTED_IP=$(curl -s ifconfig.me)
 DNS_IP=$(dig +short spawner.$DOMAIN | tail -n1)
 
 if [ "$DNS_IP" = "$EXPECTED_IP" ]; then
-    echo -e "${GREEN}✓ DNS correctement configuré${NC}"
-    echo "  spawner.$DOMAIN → $EXPECTED_IP"
+    echo -e "${GREEN}OK DNS correctement configuré${NC}"
+    echo "  spawner.$DOMAIN -> $EXPECTED_IP"
 else
-    echo -e "${YELLOW}⚠ DNS pas encore propagé ou mal configuré${NC}"
+    echo -e "${YELLOW}WARNING DNS pas encore propagé ou mal configuré${NC}"
     echo "  Attendu: $EXPECTED_IP"
     echo "  Trouvé: ${DNS_IP:-N/A}"
     echo ""
@@ -143,7 +143,7 @@ echo -e "${YELLOW}Génération des secrets sécurisés...${NC}"
 DB_PASSWORD=$(openssl rand -base64 32)
 SESSION_SECRET=$(openssl rand -base64 32)
 TRAEFIK_AUTH=$(htpasswd -nb admin "$TRAEFIK_PASSWORD" | sed -e s/\\$/\\$\\$/g)
-echo -e "${GREEN}✓ Secrets générés${NC}"
+echo -e "${GREEN}OK Secrets générés${NC}"
 
 # Create .env.production
 echo ""
@@ -177,7 +177,7 @@ EOF
 
 chmod 600 .env.production
 
-echo -e "${GREEN}✓ Configuration sauvegardée${NC}"
+echo -e "${GREEN}OK Configuration sauvegardée${NC}"
 
 # Summary
 echo ""
@@ -220,5 +220,5 @@ else
 fi
 
 echo ""
-echo -e "${CYAN}Configuration terminée! 🎉${NC}"
+echo -e "${CYAN}Configuration terminée!${NC}"
 echo ""
