@@ -5,6 +5,8 @@ services:
     image: traefik:v3.2
     container_name: spawner-traefik
     restart: unless-stopped
+    environment:
+      - DOCKER_API_VERSION=1.44
     command:
       - "--api.dashboard=true"
       - "--providers.docker=true"
