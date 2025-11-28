@@ -221,13 +221,9 @@ if [ -d "spawner" ]; then
     cd spawner
     git pull -q
 else
-    # TODO: Replace with your actual GitHub repo
     echo -e "${YELLOW}Cloning from GitHub...${NC}"
-    # For now, create empty repo structure (replace with actual clone)
-    # git clone https://github.com/votre-org/spawner.git
-    mkdir -p spawner
+    git clone https://github.com/Florian-mfr/Spawner.git spawner
     cd spawner
-    echo -e "${YELLOW}WARNING  Using local development copy${NC}"
 fi
 echo -e "${GREEN}OK Spawner ready${NC}"
 
