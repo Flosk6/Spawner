@@ -3,7 +3,9 @@
 # Spawner - Installation Automatique
 # Installe Spawner sur un VPS Ubuntu vierge en une seule commande
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/votre-org/spawner/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Florian-mfr/Spawner/refs/heads/master/install.sh | bash
+#
+# Version: 1.0.0
 #
 
 set -e
