@@ -18,7 +18,7 @@ Spawner is a self-hosted environment management system for creating and managing
 
 This is a **pnpm + Turborepo** monorepo:
 
-- **apps/api**: NestJS backend (port 3000) with TypeORM + SQLite
+- **apps/api**: NestJS backend (port 3000) with Prisma + PostgreSQL
 - **apps/web**: Vue.js 3 frontend (port 5173 in dev) with Vite + Tailwind CSS
 - **packages/types**: Shared TypeScript type definitions
 - **packages/config**: Constants, defaults, validation patterns
@@ -131,19 +131,19 @@ NestJS application with feature modules:
 - **common/docker-compose.generator.ts**: Container configuration generation
 - **modules/terminal/terminal.gateway.ts**: WebSocket terminal with security constraints
 
-### Database (SQLite + TypeORM)
+### Database (PostgreSQL + Prisma)
 
-Path: `/opt/spawner/data/spawner.db` (configurable via `DATABASE_PATH`)
+Connection configured via `DATABASE_URL` environment variable.
 
 **Tables:**
-- `users`: GitHub OAuth accounts (githubId, username, email, role, lastLoginAt)
-- `audit_logs`: Action tracking (action, details, ipAddress, userAgent, timestamp)
-- `sessions`: Express session storage (managed by connect-sqlite3)
-- `environments`: Environment metadata (name, status, config_json, project_id)
-- `environment_resources`: Resource details per environment (branch, URL, status)
-- `projects`: Multi-project support (name, baseDomain, config)
-- `project_resources`: Resources per project
-- `settings`: Key-value store for SSH keys and paths
+- `User`: GitHub OAuth accounts (githubId, username, email, role, lastLoginAt)
+- `AuditLog`: Action tracking (action, details, ipAddress, userAgent, timestamp)
+- `Session`: Express session storage (managed by connect-pg-simple)
+- `Environment`: Environment metadata (name, status, config_json, project_id)
+- `EnvironmentResource`: Resource details per environment (branch, URL, status)
+- `Project`: Multi-project support (name, baseDomain, config)
+- `ProjectResource`: Resources per project
+- `Setting`: Key-value store for SSH keys and paths
 
 ### Environment Variables
 
@@ -159,7 +159,7 @@ Path: `/opt/spawner/data/spawner.db` (configurable via `DATABASE_PATH`)
 
 **Application:**
 - `PORT`: API server port (default: 3000)
-- `DATABASE_PATH`: SQLite path (default: /opt/spawner/data/spawner.db)
+- `DATABASE_URL`: PostgreSQL connection string (e.g., postgresql://user:password@localhost:5432/spawner)
 - `GIT_KEYS_PATH`: SSH keys directory (default: /opt/spawner/git-keys)
 - `REPOS_PATH`: Git clones (default: /opt/spawner/repos)
 - `ENVS_PATH`: Environment files (default: /opt/spawner/envs)
@@ -199,7 +199,7 @@ Vue.js 3 with Composition API, Vue Router 4, Tailwind CSS.
 1. User clicks "Login with GitHub" → `/api/auth/github`
 2. GitHub authorization → callback to `/api/auth/github/callback`
 3. Backend validates organization and team membership
-4. Session created in SQLite, user redirected to frontend
+4. Session created in PostgreSQL, user redirected to frontend
 5. All API requests authenticated via session cookie (`connect.sid`)
 
 **Endpoints:**
@@ -453,10 +453,11 @@ Browser-based terminal access to running containers.
 ### Debugging Environment Creation
 
 ```bash
-# Check database
-sqlite3 /opt/spawner/data/spawner.db
-SELECT * FROM environments WHERE name = '<env-name>';
-SELECT * FROM environment_resources WHERE environmentId = <id>;
+# Check database (using psql or Prisma Studio)
+npx prisma studio
+# Or directly with psql:
+# psql $DATABASE_URL -c "SELECT * FROM \"Environment\" WHERE name = '<env-name>';"
+# psql $DATABASE_URL -c "SELECT * FROM \"EnvironmentResource\" WHERE \"environmentId\" = '<id>';"
 
 # Check Docker
 docker ps -a --filter "label=com.docker.compose.project=env-<env-name>"
@@ -474,10 +475,11 @@ docker logs spawner-api
 ### Debugging Authentication
 
 ```bash
-# Check session
-sqlite3 /opt/spawner/data/spawner.db
-SELECT * FROM sessions;
-SELECT * FROM audit_logs ORDER BY createdAt DESC LIMIT 10;
+# Check session and audit logs
+npx prisma studio
+# Or with psql:
+# psql $DATABASE_URL -c "SELECT * FROM \"Session\";"
+# psql $DATABASE_URL -c "SELECT * FROM \"AuditLog\" ORDER BY \"createdAt\" DESC LIMIT 10;"
 
 # Test API
 curl http://localhost:3000/api/auth/status -H "Cookie: connect.sid=<cookie>"
@@ -506,10 +508,11 @@ curl http://localhost:3000/api/auth/status -H "Cookie: connect.sid=<cookie>"
 ### Directory Structure
 
 All data under `/opt/spawner/`:
-- `data/` - SQLite database and sessions
 - `git-keys/` - SSH deploy keys
 - `repos/` - Git repository clones
 - `envs/` - Environment configuration files
+
+PostgreSQL database runs separately (Docker container or managed service).
 
 ### Reverse Proxy
 

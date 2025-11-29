@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { SessionAuthGuard } from './guards/session-auth.guard';
 import { AuthService } from './auth.service';
 import { AuthTokenService } from './auth-token.service';
-import { User } from '../../entities/user.entity';
+import type { User } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {

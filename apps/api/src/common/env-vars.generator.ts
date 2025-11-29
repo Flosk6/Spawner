@@ -1,7 +1,5 @@
-import { Project } from "../entities/project.entity";
-import { ProjectResource } from "../entities/project-resource.entity";
-import { Environment } from "../entities/environment.entity";
 import * as crypto from "crypto";
+import type { Project, ProjectResource, Environment } from "@prisma/client";
 
 /**
  * Service to generate complete environment variables for a resource

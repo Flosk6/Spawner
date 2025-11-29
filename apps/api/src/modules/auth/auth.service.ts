@@ -1,9 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { Octokit } from '@octokit/rest';
-import { User } from '../../entities/user.entity';
-import { AuditLog } from '../../entities/audit-log.entity';
+import { PrismaService } from '../../common/prisma.service';
 
 interface CreateUserDto {
   githubId: string;
@@ -14,12 +11,7 @@ interface CreateUserDto {
 
 @Injectable()
 export class AuthService {
-  constructor(
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
-    @InjectRepository(AuditLog)
-    private auditLogRepository: Repository<AuditLog>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async verifyTeamMembership(
     accessToken: string,
@@ -44,26 +36,33 @@ export class AuthService {
     }
   }
 
-  async findOrCreateUser(data: CreateUserDto): Promise<User> {
-    let user = await this.userRepository.findOne({
+  async findOrCreateUser(data: CreateUserDto) {
+    const user = await this.prisma.user.findUnique({
       where: { githubId: data.githubId },
     });
 
     if (!user) {
-      user = this.userRepository.create(data);
-    } else {
-      // Update user info
-      user.username = data.username;
-      user.email = data.email;
-      user.avatarUrl = data.avatarUrl;
+      return this.prisma.user.create({
+        data: {
+          ...data,
+          lastLoginAt: new Date(),
+        },
+      });
     }
 
-    user.lastLoginAt = new Date();
-    return await this.userRepository.save(user);
+    return this.prisma.user.update({
+      where: { githubId: data.githubId },
+      data: {
+        username: data.username,
+        email: data.email,
+        avatarUrl: data.avatarUrl,
+        lastLoginAt: new Date(),
+      },
+    });
   }
 
-  async findUserById(id: number): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id } });
+  async findUserById(id: number) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -76,14 +75,15 @@ export class AuthService {
     details: any,
     ipAddress?: string,
     userAgent?: string,
-  ): Promise<void> {
-    const auditLog = this.auditLogRepository.create({
-      userId,
-      action,
-      details: JSON.stringify(details),
-      ipAddress,
-      userAgent,
+  ) {
+    await this.prisma.auditLog.create({
+      data: {
+        userId,
+        action,
+        details: JSON.stringify(details),
+        ipAddress,
+        userAgent,
+      },
     });
-    await this.auditLogRepository.save(auditLog);
   }
 }

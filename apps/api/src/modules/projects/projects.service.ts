@@ -1,26 +1,27 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Project } from '../../entities/project.entity';
+import { PrismaService } from '../../common/prisma.service';
 
 @Injectable()
 export class ProjectsService {
-  constructor(
-    @InjectRepository(Project)
-    private projectRepository: Repository<Project>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
-  async findAll(): Promise<Project[]> {
-    return this.projectRepository.find({
-      relations: ['resources', 'environments'],
-      order: { createdAt: 'DESC' },
+  async findAll() {
+    return this.prisma.project.findMany({
+      include: {
+        resources: true,
+        environments: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(id: number): Promise<Project> {
-    const project = await this.projectRepository.findOne({
+  async findOne(id: number) {
+    const project = await this.prisma.project.findUnique({
       where: { id },
-      relations: ['resources', 'environments'],
+      include: {
+        resources: true,
+        environments: true,
+      },
     });
 
     if (!project) {
@@ -30,9 +31,8 @@ export class ProjectsService {
     return project;
   }
 
-  async create(data: { name: string; baseDomain: string }): Promise<Project> {
-    // Check if project with same name already exists
-    const existing = await this.projectRepository.findOne({
+  async create(data: { name: string; baseDomain: string }) {
+    const existing = await this.prisma.project.findUnique({
       where: { name: data.name },
     });
 
@@ -40,16 +40,16 @@ export class ProjectsService {
       throw new ConflictException(`Project with name "${data.name}" already exists`);
     }
 
-    const project = this.projectRepository.create(data);
-    return this.projectRepository.save(project);
+    return this.prisma.project.create({
+      data,
+    });
   }
 
-  async update(id: number, data: { name?: string; baseDomain?: string }): Promise<Project> {
+  async update(id: number, data: { name?: string; baseDomain?: string }) {
     const project = await this.findOne(id);
 
-    // If updating name, check for conflicts
     if (data.name && data.name !== project.name) {
-      const existing = await this.projectRepository.findOne({
+      const existing = await this.prisma.project.findUnique({
         where: { name: data.name },
       });
 
@@ -58,12 +58,17 @@ export class ProjectsService {
       }
     }
 
-    Object.assign(project, data);
-    return this.projectRepository.save(project);
+    return this.prisma.project.update({
+      where: { id },
+      data,
+    });
   }
 
-  async delete(id: number): Promise<void> {
-    const project = await this.findOne(id);
-    await this.projectRepository.remove(project);
+  async delete(id: number) {
+    await this.findOne(id);
+
+    await this.prisma.project.delete({
+      where: { id },
+    });
   }
 }

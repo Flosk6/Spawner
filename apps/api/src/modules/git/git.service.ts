@@ -1,7 +1,5 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Setting } from '../../entities/setting.entity';
+import { PrismaService } from '../../common/prisma.service';
 import { GitKeysService } from './git-keys.service';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -18,8 +16,7 @@ export class GitService {
   private readonly publicKeyPath: string;
 
   constructor(
-    @InjectRepository(Setting)
-    private settingRepository: Repository<Setting>,
+    private prisma: PrismaService,
     @Inject(forwardRef(() => GitKeysService))
     private gitKeysService: GitKeysService,
   ) {
@@ -55,9 +52,21 @@ export class GitService {
     await execAsync(command);
 
     // Store paths in settings
-    await this.settingRepository.save({ key: 'git_ssh_private_key_path', value: this.privateKeyPath });
-    await this.settingRepository.save({ key: 'git_ssh_public_key_path', value: this.publicKeyPath });
-    await this.settingRepository.save({ key: 'git_ssh_configured', value: 'true' });
+    await this.prisma.setting.upsert({
+      where: { key: 'git_ssh_private_key_path' },
+      update: { value: this.privateKeyPath },
+      create: { key: 'git_ssh_private_key_path', value: this.privateKeyPath },
+    });
+    await this.prisma.setting.upsert({
+      where: { key: 'git_ssh_public_key_path' },
+      update: { value: this.publicKeyPath },
+      create: { key: 'git_ssh_public_key_path', value: this.publicKeyPath },
+    });
+    await this.prisma.setting.upsert({
+      where: { key: 'git_ssh_configured' },
+      update: { value: 'true' },
+      create: { key: 'git_ssh_configured', value: 'true' },
+    });
 
     const publicKey = fs.readFileSync(this.publicKeyPath, 'utf8').trim();
     return { exists: true, publicKey };

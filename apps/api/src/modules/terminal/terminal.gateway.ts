@@ -9,9 +9,7 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { Injectable, Logger } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
-import { Environment } from "../../entities/environment.entity";
+import { PrismaService } from "../../common/prisma.service";
 import { AuthTokenService } from "../auth/auth-token.service";
 import * as pty from "node-pty";
 
@@ -81,8 +79,7 @@ export class TerminalGateway
   private readonly MAX_SESSIONS_PER_USER = 3;
 
   constructor(
-    @InjectRepository(Environment)
-    private readonly environmentRepository: Repository<Environment>,
+    private readonly prisma: PrismaService,
     private readonly authTokenService: AuthTokenService
   ) {}
 
@@ -159,9 +156,12 @@ export class TerminalGateway
 
     try {
       // Security: Verify environment exists and user has access
-      const environment = await this.environmentRepository.findOne({
+      const environment = await this.prisma.environment.findUnique({
         where: { id: data.environmentId },
-        relations: ["resources", "project"],
+        include: {
+          resources: true,
+          project: true,
+        },
       });
 
       if (!environment) {

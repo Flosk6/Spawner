@@ -73,10 +73,17 @@ export class DockerService implements OnModuleInit {
       });
 
       if (existingVolumes.Volumes && existingVolumes.Volumes.length > 0) {
-        return;
+        console.warn(`Volume ${name} already exists. Deleting it to create a fresh one...`);
+        try {
+          await this.removeVolume(name);
+        } catch (error) {
+          console.error(`Failed to remove existing volume ${name}:`, error.message);
+          throw new Error(`Cannot create volume ${name}: old volume exists and couldn't be removed`);
+        }
       }
 
       await this.docker.createVolume({ Name: name });
+      console.log(`Volume ${name} created successfully`);
     } catch (error) {
       throw new Error(`Failed to create volume ${name}: ${error.message}`);
     }
@@ -85,9 +92,23 @@ export class DockerService implements OnModuleInit {
   async removeVolume(name: string): Promise<void> {
     try {
       const volume = this.docker.getVolume(name);
-      await volume.remove();
+      await volume.remove({ force: true });
     } catch (error) {
+      if (error.statusCode === 404) {
+        console.log(`Volume ${name} does not exist, skipping...`);
+        return;
+      }
       console.error(`Failed to remove volume ${name}:`, error.message);
+      throw error;
+    }
+  }
+
+  async removeImage(tag: string): Promise<void> {
+    try {
+      const image = this.docker.getImage(tag);
+      await image.remove({ force: true });
+    } catch (error) {
+      console.error(`Failed to remove image ${tag}:`, error.message);
     }
   }
 
