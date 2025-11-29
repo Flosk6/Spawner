@@ -20,7 +20,7 @@ COPY apps/api ./apps/api
 RUN pnpm install --frozen-lockfile
 
 # Generate Prisma Client
-RUN cd apps/api && npx prisma generate
+RUN cd apps/api && pnpm exec prisma generate
 
 # Build shared packages first, then API
 RUN pnpm --filter @spawner/types build && \
@@ -55,7 +55,7 @@ COPY apps/api/prisma ./apps/api/prisma
 RUN pnpm install --frozen-lockfile --prod
 
 # Generate Prisma Client for production
-RUN cd apps/api && npx prisma generate
+RUN cd apps/api && pnpm exec prisma generate
 
 # Copy built packages from builder
 COPY --from=builder /app/packages/types/dist ./packages/types/dist
