@@ -4,11 +4,8 @@ import {
   ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Environment } from '../../entities/environment.entity';
-import { EnvironmentResource } from '../../entities/environment-resource.entity';
-import { Project } from '../../entities/project.entity';
+import { PrismaService } from '../../common/prisma.service';
+import type { Project, ProjectResource as PrismaProjectResource } from '@prisma/client';
 import { Observable } from 'rxjs';
 import { MessageEvent } from '@nestjs/common';
 import { exec } from 'child_process';
@@ -17,7 +14,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { sanitizeShellArg, sanitizeGitRepo, sanitizeGitBranch, validateResourceName } from '@spawner/utils';
-import type { EnvironmentStatus, ResourceType, ProjectResource } from '@spawner/types';
+import type { EnvironmentStatus, ResourceType } from '@spawner/types';
 import { isGitResource, DEFAULT_EXPOSED_PORTS } from '@spawner/config';
 import { DockerComposeGenerator } from '../../common/docker-compose.generator';
 import { EnvironmentLogsEmitter } from '../../common/environment-logs.emitter';
@@ -27,39 +24,57 @@ import { GitKeysService } from '../git/git-keys.service';
 
 const execAsync = promisify(exec);
 
+type ResourceLimits = {
+  cpu?: string;
+  memory?: string;
+  cpuReservation?: string;
+  memoryReservation?: string;
+};
+
+type ProjectWithResources = Project & {
+  resources: PrismaProjectResource[];
+};
+
 @Injectable()
 export class EnvironmentService {
   constructor(
-    @InjectRepository(Environment)
-    private environmentRepository: Repository<Environment>,
-    @InjectRepository(EnvironmentResource)
-    private resourceRepository: Repository<EnvironmentResource>,
-    @InjectRepository(Project)
-    private projectRepository: Repository<Project>,
+    private prisma: PrismaService,
     private logsEmitter: EnvironmentLogsEmitter,
     private dockerService: DockerService,
     private gitKeysService: GitKeysService,
   ) {}
 
-  async findAll(): Promise<Environment[]> {
-    return this.environmentRepository.find({
-      relations: ['resources', 'project'],
-      order: { createdAt: 'DESC' },
+  async findAll() {
+    return this.prisma.environment.findMany({
+      include: {
+        resources: true,
+        project: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findByProject(projectId: number): Promise<Environment[]> {
-    return this.environmentRepository.find({
+  async findByProject(projectId: number) {
+    return this.prisma.environment.findMany({
       where: { projectId },
-      relations: ['resources'],
-      order: { createdAt: 'DESC' },
+      include: {
+        resources: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(id: string): Promise<Environment> {
-    const environment = await this.environmentRepository.findOne({
+  async findOne(id: string) {
+    const environment = await this.prisma.environment.findUnique({
       where: { id },
-      relations: ['resources', 'project', 'project.resources'],
+      include: {
+        resources: true,
+        project: {
+          include: {
+            resources: true,
+          },
+        },
+      },
     });
 
     if (!environment) {
@@ -74,11 +89,11 @@ export class EnvironmentService {
     name: string,
     branches: Record<string, string>,
     localMode?: boolean,
-  ): Promise<Environment> {
+  ) {
     // Load project with resources
-    const project = await this.projectRepository.findOne({
+    const project = await this.prisma.project.findUnique({
       where: { id: projectId },
-      relations: ['resources'],
+      include: { resources: true },
     });
 
     if (!project) {
@@ -86,7 +101,7 @@ export class EnvironmentService {
     }
 
     // Check for duplicate environment name
-    const existing = await this.environmentRepository.findOne({
+    const existing = await this.prisma.environment.findFirst({
       where: { name },
     });
 
@@ -108,15 +123,15 @@ export class EnvironmentService {
 
     // Create environment record
     const envId = uuidv4();
-    const environment = this.environmentRepository.create({
-      id: envId,
-      name,
-      projectId,
-      status: 'creating' as EnvironmentStatus,
-      configJson: JSON.stringify({ branches, localMode: localMode || false }),
+    const environment = await this.prisma.environment.create({
+      data: {
+        id: envId,
+        name,
+        projectId,
+        status: 'creating' as EnvironmentStatus,
+        configJson: JSON.stringify({ branches, localMode: localMode || false }),
+      },
     });
-
-    await this.environmentRepository.save(environment);
 
     // Start async creation process
     this.createEnvironmentAsync(
@@ -128,8 +143,11 @@ export class EnvironmentService {
     ).catch(async (error) => {
       console.error(`Failed to create environment ${name}:`, error);
       this.logsEmitter.error(envId, `Failed: ${error.message}`);
-      await this.environmentRepository.update(envId, {
-        status: 'failed' as EnvironmentStatus,
+      await this.prisma.environment.update({
+        where: { id: envId },
+        data: {
+          status: 'failed' as EnvironmentStatus,
+        },
       });
     });
 
@@ -164,7 +182,7 @@ export class EnvironmentService {
    */
   private async createEnvironmentAsync(
     envId: string,
-    project: Project,
+    project: ProjectWithResources,
     envName: string,
     branches: Record<string, string>,
     localMode: boolean,
@@ -225,7 +243,7 @@ export class EnvironmentService {
         );
       }
 
-      const environment = await this.environmentRepository.findOne({
+      const environment = await this.prisma.environment.findUnique({
         where: { id: envId },
       });
 
@@ -294,26 +312,30 @@ export class EnvironmentService {
 
       log('info', 'Creating environment resources...');
       for (const resource of project.resources) {
-        const envResource = this.resourceRepository.create({
-          id: `${envId}-${resource.name}`,
-          environmentId: envId,
-          resourceName: resource.name,
-          resourceType: resource.type as ResourceType,
-          url: this.generateResourceUrl(
-            resource.name,
-            resource.type as ResourceType,
-            envName,
-            project.baseDomain,
-            localMode,
-            resourcePorts,
-          ),
-          branch: branches[resource.name] || null,
+        await this.prisma.environmentResource.create({
+          data: {
+            id: `${envId}-${resource.name}`,
+            environmentId: envId,
+            resourceName: resource.name,
+            resourceType: resource.type as ResourceType,
+            url: this.generateResourceUrl(
+              resource.name,
+              resource.type as ResourceType,
+              envName,
+              project.baseDomain,
+              localMode,
+              resourcePorts,
+            ),
+            branch: branches[resource.name] || null,
+          },
         });
-        await this.resourceRepository.save(envResource);
       }
 
-      await this.environmentRepository.update(envId, {
-        status: 'running' as EnvironmentStatus,
+      await this.prisma.environment.update({
+        where: { id: envId },
+        data: {
+          status: 'running' as EnvironmentStatus,
+        },
       });
 
       EnvVarsGenerator.clearSharedSecrets(envId);
@@ -322,8 +344,11 @@ export class EnvironmentService {
       log('success', 'Environment created successfully!');
     } catch (error) {
       log('error', `Failed to create environment: ${error.message}`);
-      await this.environmentRepository.update(envId, {
-        status: 'failed' as EnvironmentStatus,
+      await this.prisma.environment.update({
+        where: { id: envId },
+        data: {
+          status: 'failed' as EnvironmentStatus,
+        },
       });
       throw error;
     }
@@ -362,30 +387,46 @@ export class EnvironmentService {
       ? environment.resources.map(r => ({ name: r.resourceName, type: r.resourceType }))
       : environment.project.resources.map(r => ({ name: r.name, type: r.type }));
 
+    console.log(`Starting deletion of environment: ${environment.name}`);
+    console.log(`Resources to clean: ${resourcesToClean.map(r => r.name).join(', ')}`);
+
+    // Step 1: Stop all containers
     for (const resource of resourcesToClean) {
       const serviceName = `${resource.name}-${environment.name}`;
-
       try {
-        console.log(`Stopping container ${serviceName}...`);
-        await this.dockerService.stopContainer(serviceName);
+        console.log(`[1/5] Stopping container ${serviceName}...`);
+        await this.dockerService.stopContainer(serviceName, 5);
       } catch (error) {
         console.error(`Failed to stop ${serviceName}:`, error.message);
         errors.push(`Stop ${serviceName}: ${error.message}`);
       }
+    }
 
+    // Step 2: Remove all containers
+    for (const resource of resourcesToClean) {
+      const serviceName = `${resource.name}-${environment.name}`;
       try {
-        console.log(`Removing container ${serviceName}...`);
+        console.log(`[2/5] Removing container ${serviceName}...`);
         await this.dockerService.removeContainer(serviceName, true);
       } catch (error) {
-        console.error(`Failed to remove ${serviceName}:`, error.message);
+        console.error(`Failed to remove container ${serviceName}:`, error.message);
         errors.push(`Remove ${serviceName}: ${error.message}`);
       }
+    }
 
+    // Wait a bit to ensure containers are fully removed before removing volumes
+    console.log(`Waiting for containers to be fully removed...`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Step 3: Remove all volumes (after containers are removed)
+    for (const resource of resourcesToClean) {
       if (resource.type === 'mysql-db') {
+        const serviceName = `${resource.name}-${environment.name}`;
         const volumeName = `${serviceName}-data`;
         try {
-          console.log(`Removing volume ${volumeName}...`);
+          console.log(`[3/5] Removing volume ${volumeName}...`);
           await this.dockerService.removeVolume(volumeName);
+          console.log(`Successfully removed volume ${volumeName}`);
         } catch (error) {
           console.error(`Failed to remove volume ${volumeName}:`, error.message);
           errors.push(`Remove volume ${volumeName}: ${error.message}`);
@@ -393,14 +434,30 @@ export class EnvironmentService {
       }
     }
 
+    // Step 4: Remove all images
+    for (const resource of resourcesToClean) {
+      if (resource.type !== 'mysql-db') {
+        const imageTag = `spawner-${resource.name}:${environment.name}`;
+        try {
+          console.log(`[4/5] Removing Docker image ${imageTag}...`);
+          await this.dockerService.removeImage(imageTag);
+        } catch (error) {
+          console.error(`Failed to remove image ${imageTag}:`, error.message);
+          errors.push(`Remove image ${imageTag}: ${error.message}`);
+        }
+      }
+    }
+
+    // Step 5: Remove network
     try {
-      console.log(`Removing network ${networkName}...`);
+      console.log(`[5/5] Removing network ${networkName}...`);
       await this.dockerService.removeNetwork(networkName);
     } catch (error) {
       console.error(`Failed to remove network ${networkName}:`, error.message);
       errors.push(`Remove network: ${error.message}`);
     }
 
+    // Step 6: Remove directory
     try {
       console.log(`Removing directory ${envDir}...`);
       await fs.rm(envDir, { recursive: true, force: true });
@@ -409,10 +466,16 @@ export class EnvironmentService {
       errors.push(`Remove directory: ${error.message}`);
     }
 
-    await this.environmentRepository.remove(environment);
+    // Step 7: Delete from database
+    await this.prisma.environment.delete({
+      where: { id: environment.id },
+    });
 
     if (errors.length > 0) {
-      console.warn(`Environment ${environment.name} deleted with warnings:`, errors);
+      console.warn(`Environment ${environment.name} deleted with ${errors.length} warnings:`, errors);
+      throw new Error(`Environment deleted with errors: ${errors.join('; ')}`);
+    } else {
+      console.log(`Environment ${environment.name} successfully deleted!`);
     }
   }
 
@@ -497,7 +560,7 @@ export class EnvironmentService {
   }
 
   private async createContainersWithDockerode(
-    project: Project,
+    project: ProjectWithResources,
     envName: string,
     networkName: string,
     reposPath: string,
@@ -550,7 +613,7 @@ export class EnvironmentService {
   }
 
   private async createMySQLContainer(
-    resource: ProjectResource,
+    resource: PrismaProjectResource,
     envName: string,
     networkName: string,
     envVars: Record<string, string>,
@@ -563,6 +626,7 @@ export class EnvironmentService {
     await this.dockerService.createVolume(volumeName);
 
     log('info', `Creating MySQL container ${serviceName}...`);
+    const limits = resource.resourceLimits as ResourceLimits | null;
     await this.dockerService.createContainer({
       name: serviceName,
       image: 'mysql:8',
@@ -570,10 +634,10 @@ export class EnvironmentService {
       networks: [networkName],
       volumes: [`${volumeName}:/var/lib/mysql`],
       resourceLimits: {
-        cpus: resource.resourceLimits?.cpu || '2',
-        memory: resource.resourceLimits?.memory || '1G',
-        cpuReservation: resource.resourceLimits?.cpuReservation || '0.25',
-        memoryReservation: resource.resourceLimits?.memoryReservation || '256M',
+        cpus: limits?.cpu || '2',
+        memory: limits?.memory || '1G',
+        cpuReservation: limits?.cpuReservation || '0.25',
+        memoryReservation: limits?.memoryReservation || '256M',
       },
     });
 
@@ -585,7 +649,7 @@ export class EnvironmentService {
   }
 
   private async createLaravelContainer(
-    resource: ProjectResource,
+    resource: PrismaProjectResource,
     envName: string,
     networkName: string,
     reposPath: string,
@@ -613,6 +677,7 @@ export class EnvironmentService {
       ? [`${resourcePorts[resource.name]}:${exposedPort}`]
       : [];
 
+    const limits = resource.resourceLimits as ResourceLimits | null;
     await this.dockerService.createContainer({
       name: serviceName,
       image: imageTag,
@@ -625,10 +690,10 @@ export class EnvironmentService {
         [`traefik.http.services.${serviceName}.loadbalancer.server.port`]: `${exposedPort}`,
       },
       resourceLimits: {
-        cpus: resource.resourceLimits?.cpu || '2',
-        memory: resource.resourceLimits?.memory || '1G',
-        cpuReservation: resource.resourceLimits?.cpuReservation || '0.25',
-        memoryReservation: resource.resourceLimits?.memoryReservation || '256M',
+        cpus: limits?.cpu || '2',
+        memory: limits?.memory || '1G',
+        cpuReservation: limits?.cpuReservation || '0.25',
+        memoryReservation: limits?.memoryReservation || '256M',
       },
     });
 
@@ -651,7 +716,7 @@ export class EnvironmentService {
   }
 
   private async createNextJSContainer(
-    resource: ProjectResource,
+    resource: PrismaProjectResource,
     envName: string,
     networkName: string,
     reposPath: string,
@@ -691,6 +756,7 @@ export class EnvironmentService {
 
     const extraHosts = localMode ? ['host.docker.internal:host-gateway'] : [];
 
+    const limits = resource.resourceLimits as ResourceLimits | null;
     await this.dockerService.createContainer({
       name: serviceName,
       image: imageTag,
@@ -704,10 +770,10 @@ export class EnvironmentService {
         [`traefik.http.services.${serviceName}.loadbalancer.server.port`]: `${exposedPort}`,
       },
       resourceLimits: {
-        cpus: resource.resourceLimits?.cpu || '2',
-        memory: resource.resourceLimits?.memory || '1G',
-        cpuReservation: resource.resourceLimits?.cpuReservation || '0.25',
-        memoryReservation: resource.resourceLimits?.memoryReservation || '256M',
+        cpus: limits?.cpu || '2',
+        memory: limits?.memory || '1G',
+        cpuReservation: limits?.cpuReservation || '0.25',
+        memoryReservation: limits?.memoryReservation || '256M',
       },
     });
 
@@ -716,7 +782,7 @@ export class EnvironmentService {
   }
 
   private async runHealthChecks(
-    project: Project,
+    project: ProjectWithResources,
     envName: string,
     log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
   ): Promise<void> {
@@ -788,16 +854,17 @@ export class EnvironmentService {
   }
 
   private async executePostBuildCommands(
-    project: Project,
+    project: ProjectWithResources,
     envName: string,
     log: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void,
   ): Promise<void> {
     for (const resource of project.resources) {
-      if (resource.postBuildCommands && resource.postBuildCommands.length > 0) {
+      const commands = resource.postBuildCommands as string[];
+      if (commands && Array.isArray(commands) && commands.length > 0) {
         const serviceName = `${resource.name}-${envName}`;
-        log('info', `Executing ${resource.postBuildCommands.length} post-build command(s) for ${serviceName}...`);
+        log('info', `Executing ${commands.length} post-build command(s) for ${serviceName}...`);
 
-        for (const command of resource.postBuildCommands) {
+        for (const command of commands) {
           log('info', `Running: ${command}`);
 
           try {

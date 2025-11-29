@@ -1,14 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { PrismaService } from '../../common/prisma.service';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { SystemSetting } from '../../entities/system-setting.entity';
-import { ServerPatch, PatchType, PatchStatus } from '../../entities/server-patch.entity';
 
 const execAsync = promisify(exec);
+
+export enum PatchType {
+  SECURITY = 'security',
+  BUGFIX = 'bugfix',
+  FEATURE = 'feature',
+}
+
+export enum PatchStatus {
+  PENDING = 'pending',
+  APPLIED = 'applied',
+  FAILED = 'failed',
+}
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -31,12 +40,7 @@ export class UpdateService {
   private readonly GITHUB_REPO = process.env.GITHUB_REPO || 'your-org/spawner';
   private readonly PACKAGE_JSON_PATH = path.join(__dirname, '../../../package.json');
 
-  constructor(
-    @InjectRepository(SystemSetting)
-    private systemSettingRepository: Repository<SystemSetting>,
-    @InjectRepository(ServerPatch)
-    private serverPatchRepository: Repository<ServerPatch>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async getInstalledVersion(): Promise<string> {
     try {
@@ -133,7 +137,7 @@ export class UpdateService {
       }
 
       for (const update of updates) {
-        const existingPatch = await this.serverPatchRepository.findOne({
+        const existingPatch = await this.prisma.serverPatch.findFirst({
           where: {
             packageName: update.name,
             latestVersion: update.latestVersion,
@@ -141,12 +145,14 @@ export class UpdateService {
         });
 
         if (!existingPatch) {
-          await this.serverPatchRepository.save({
-            packageName: update.name,
-            currentVersion: update.currentVersion,
-            latestVersion: update.latestVersion,
-            type: update.type,
-            status: PatchStatus.PENDING,
+          await this.prisma.serverPatch.create({
+            data: {
+              packageName: update.name,
+              currentVersion: update.currentVersion,
+              latestVersion: update.latestVersion,
+              type: update.type,
+              status: PatchStatus.PENDING,
+            },
           });
         }
       }
@@ -159,7 +165,7 @@ export class UpdateService {
   }
 
   async applyPatch(patchId: number): Promise<void> {
-    const patch = await this.serverPatchRepository.findOne({
+    const patch = await this.prisma.serverPatch.findUnique({
       where: { id: patchId },
     });
 
@@ -187,14 +193,22 @@ export class UpdateService {
 
       await execAsync(command, { timeout: 300000 });
 
-      patch.status = PatchStatus.APPLIED;
-      patch.appliedAt = new Date();
-      await this.serverPatchRepository.save(patch);
+      await this.prisma.serverPatch.update({
+        where: { id: patchId },
+        data: {
+          status: PatchStatus.APPLIED,
+          appliedAt: new Date(),
+        },
+      });
 
       this.logger.log(`Patch applied successfully: ${patch.packageName}`);
     } catch (error) {
-      patch.status = PatchStatus.FAILED;
-      await this.serverPatchRepository.save(patch);
+      await this.prisma.serverPatch.update({
+        where: { id: patchId },
+        data: {
+          status: PatchStatus.FAILED,
+        },
+      });
 
       this.logger.error(`Failed to apply patch ${patchId}`, error);
       throw error;
@@ -202,7 +216,7 @@ export class UpdateService {
   }
 
   async applyAllPatches(): Promise<void> {
-    const pendingPatches = await this.serverPatchRepository.find({
+    const pendingPatches = await this.prisma.serverPatch.findMany({
       where: { status: PatchStatus.PENDING },
     });
 
@@ -215,10 +229,10 @@ export class UpdateService {
     }
   }
 
-  async getPendingPatches(): Promise<ServerPatch[]> {
-    return this.serverPatchRepository.find({
+  async getPendingPatches() {
+    return this.prisma.serverPatch.findMany({
       where: { status: PatchStatus.PENDING },
-      order: { detectedAt: 'DESC' },
+      orderBy: { detectedAt: 'desc' },
     });
   }
 
@@ -348,18 +362,15 @@ export class UpdateService {
   }
 
   private async saveSetting(key: string, value: string): Promise<void> {
-    const setting = await this.systemSettingRepository.findOne({ where: { key } });
-
-    if (setting) {
-      setting.value = value;
-      await this.systemSettingRepository.save(setting);
-    } else {
-      await this.systemSettingRepository.save({ key, value, description: null });
-    }
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      update: { value },
+      create: { key, value, description: null },
+    });
   }
 
   async getSetting(key: string): Promise<string | null> {
-    const setting = await this.systemSettingRepository.findOne({ where: { key } });
+    const setting = await this.prisma.systemSetting.findUnique({ where: { key } });
     return setting?.value || null;
   }
 }

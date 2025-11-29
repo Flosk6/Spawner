@@ -1,6 +1,6 @@
-import { ProjectResource } from "../entities/project-resource.entity";
 import { DEFAULT_RESOURCE_LIMITS, DEFAULT_EXPOSED_PORTS } from "@spawner/config";
 import type { ResourceType } from "@spawner/types";
+import type { ProjectResource } from "@prisma/client";
 
 export interface DockerComposeService {
   image?: string;
@@ -54,7 +54,12 @@ export class DockerComposeGenerator {
     reservations: { cpus: string; memory: string };
   } {
     const defaults = DEFAULT_RESOURCE_LIMITS[resource.type as ResourceType];
-    const custom = resource.resourceLimits;
+    const custom = resource.resourceLimits as {
+      cpu?: string;
+      memory?: string;
+      cpuReservation?: string;
+      memoryReservation?: string;
+    } | null;
 
     return {
       limits: {

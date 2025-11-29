@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          Int        @id @default(autoincrement())
+  githubId    String     @unique @map("githubId") @db.VarChar
+  username    String     @db.VarChar
+  email       String?    @db.VarChar
+  avatarUrl   String?    @map("avatarUrl") @db.VarChar
+  role        String     @default("user") @db.VarChar
+  isActive    Boolean    @default(true) @map("isActive")
+  createdAt   DateTime   @default(now()) @map("createdAt") @db.Timestamp(6)
+  updatedAt   DateTime   @default(now()) @map("updatedAt") @db.Timestamp(6)
+  lastLoginAt DateTime?  @map("lastLoginAt") @db.Timestamp(6)
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     @map("userId")
+  action    String   @db.VarChar
+  details   String?
+  ipAddress String?  @map("ipAddress") @db.VarChar
+  userAgent String?  @map("userAgent") @db.VarChar
+  createdAt DateTime @default(now()) @map("createdAt") @db.Timestamp(6)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model Project {
+  id         Int               @id @default(autoincrement())
+  name       String            @unique @db.VarChar
+  baseDomain String            @map("base_domain") @db.VarChar
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+  resources  ProjectResource[]
+  environments Environment[]
+
+  @@map("projects")
+}
+
+model ProjectResource {
+  id                Int      @id @default(autoincrement())
+  projectId         Int      @map("project_id")
+  name              String   @db.VarChar
+  type              String   @db.VarChar
+  gitRepo           String?  @map("git_repo") @db.VarChar
+  defaultBranch     String?  @map("default_branch") @db.VarChar
+  dbResourceId      Int?     @map("db_resource_id")
+  apiResourceId     Int?     @map("api_resource_id")
+  staticEnvVars     Json     @default("{}") @map("static_env_vars") @db.Json
+  postBuildCommands Json     @default("[]") @map("post_build_commands") @db.Json
+  resourceLimits    Json?    @map("resource_limits") @db.Json
+  exposedPort       Int?     @map("exposed_port")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_resources")
+}
+
+model Environment {
+  id          String                @id @db.VarChar
+  name        String                @unique @db.VarChar
+  projectId   Int?                  @map("project_id")
+  status      String                @db.VarChar
+  configJson  String                @map("config_json")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamp(6)
+  resources   EnvironmentResource[]
+  project     Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("environments")
+}
+
+model EnvironmentResource {
+  id            String      @id @db.VarChar
+  environmentId String      @map("environment_id") @db.VarChar
+  resourceName  String      @map("resource_name") @db.VarChar
+  resourceType  String      @map("resource_type") @db.VarChar
+  branch        String?     @db.VarChar
+  url           String?     @db.VarChar
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@map("environment_resources")
+}
+
+model Setting {
+  key   String @id @db.VarChar
+  value String @db.VarChar
+
+  @@map("settings")
+}
+
+model SystemSetting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar
+  value       String?
+  description String?
+  createdAt   DateTime @default(now()) @map("createdAt") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @map("updatedAt") @db.Timestamp(6)
+
+  @@map("system_settings")
+}
+
+model ServerPatch {
+  id             Int       @id @default(autoincrement())
+  packageName    String    @map("packageName") @db.VarChar
+  currentVersion String    @map("currentVersion") @db.VarChar
+  latestVersion  String    @map("latestVersion") @db.VarChar
+  type           String    @default("feature") @db.VarChar
+  status         String    @default("pending") @db.VarChar
+  changelog      String?
+  appliedAt      DateTime? @map("appliedAt") @db.Timestamp(6)
+  detectedAt     DateTime  @default(now()) @map("detectedAt") @db.Timestamp(6)
+
+  @@map("server_patches")
+}
+
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire])
+  @@map("sessions")
+}
+
+model Migration {
+  id        Int    @id @default(autoincrement())
+  timestamp BigInt
+  name      String @db.VarChar
+
+  @@map("migrations")
+}

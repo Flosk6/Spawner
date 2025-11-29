@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ProjectResource } from '../../entities/project-resource.entity';
+import { PrismaService } from '../../common/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -25,10 +23,7 @@ export interface RepoKeyInfo {
 export class GitKeysService {
   private readonly keysPath: string;
 
-  constructor(
-    @InjectRepository(ProjectResource)
-    private resourceRepository: Repository<ProjectResource>,
-  ) {
+  constructor(private prisma: PrismaService) {
     this.keysPath = process.env.GIT_KEYS_PATH || '/opt/spawner/git-keys';
 
     // Ensure keys directory exists
@@ -42,12 +37,15 @@ export class GitKeysService {
    * Deduplicates repos - each unique repo URL appears only once
    */
   async getAllReposWithKeys(): Promise<RepoKeyInfo[]> {
-    const resources = await this.resourceRepository.find({
-      where: [
-        { type: 'laravel-api' },
-        { type: 'nextjs-front' },
-      ],
-      relations: ['project'],
+    const resources = await this.prisma.projectResource.findMany({
+      where: {
+        type: {
+          in: ['laravel-api', 'nextjs-front'],
+        },
+      },
+      include: {
+        project: true,
+      },
     });
 
     // Group resources by git repo URL
