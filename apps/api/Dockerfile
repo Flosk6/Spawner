@@ -34,13 +34,15 @@ FROM node:20-slim
 WORKDIR /app
 
 # Install build tools needed for node-pty and other native modules
-# Also install OpenSSL for Prisma compatibility
+# Also install OpenSSL for Prisma compatibility and git for repository cloning
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
     openssl \
     ca-certificates \
+    git \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm
