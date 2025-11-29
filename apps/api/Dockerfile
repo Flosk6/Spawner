@@ -48,14 +48,12 @@ COPY packages/config/package.json ./packages/config/package.json
 COPY packages/utils/package.json ./packages/utils/package.json
 COPY apps/api/package.json ./apps/api/package.json
 
-# Copy Prisma schema
-COPY apps/api/prisma ./apps/api/prisma
-
 # Install ONLY production dependencies
 RUN pnpm install --frozen-lockfile --prod
 
-# Generate Prisma Client for production
-RUN cd apps/api && pnpm exec prisma generate
+# Copy generated Prisma Client from builder
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Copy built packages from builder
 COPY --from=builder /app/packages/types/dist ./packages/types/dist
