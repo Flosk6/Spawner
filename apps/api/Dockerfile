@@ -71,8 +71,8 @@ COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
 # Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
+RUN groupadd -g 1001 nodejs && \
+    useradd -r -u 1001 -g nodejs nodejs && \
     chown -R nodejs:nodejs /app
 
 USER nodejs
