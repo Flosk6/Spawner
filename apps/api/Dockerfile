@@ -29,13 +29,19 @@ RUN pnpm --filter @spawner/types build && \
     pnpm --filter @spawner/api build
 
 # Production stage
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
 # Install build tools needed for node-pty and other native modules
-# Also install OpenSSL 1.1 for Prisma compatibility
-RUN apk add --no-cache python3 py3-setuptools make g++ openssl1.1-compat
+# Also install OpenSSL for Prisma compatibility
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    openssl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm
 RUN npm install -g pnpm
