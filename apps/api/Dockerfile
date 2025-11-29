@@ -19,6 +19,9 @@ COPY apps/api ./apps/api
 # Install ALL dependencies (including devDependencies for build)
 RUN pnpm install --frozen-lockfile
 
+# Generate Prisma Client
+RUN cd apps/api && npx prisma generate
+
 # Build shared packages first, then API
 RUN pnpm --filter @spawner/types build && \
     pnpm --filter @spawner/config build && \
@@ -45,8 +48,14 @@ COPY packages/config/package.json ./packages/config/package.json
 COPY packages/utils/package.json ./packages/utils/package.json
 COPY apps/api/package.json ./apps/api/package.json
 
+# Copy Prisma schema
+COPY apps/api/prisma ./apps/api/prisma
+
 # Install ONLY production dependencies
 RUN pnpm install --frozen-lockfile --prod
+
+# Generate Prisma Client for production
+RUN cd apps/api && npx prisma generate
 
 # Copy built packages from builder
 COPY --from=builder /app/packages/types/dist ./packages/types/dist
