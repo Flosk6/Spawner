@@ -72,12 +72,15 @@ COPY --from=builder /app/packages/config/dist ./packages/config/dist
 COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Create non-root user for security
-RUN groupadd -g 1001 nodejs && \
-    useradd -r -u 1001 -g nodejs nodejs && \
-    chown -R nodejs:nodejs /app
+# Create user with same UID as host 'spawner' user (1000)
+# and add to docker group (GID 988) for Docker socket access
+RUN groupadd -g 1000 spawner && \
+    useradd -r -u 1000 -g spawner spawner && \
+    groupadd -g 988 docker && \
+    usermod -aG docker spawner && \
+    chown -R spawner:spawner /app
 
-USER nodejs
+USER spawner
 
 # Expose port
 EXPOSE 3000
