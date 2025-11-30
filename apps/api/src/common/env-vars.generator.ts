@@ -355,6 +355,13 @@ export class EnvVarsGenerator {
       );
       envVars.APP_URL = appUrl;
       envVars.ASSET_URL = appUrl;
+
+      // Force HTTPS scheme when behind reverse proxy (Traefik)
+      if (!localMode) {
+        envVars.FORCE_HTTPS = 'true';
+        // Trust only internal Docker networks for proxy headers
+        envVars.TRUSTED_PROXIES = '172.16.0.0/12,10.0.0.0/8';
+      }
     }
   }
 
