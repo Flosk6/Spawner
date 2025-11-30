@@ -1,9 +1,60 @@
 <template>
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <Toast />
+    <ConfirmDialog />
+
+    <!-- Intelligent Cleanup Preview Dialog -->
+    <Dialog v-model:visible="showCleanupPreview" modal header="Aperçu du nettoyage intelligent" :style="{ width: '50rem' }">
+      <div v-if="cleanupPreview" class="space-y-4">
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-blue-900">Résumé</h3>
+              <p class="text-xs text-blue-700 mt-1">Ressources qui seront supprimées</p>
+            </div>
+            <div class="text-right">
+              <p class="text-2xl font-bold text-blue-900">{{ cleanupPreview.count }}</p>
+              <p class="text-xs text-blue-700">~{{ formatBytes(cleanupPreview.size) }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="cleanupPreview.images.length > 0" class="border border-gray-200 rounded-lg p-3">
+          <h4 class="font-semibold text-sm mb-2">Images ({{ cleanupPreview.images.length }})</h4>
+          <div class="max-h-40 overflow-y-auto space-y-1">
+            <div v-for="img in cleanupPreview.images" :key="img.id" class="text-xs text-gray-700 flex justify-between">
+              <span class="truncate mr-2">{{ img.name }}</span>
+              <span class="text-gray-500">{{ formatBytes(img.size) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="cleanupPreview.containers.length > 0" class="border border-gray-200 rounded-lg p-3">
+          <h4 class="font-semibold text-sm mb-2">Containers ({{ cleanupPreview.containers.length }})</h4>
+          <div class="max-h-40 overflow-y-auto space-y-1">
+            <div v-for="container in cleanupPreview.containers" :key="container.id" class="text-xs text-gray-700">
+              {{ container.name }}
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <p class="text-xs text-yellow-800">
+            <strong>Critères:</strong> Images dangling, images >30 jours inutilisées, containers stopped >7 jours, build cache
+          </p>
+        </div>
+      </div>
+
+      <template #footer>
+        <Button label="Annuler" severity="secondary" @click="showCleanupPreview = false" />
+        <Button label="Confirmer le nettoyage" severity="success" @click="confirmIntelligentCleanup" :loading="runningIntelligentCleanup" />
+      </template>
+    </Dialog>
+
     <div class="mb-8">
       <h1 class="text-3xl font-bold text-gray-900">System Settings</h1>
       <p class="mt-2 text-sm text-gray-600">
-        Manage Spawner updates and system patches
+        Manage Spawner updates, Docker resources, and system patches
       </p>
     </div>
 
@@ -193,7 +244,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted } from 'vue';
 import api from '../services/api';
 
 const versionInfo = ref({ current: null, latest: null });
@@ -212,9 +263,7 @@ const checkingPatches = ref(false);
 const applyingPatch = ref(null);
 const applyingAll = ref(false);
 
-const updateAvailable = computed(() => {
-  return updateInfo.value?.updateAvailable || false;
-});
+const updateAvailable = ref(false);
 
 onMounted(async () => {
   await Promise.all([

@@ -47,20 +47,19 @@ const menuItems = computed(() => [
     command: () => router.push('/projects')
   },
   {
-    label: 'Settings',
-    icon: 'pi pi-cog',
-    items: [
-      {
-        label: 'Git Settings',
-        icon: 'pi pi-key',
-        command: () => router.push('/settings/git')
-      },
-      {
-        label: 'System Updates',
-        icon: 'pi pi-refresh',
-        command: () => router.push('/settings/system')
-      }
-    ]
+    label: 'Git Settings',
+    icon: 'pi pi-key',
+    command: () => router.push('/settings/git')
+  },
+  {
+    label: 'Docker',
+    icon: 'pi pi-box',
+    command: () => router.push('/docker')
+  },
+  {
+    label: 'System',
+    icon: 'pi pi-server',
+    command: () => router.push('/settings/system')
   }
 ]);
 

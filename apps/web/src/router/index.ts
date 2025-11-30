@@ -8,6 +8,7 @@ import EnvironmentNew from '../views/EnvironmentNew.vue';
 import EnvironmentDetail from '../views/EnvironmentDetail.vue';
 import GitSettings from '../views/GitSettings.vue';
 import SystemSettings from '../views/SystemSettings.vue';
+import DockerResources from '../views/DockerResources.vue';
 import Login from '../views/Login.vue';
 
 const router = createRouter({
@@ -39,6 +40,12 @@ const router = createRouter({
       path: '/settings/system',
       name: 'SystemSettings',
       component: SystemSettings,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/docker',
+      name: 'DockerResources',
+      component: DockerResources,
       meta: { requiresAuth: true },
     },
     {
