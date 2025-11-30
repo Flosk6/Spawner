@@ -36,7 +36,14 @@ export class EnvVarsGenerator {
 
     // 2. Add auto-generated variables based on resource type
     if (resource.type === "laravel-api") {
-      this.addLaravelVars(envVars);
+      this.addLaravelVars(
+        envVars,
+        resource,
+        environment,
+        project,
+        localMode,
+        resourcePorts
+      );
     } else if (resource.type === "nextjs-front") {
       this.addNextJsVars(envVars);
     } else if (resource.type === "mysql-db") {
@@ -328,8 +335,27 @@ export class EnvVarsGenerator {
     this.sharedSecrets.delete(environmentId);
   }
 
-  private static addLaravelVars(envVars: Record<string, string>): void {
+  private static addLaravelVars(
+    envVars: Record<string, string>,
+    resource?: ProjectResource,
+    environment?: Environment,
+    project?: Project,
+    localMode?: boolean,
+    resourcePorts?: Record<string, number>
+  ): void {
     envVars.APP_KEY = this.generateLaravelKey();
+
+    if (resource && environment && project) {
+      const appUrl = this.getResourceUrl(
+        resource,
+        environment,
+        project,
+        localMode,
+        resourcePorts
+      );
+      envVars.APP_URL = appUrl;
+      envVars.ASSET_URL = appUrl;
+    }
   }
 
   private static addNextJsVars(envVars: Record<string, string>): void {
