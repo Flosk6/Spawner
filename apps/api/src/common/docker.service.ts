@@ -1,8 +1,6 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import Docker from 'dockerode';
-import * as stream from 'stream';
-import type { ResourceType } from '@spawner/types';
-import { DEFAULT_RESOURCE_LIMITS } from '@spawner/config';
+import { Injectable, OnModuleInit } from "@nestjs/common";
+import Docker from "dockerode";
+import * as stream from "stream";
 
 export interface ContainerConfig {
   name: string;
@@ -28,7 +26,7 @@ export class DockerService implements OnModuleInit {
   private docker: Docker;
 
   onModuleInit() {
-    const socketPath = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
+    const socketPath = process.env.DOCKER_SOCKET || "/var/run/docker.sock";
     this.docker = new Docker({ socketPath });
   }
 
@@ -44,7 +42,7 @@ export class DockerService implements OnModuleInit {
 
       return await this.docker.createNetwork({
         Name: name,
-        Driver: 'bridge',
+        Driver: "bridge",
       });
     } catch (error) {
       throw new Error(`Failed to create network ${name}: ${error.message}`);
@@ -73,12 +71,19 @@ export class DockerService implements OnModuleInit {
       });
 
       if (existingVolumes.Volumes && existingVolumes.Volumes.length > 0) {
-        console.warn(`Volume ${name} already exists. Deleting it to create a fresh one...`);
+        console.warn(
+          `Volume ${name} already exists. Deleting it to create a fresh one...`
+        );
         try {
           await this.removeVolume(name);
         } catch (error) {
-          console.error(`Failed to remove existing volume ${name}:`, error.message);
-          throw new Error(`Cannot create volume ${name}: old volume exists and couldn't be removed`);
+          console.error(
+            `Failed to remove existing volume ${name}:`,
+            error.message
+          );
+          throw new Error(
+            `Cannot create volume ${name}: old volume exists and couldn't be removed`
+          );
         }
       }
 
@@ -115,13 +120,13 @@ export class DockerService implements OnModuleInit {
   async buildImage(
     buildContext: string,
     tag: string,
-    onProgress?: (message: string) => void,
+    onProgress?: (message: string) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       this.docker.buildImage(
         {
           context: buildContext,
-          src: ['.'],
+          src: ["."],
         },
         { t: tag },
         (err, stream) => {
@@ -138,7 +143,11 @@ export class DockerService implements OnModuleInit {
               } else {
                 const imageExists = await this.imageExists(tag);
                 if (!imageExists) {
-                  reject(new Error(`Build completed but image ${tag} was not created`));
+                  reject(
+                    new Error(
+                      `Build completed but image ${tag} was not created`
+                    )
+                  );
                 } else {
                   resolve();
                 }
@@ -155,9 +164,9 @@ export class DockerService implements OnModuleInit {
                   }
                 }
               }
-            },
+            }
           );
-        },
+        }
       );
     });
   }
@@ -174,8 +183,10 @@ export class DockerService implements OnModuleInit {
 
   async createContainer(config: ContainerConfig): Promise<Docker.Container> {
     try {
-      const cpuLimit = this.parseCpuLimit(config.resourceLimits?.cpus || '2');
-      const memoryLimit = this.parseMemoryLimit(config.resourceLimits?.memory || '1G');
+      const cpuLimit = this.parseCpuLimit(config.resourceLimits?.cpus || "2");
+      const memoryLimit = this.parseMemoryLimit(
+        config.resourceLimits?.memory || "1G"
+      );
       const memoryReservation = config.resourceLimits?.memoryReservation
         ? this.parseMemoryLimit(config.resourceLimits.memoryReservation)
         : undefined;
@@ -184,11 +195,13 @@ export class DockerService implements OnModuleInit {
         name: config.name,
         Image: config.image,
         Env: config.environment
-          ? Object.entries(config.environment).map(([key, value]) => `${key}=${value}`)
+          ? Object.entries(config.environment).map(
+              ([key, value]) => `${key}=${value}`
+            )
           : [],
         Labels: config.labels || {},
         HostConfig: {
-          NetworkMode: config.networks?.[0] || 'bridge',
+          NetworkMode: config.networks?.[0] || "bridge",
           Binds: config.volumes || [],
           PortBindings: this.parsePortBindings(config.ports || []),
           NanoCPUs: cpuLimit,
@@ -202,9 +215,18 @@ export class DockerService implements OnModuleInit {
       }
 
       const container = await this.docker.createContainer(createOptions);
+
+      if (config.networks && config.networks.length > 1) {
+        for (let i = 1; i < config.networks.length; i++) {
+          await this.connectContainerToNetwork(config.name, config.networks[i]);
+        }
+      }
+
       return container;
     } catch (error) {
-      throw new Error(`Failed to create container ${config.name}: ${error.message}`);
+      throw new Error(
+        `Failed to create container ${config.name}: ${error.message}`
+      );
     }
   }
 
@@ -216,11 +238,16 @@ export class DockerService implements OnModuleInit {
       if (error.statusCode === 304) {
         return;
       }
-      throw new Error(`Failed to start container ${containerNameOrId}: ${error.message}`);
+      throw new Error(
+        `Failed to start container ${containerNameOrId}: ${error.message}`
+      );
     }
   }
 
-  async stopContainer(containerNameOrId: string, timeout: number = 10): Promise<void> {
+  async stopContainer(
+    containerNameOrId: string,
+    timeout: number = 10
+  ): Promise<void> {
     try {
       const container = this.docker.getContainer(containerNameOrId);
       await container.stop({ t: timeout });
@@ -228,11 +255,16 @@ export class DockerService implements OnModuleInit {
       if (error.statusCode === 304 || error.statusCode === 404) {
         return;
       }
-      throw new Error(`Failed to stop container ${containerNameOrId}: ${error.message}`);
+      throw new Error(
+        `Failed to stop container ${containerNameOrId}: ${error.message}`
+      );
     }
   }
 
-  async removeContainer(containerNameOrId: string, force: boolean = false): Promise<void> {
+  async removeContainer(
+    containerNameOrId: string,
+    force: boolean = false
+  ): Promise<void> {
     try {
       const container = this.docker.getContainer(containerNameOrId);
       await container.remove({ force, v: true });
@@ -240,13 +272,15 @@ export class DockerService implements OnModuleInit {
       if (error.statusCode === 404) {
         return;
       }
-      throw new Error(`Failed to remove container ${containerNameOrId}: ${error.message}`);
+      throw new Error(
+        `Failed to remove container ${containerNameOrId}: ${error.message}`
+      );
     }
   }
 
   async getContainerLogs(
     containerNameOrId: string,
-    tail: number = 500,
+    tail: number = 500
   ): Promise<string> {
     try {
       const container = this.docker.getContainer(containerNameOrId);
@@ -257,16 +291,18 @@ export class DockerService implements OnModuleInit {
         timestamps: true,
       });
 
-      return logs.toString('utf-8');
+      return logs.toString("utf-8");
     } catch (error) {
-      throw new Error(`Failed to get logs for ${containerNameOrId}: ${error.message}`);
+      throw new Error(
+        `Failed to get logs for ${containerNameOrId}: ${error.message}`
+      );
     }
   }
 
   async execInContainer(
     containerNameOrId: string,
     command: string[],
-    timeout: number = 30000,
+    timeout: number = 30000
   ): Promise<{ output: string; exitCode: number }> {
     return new Promise(async (resolve, reject) => {
       try {
@@ -280,10 +316,10 @@ export class DockerService implements OnModuleInit {
 
         const execStream = await exec.start({ hijack: true, stdin: false });
 
-        let output = '';
+        let output = "";
         const outputStream = new stream.Writable({
           write(chunk, encoding, callback) {
-            output += chunk.toString('utf-8');
+            output += chunk.toString("utf-8");
             callback();
           },
         });
@@ -291,10 +327,10 @@ export class DockerService implements OnModuleInit {
         this.docker.modem.demuxStream(execStream, outputStream, outputStream);
 
         const timeoutHandle = setTimeout(() => {
-          reject(new Error('Command execution timeout'));
+          reject(new Error("Command execution timeout"));
         }, timeout);
 
-        execStream.on('end', async () => {
+        execStream.on("end", async () => {
           clearTimeout(timeoutHandle);
           const inspectData = await exec.inspect();
           resolve({
@@ -303,12 +339,16 @@ export class DockerService implements OnModuleInit {
           });
         });
 
-        execStream.on('error', (err) => {
+        execStream.on("error", (err) => {
           clearTimeout(timeoutHandle);
           reject(err);
         });
       } catch (error) {
-        reject(new Error(`Failed to execute command in ${containerNameOrId}: ${error.message}`));
+        reject(
+          new Error(
+            `Failed to execute command in ${containerNameOrId}: ${error.message}`
+          )
+        );
       }
     });
   }
@@ -322,20 +362,22 @@ export class DockerService implements OnModuleInit {
         },
       });
     } catch (error) {
-      throw new Error(`Failed to list containers for project ${projectName}: ${error.message}`);
+      throw new Error(
+        `Failed to list containers for project ${projectName}: ${error.message}`
+      );
     }
   }
 
   async connectContainerToNetwork(
     containerNameOrId: string,
-    networkName: string,
+    networkName: string
   ): Promise<void> {
     try {
       const network = this.docker.getNetwork(networkName);
       await network.connect({ Container: containerNameOrId });
     } catch (error) {
       throw new Error(
-        `Failed to connect ${containerNameOrId} to ${networkName}: ${error.message}`,
+        `Failed to connect ${containerNameOrId} to ${networkName}: ${error.message}`
       );
     }
   }
@@ -358,7 +400,7 @@ export class DockerService implements OnModuleInit {
     }
 
     const value = parseInt(match[1], 10);
-    const unit = match[2] || '';
+    const unit = match[2] || "";
 
     return value * (units[unit] || 1);
   }
@@ -367,8 +409,8 @@ export class DockerService implements OnModuleInit {
     const bindings: Record<string, any[]> = {};
 
     for (const port of ports) {
-      const [hostPort, containerPort] = port.split(':');
-      const containerKey = containerPort.includes('/')
+      const [hostPort, containerPort] = port.split(":");
+      const containerKey = containerPort.includes("/")
         ? containerPort
         : `${containerPort}/tcp`;
 
@@ -392,14 +434,17 @@ export class DockerService implements OnModuleInit {
     }
   }
 
-  async waitForDependencies(containerNames: string[], timeout: number = 60000): Promise<void> {
+  async waitForDependencies(
+    containerNames: string[],
+    timeout: number = 60000
+  ): Promise<void> {
     const startTime = Date.now();
 
     for (const name of containerNames) {
       while (Date.now() - startTime < timeout) {
         try {
           const containerInfo = await this.getContainerByName(name);
-          if (containerInfo && containerInfo.State === 'running') {
+          if (containerInfo && containerInfo.State === "running") {
             break;
           }
         } catch (error) {
