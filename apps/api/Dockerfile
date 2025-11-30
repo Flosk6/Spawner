@@ -74,8 +74,9 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
 # Create user with same UID as host 'spawner' user (1000)
 # and add to docker group (GID 988) for Docker socket access
-RUN groupadd -g 1000 spawner && \
-    useradd -r -u 1000 -g spawner spawner && \
+# Use existing group 1000 if it exists, otherwise create it
+RUN (groupadd -g 1000 spawner 2>/dev/null || true) && \
+    useradd -r -u 1000 -g 1000 spawner && \
     groupadd -g 988 docker && \
     usermod -aG docker spawner && \
     chown -R spawner:spawner /app
