@@ -743,4 +743,105 @@ export class DockerService implements OnModuleInit {
       throw new Error(`Intelligent cleanup failed: ${error.message}`);
     }
   }
+
+  async getContainerStats(containerName: string): Promise<{
+    cpuPercent: number;
+    memoryUsage: number;
+    memoryLimit: number;
+    memoryPercent: number;
+  } | null> {
+    try {
+      const container = this.docker.getContainer(containerName);
+      const stats = await container.stats({ stream: false });
+
+      const cpuDelta =
+        stats.cpu_stats.cpu_usage.total_usage -
+        stats.precpu_stats.cpu_usage.total_usage;
+      const systemDelta =
+        stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+      const cpuPercent =
+        systemDelta > 0
+          ? (cpuDelta / systemDelta) * stats.cpu_stats.online_cpus * 100
+          : 0;
+
+      const memoryUsage = stats.memory_stats.usage || 0;
+      const memoryLimit = stats.memory_stats.limit || 0;
+      const memoryPercent =
+        memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0;
+
+      return {
+        cpuPercent: Math.round(cpuPercent * 10) / 10,
+        memoryUsage,
+        memoryLimit,
+        memoryPercent: Math.round(memoryPercent * 10) / 10,
+      };
+    } catch (error) {
+      console.error(
+        `Failed to get stats for container ${containerName}:`,
+        error.message
+      );
+      return null;
+    }
+  }
+
+  async getEnvironmentStats(
+    environmentName: string
+  ): Promise<{
+    totalCpu: number;
+    totalMemoryUsage: number;
+    totalMemoryLimit: number;
+    containers: Array<{
+      name: string;
+      cpuPercent: number;
+      memoryUsage: number;
+      memoryLimit: number;
+    }>;
+  }> {
+    try {
+      const containerSuffix = `-${environmentName}`;
+      const allContainers = await this.docker.listContainers();
+      const envContainers = allContainers.filter((c) =>
+        c.Names.some((name) => name.endsWith(containerSuffix))
+      );
+
+      let totalCpu = 0;
+      let totalMemoryUsage = 0;
+      let totalMemoryLimit = 0;
+      const containers: Array<{
+        name: string;
+        cpuPercent: number;
+        memoryUsage: number;
+        memoryLimit: number;
+      }> = [];
+
+      for (const containerInfo of envContainers) {
+        const containerName = containerInfo.Names[0].replace("/", "");
+        const stats = await this.getContainerStats(containerName);
+
+        if (stats) {
+          totalCpu += stats.cpuPercent;
+          totalMemoryUsage += stats.memoryUsage;
+          totalMemoryLimit += stats.memoryLimit;
+
+          containers.push({
+            name: containerName,
+            cpuPercent: stats.cpuPercent,
+            memoryUsage: stats.memoryUsage,
+            memoryLimit: stats.memoryLimit,
+          });
+        }
+      }
+
+      return {
+        totalCpu: Math.round(totalCpu * 10) / 10,
+        totalMemoryUsage,
+        totalMemoryLimit,
+        containers,
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to get environment stats: ${error.message}`
+      );
+    }
+  }
 }

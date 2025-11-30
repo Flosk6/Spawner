@@ -1,126 +1,172 @@
 <template>
   <div>
     <div class="mb-6">
-      <Button label="Back to Dashboard" icon="pi pi-arrow-left" text @click="$router.push('/')" />
+      <Button label="Back" icon="pi pi-arrow-left" text @click="$router.push('/')" />
     </div>
 
     <div v-if="loading" class="flex justify-center py-20">
       <ProgressSpinner />
     </div>
 
-    <div v-else-if="environment">
-      <!-- Environment Header -->
-      <Card class="mb-6">
-        <template #content>
-          <div class="flex justify-between items-start">
-            <div>
-              <h1 class="text-4xl font-bold mb-2">{{ environment.name }}</h1>
-              <p class="opacity-70 text-lg">
-                Created {{ formatDate(environment.createdAt) }}
-              </p>
-            </div>
-            <Tag :value="environment.status" :severity="getStatusSeverity(environment.status)"
-              class="text-lg px-4 py-2" />
+    <div v-else-if="environment" class="flex gap-6">
+      <!-- Left Sidebar - Navigation -->
+      <div class="w-64 flex-shrink-0">
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-700 p-4 sticky top-6">
+          <!-- Environment Info -->
+          <div class="mb-6 pb-6 border-b border-slate-300 dark:border-slate-700">
+            <h2 class="text-xl font-bold mb-2 text-slate-900 dark:text-white">{{ environment.name }}</h2>
+            <Tag :value="environment.status" :severity="getStatusSeverity(environment.status)" class="mb-3" />
+            <p class="text-xs text-slate-600 dark:text-slate-400">
+              Created {{ formatDate(environment.createdAt) }}
+            </p>
           </div>
-          <div v-if="environment.branches" class="mt-6">
-            <h3 class="text-sm font-semibold opacity-70 mb-3">BRANCHES:</h3>
-            <div class="flex flex-wrap gap-2">
-              <Chip v-for="(branch, name) in environment.branches" :key="name" :label="`${name}: ${branch}`"
-                icon="pi pi-code-branch" />
-            </div>
-          </div>
-        </template>
-      </Card>
 
-      <!-- Tabs -->
-      <TabView>
-        <TabPanel value="0">
-          <template #header>
-            <div class="flex items-center gap-2">
-              <i class="pi pi-box"></i>
-              <span>Resources</span>
-            </div>
-          </template>
+          <!-- Navigation Tabs -->
+          <nav class="space-y-1">
+            <button
+              v-for="tab in tabs"
+              :key="tab.value"
+              @click="activeTab = tab.value"
+              :class="[
+                'w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200',
+                activeTab === tab.value
+                  ? 'bg-blue-500 text-white'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              ]"
+            >
+              <i :class="[tab.icon, 'text-lg']"></i>
+              <span class="font-medium">{{ tab.label }}</span>
+            </button>
+          </nav>
+        </div>
+      </div>
 
-          <DataTable :value="environment.resources" stripedRows responsiveLayout="scroll">
-            <Column field="resourceName" header="Name" sortable style="min-width: 150px">
-              <template #body="{ data }: { data: EnvironmentResource }">
-                <span class="font-semibold">{{ data.resourceName }}</span>
-              </template>
-            </Column>
+      <!-- Right Content Area -->
+      <div class="flex-1">
+        <!-- Overview Tab -->
+        <div v-if="activeTab === 'overview'">
+          <div class="mb-6">
+            <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Overview</h3>
 
-            <Column field="resourceType" header="Type" sortable style="min-width: 120px">
-              <template #body="{ data }: { data: EnvironmentResource }">
-                <Tag :value="data.resourceType" severity="info" icon="pi pi-box" />
-              </template>
-            </Column>
-
-            <Column field="branch" header="Branch" style="min-width: 150px">
-              <template #body="{ data }: { data: EnvironmentResource }">
-                <Chip v-if="data.branch" :label="data.branch" icon="pi pi-code-branch" />
-                <span v-else class="opacity-50">-</span>
-              </template>
-            </Column>
-
-            <Column field="url" header="URL" style="min-width: 250px">
-              <template #body="{ data }: { data: EnvironmentResource }">
-                <a v-if="data.url" :href="data.url" target="_blank"
-                  class="text-blue-500 hover:text-blue-600 flex items-center gap-2">
-                  {{ data.url }}
-                  <i class="pi pi-external-link text-xs"></i>
-                </a>
-                <span v-else class="opacity-50">-</span>
-              </template>
-            </Column>
-
-            <Column header="Actions" style="min-width: 200px">
-              <template #body="{ data }: { data: EnvironmentResource }">
-                <div class="flex gap-2">
-                  <Button icon="pi pi-file" severity="secondary" outlined rounded @click="viewLogs(data.resourceName)"
-                    v-tooltip.top="'View Logs'" />
-                  <Button v-if="data.resourceType !== 'mysql-db'" icon="pi pi-desktop" severity="success" outlined rounded
-                    @click="openTerminal(data.resourceName)" v-tooltip.top="'Open Terminal'" />
-                  <Button icon="pi pi-video" severity="info" outlined rounded @click="viewLiveLogs(data.resourceName)"
-                    v-tooltip.top="'Live Logs'" />
+            <!-- Branches -->
+            <Card class="mb-6" v-if="environment.branches">
+              <template #title>Branches</template>
+              <template #content>
+                <div class="flex flex-wrap gap-2">
+                  <Chip v-for="(branch, name) in environment.branches" :key="name" :label="`${name}: ${branch}`"
+                    icon="pi pi-code-branch" />
                 </div>
               </template>
-            </Column>
-          </DataTable>
-        </TabPanel>
+            </Card>
 
-        <TabPanel value="1">
-          <template #header>
-            <div class="flex items-center gap-2">
-              <i class="pi pi-cog"></i>
-              <span>Settings</span>
-            </div>
-          </template>
-
-          <div class="py-6">
-            <h3 class="text-2xl font-semibold mb-4">Environment Settings</h3>
-            <p class="opacity-70 mb-6">Coming soon: Environment configuration options</p>
+            <!-- Resources Quick View -->
+            <Card>
+              <template #title>Resources ({{ environment.resources?.length || 0 }})</template>
+              <template #content>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div
+                    v-for="resource in environment.resources"
+                    :key="resource.id"
+                    class="p-4 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
+                  >
+                    <div class="flex items-center gap-2 mb-2">
+                      <i class="pi pi-box text-blue-500"></i>
+                      <span class="font-semibold text-slate-900 dark:text-white">{{ resource.resourceName }}</span>
+                    </div>
+                    <Tag :value="resource.resourceType" severity="info" size="small" />
+                  </div>
+                </div>
+              </template>
+            </Card>
           </div>
-        </TabPanel>
+        </div>
 
-        <TabPanel value="2">
-          <template #header>
-            <div class="flex items-center gap-2 text-red-500">
-              <i class="pi pi-exclamation-triangle"></i>
-              <span>Danger Zone</span>
-            </div>
-          </template>
+        <!-- Stats Tab -->
+        <div v-if="activeTab === 'stats'">
+          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Performance Metrics</h3>
+          <StatsChart :environment-id="environment.id" />
+        </div>
 
-          <div class="py-6">
-            <h3 class="text-2xl font-semibold mb-4">Delete Environment</h3>
-            <Message severity="warn" :closable="false" class="mb-6">
-              Deleting this environment will stop all containers, remove volumes, and delete all data.
-              This action cannot be undone.
-            </Message>
-            <Button label="Delete Environment" icon="pi pi-trash" severity="danger" size="large" @click="handleDelete"
-              :disabled="deleting" />
-          </div>
-        </TabPanel>
-      </TabView>
+        <!-- Resources Tab -->
+        <div v-if="activeTab === 'resources'">
+          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Resources</h3>
+          <Card>
+
+            <template #content>
+              <DataTable :value="environment.resources" stripedRows responsiveLayout="scroll">
+                <Column field="resourceName" header="Name" sortable style="min-width: 150px">
+                  <template #body="{ data }: { data: EnvironmentResource }">
+                    <span class="font-semibold">{{ data.resourceName }}</span>
+                  </template>
+                </Column>
+
+                <Column field="resourceType" header="Type" sortable style="min-width: 120px">
+                  <template #body="{ data }: { data: EnvironmentResource }">
+                    <Tag :value="data.resourceType" severity="info" icon="pi pi-box" />
+                  </template>
+                </Column>
+
+                <Column field="branch" header="Branch" style="min-width: 150px">
+                  <template #body="{ data }: { data: EnvironmentResource }">
+                    <Chip v-if="data.branch" :label="data.branch" icon="pi pi-code-branch" />
+                    <span v-else class="opacity-50">-</span>
+                  </template>
+                </Column>
+
+                <Column field="url" header="URL" style="min-width: 250px">
+                  <template #body="{ data }: { data: EnvironmentResource }">
+                    <a v-if="data.url" :href="data.url" target="_blank"
+                      class="text-blue-500 hover:text-blue-600 flex items-center gap-2">
+                      {{ data.url }}
+                      <i class="pi pi-external-link text-xs"></i>
+                    </a>
+                    <span v-else class="opacity-50">-</span>
+                  </template>
+                </Column>
+
+                <Column header="Actions" style="min-width: 200px">
+                  <template #body="{ data }: { data: EnvironmentResource }">
+                    <div class="flex gap-2">
+                      <Button icon="pi pi-file" severity="secondary" outlined rounded @click="viewLogs(data.resourceName)"
+                        v-tooltip.top="'View Logs'" />
+                      <Button v-if="data.resourceType !== 'mysql-db'" icon="pi pi-desktop" severity="success" outlined rounded
+                        @click="openTerminal(data.resourceName)" v-tooltip.top="'Open Terminal'" />
+                      <Button icon="pi pi-video" severity="info" outlined rounded @click="viewLiveLogs(data.resourceName)"
+                        v-tooltip.top="'Live Logs'" />
+                    </div>
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
+          </Card>
+        </div>
+
+        <!-- Settings Tab -->
+        <div v-if="activeTab === 'settings'">
+          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Settings</h3>
+          <Card>
+            <template #content>
+              <p class="opacity-70">Coming soon: Environment configuration options</p>
+            </template>
+          </Card>
+        </div>
+
+        <!-- Danger Zone Tab -->
+        <div v-if="activeTab === 'danger'">
+          <h3 class="text-2xl font-bold mb-4 text-red-600 dark:text-red-400">Danger Zone</h3>
+          <Card>
+            <template #content>
+              <h4 class="text-xl font-semibold mb-4">Delete Environment</h4>
+              <Message severity="warn" :closable="false" class="mb-6">
+                Deleting this environment will stop all containers, remove volumes, and delete all data.
+                This action cannot be undone.
+              </Message>
+              <Button label="Delete Environment" icon="pi pi-trash" severity="danger" size="large" @click="handleDelete"
+                :disabled="deleting" />
+            </template>
+          </Card>
+        </div>
+      </div>
     </div>
 
     <!-- Logs Dialog -->
@@ -176,8 +222,6 @@ import { environmentApi } from '../services/api';
 import type { EnvironmentDetail, EnvironmentResource } from '../types';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
-import TabView from 'primevue/tabview';
-import TabPanel from 'primevue/tabpanel';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Tag from 'primevue/tag';
@@ -189,6 +233,7 @@ import ProgressSpinner from 'primevue/progressspinner';
 import ProgressBar from 'primevue/progressbar';
 import { useNotification } from '../composables/useNotification';
 import XtermTerminal from '../components/XtermTerminal.vue';
+import StatsChart from '../components/StatsChart.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -216,6 +261,17 @@ const showLiveLogsModal = ref(false);
 const currentLiveLogsResource = ref('');
 const liveLogs = ref('');
 const liveLogsContainer = ref<HTMLPreElement | null>(null);
+
+// Navigation state
+const activeTab = ref('overview');
+
+const tabs = [
+  { value: 'overview', label: 'Overview', icon: 'pi pi-home' },
+  { value: 'stats', label: 'Performance', icon: 'pi pi-chart-line' },
+  { value: 'resources', label: 'Resources', icon: 'pi pi-box' },
+  { value: 'settings', label: 'Settings', icon: 'pi pi-cog' },
+  { value: 'danger', label: 'Danger Zone', icon: 'pi pi-exclamation-triangle' },
+];
 
 onMounted(async () => {
   await loadEnvironment();

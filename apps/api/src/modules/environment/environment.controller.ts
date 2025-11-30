@@ -94,4 +94,16 @@ export class EnvironmentController {
   ): Observable<MessageEvent> {
     return this.environmentService.streamCreationLogs(environmentId);
   }
+
+  @Get("environments/:id/stats")
+  @Throttle({ long: { limit: 100, ttl: 60000 } })
+  getStats(@Param("id") id: string) {
+    return this.environmentService.getStats(id);
+  }
+
+  @Get("environments/:id/stats/history")
+  @Throttle({ long: { limit: 100, ttl: 60000 } })
+  getStatsHistory(@Param("id") id: string) {
+    return this.environmentService.getStatsHistory(id);
+  }
 }

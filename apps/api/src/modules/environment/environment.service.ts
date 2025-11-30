@@ -29,6 +29,7 @@ import { EnvironmentLogsEmitter } from "../../common/environment-logs.emitter";
 import { EnvVarsGenerator } from "../../common/env-vars.generator";
 import { DockerService } from "../../common/docker.service";
 import { GitKeysService } from "../git/git-keys.service";
+import { StatsService } from "../stats/stats.service";
 
 const execAsync = promisify(exec);
 
@@ -49,7 +50,8 @@ export class EnvironmentService {
     private prisma: PrismaService,
     private logsEmitter: EnvironmentLogsEmitter,
     private dockerService: DockerService,
-    private gitKeysService: GitKeysService
+    private gitKeysService: GitKeysService,
+    private statsService: StatsService
   ) {}
 
   async findAll() {
@@ -1037,5 +1039,62 @@ export class EnvironmentService {
         log("success", `All post-build commands completed for ${serviceName}`);
       }
     }
+  }
+
+  async getStats(environmentId: string) {
+    const environment = await this.prisma.environment.findUnique({
+      where: { id: environmentId },
+    });
+
+    if (!environment) {
+      throw new NotFoundException(
+        `Environment with ID ${environmentId} not found`
+      );
+    }
+
+    const latestStats = await this.statsService.getLatestStats(environmentId);
+
+    if (!latestStats) {
+      return {
+        cpuPercent: 0,
+        memoryUsageGB: 0,
+        memoryLimitGB: 0,
+        containers: [],
+        message: "No stats available yet. Stats are collected every minute.",
+      };
+    }
+
+    return {
+      cpuPercent: Number(latestStats.cpuPercent),
+      memoryUsageGB: Number(latestStats.memoryUsageGB),
+      memoryLimitGB: Number(latestStats.memoryLimitGB),
+      containers: latestStats.containers,
+      time: latestStats.time,
+    };
+  }
+
+  async getStatsHistory(environmentId: string) {
+    const environment = await this.prisma.environment.findUnique({
+      where: { id: environmentId },
+    });
+
+    if (!environment) {
+      throw new NotFoundException(
+        `Environment with ID ${environmentId} not found`
+      );
+    }
+
+    const oneHourAgo = new Date(Date.now() - 3600000);
+    const history = await this.statsService.getStatsHistory(
+      environmentId,
+      oneHourAgo
+    );
+
+    return history.map((stat) => ({
+      time: stat.time,
+      cpuPercent: Number(stat.cpuPercent),
+      memoryUsageGB: Number(stat.memoryUsageGB),
+      memoryLimitGB: Number(stat.memoryLimitGB),
+    }));
   }
 }

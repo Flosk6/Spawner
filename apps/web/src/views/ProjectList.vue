@@ -34,71 +34,61 @@
     </div>
 
     <div v-else class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-      <Card v-for="project in projects" :key="project.id" class="hover:shadow-lg transition-shadow cursor-pointer">
-        <template #header>
-          <div class="p-6 pb-0">
-            <div class="flex items-start justify-between mb-4">
-              <div class="flex-1">
-                <h2 class="text-2xl font-bold mb-2">{{ project.name }}</h2>
-                <div class="flex items-center gap-2 opacity-70">
-                  <i class="pi pi-globe"></i>
-                  <span>{{ project.baseDomain }}</span>
-                </div>
-              </div>
-              <Button
-                icon="pi pi-trash"
-                severity="danger"
-                text
-                rounded
-                @click.stop="confirmDelete(project)"
-                v-tooltip.top="'Delete project'"
-              />
+      <div
+        v-for="project in projects"
+        :key="project.id"
+        class="group relative rounded-xl p-[1px] bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 hover:shadow-2xl hover:shadow-blue-500/20 transition-all duration-300 cursor-pointer"
+        @click="$router.push(`/projects/${project.id}`)"
+      >
+        <div class="relative rounded-xl bg-white dark:bg-slate-900 p-6 h-full overflow-hidden">
+          <div class="absolute top-0 left-0 h-px w-full bg-gradient-to-r from-transparent via-slate-400/40 dark:via-white/30 to-transparent"></div>
+
+          <div class="mb-6">
+            <h2 class="text-2xl font-bold mb-2 text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{{ project.name }}</h2>
+            <div class="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+              <i class="pi pi-globe text-sm"></i>
+              <span class="text-sm">{{ project.baseDomain }}</span>
             </div>
           </div>
-        </template>
 
-        <template #content>
-          <Divider />
-
-          <div class="grid grid-cols-2 gap-4 mb-4">
-            <div class="text-center p-3 rounded border">
+          <div class="grid grid-cols-2 gap-3 mb-6">
+            <div class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <div class="flex items-center justify-center gap-2 mb-2">
-                <i class="pi pi-box text-blue-500 text-xl"></i>
-                <span class="text-2xl font-bold">{{ project.resources?.length || 0 }}</span>
+                <i class="pi pi-box text-blue-600 dark:text-blue-400 text-xl"></i>
+                <span class="text-3xl font-bold text-slate-900 dark:text-white">{{ project.resources?.length || 0 }}</span>
               </div>
-              <div class="text-sm opacity-70">Resources</div>
+              <div class="text-sm text-slate-600 dark:text-slate-400 text-center">Resources</div>
             </div>
 
-            <div class="text-center p-3 rounded border">
+            <div class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
               <div class="flex items-center justify-center gap-2 mb-2">
-                <i class="pi pi-server text-green-500 text-xl"></i>
-                <span class="text-2xl font-bold">{{ project.environments?.length || 0 }}</span>
+                <i class="pi pi-server text-green-600 dark:text-green-400 text-xl"></i>
+                <span class="text-3xl font-bold text-slate-900 dark:text-white">{{ project.environments?.length || 0 }}</span>
               </div>
-              <div class="text-sm opacity-70">Environments</div>
+              <div class="text-sm text-slate-600 dark:text-slate-400 text-center">Environments</div>
             </div>
           </div>
 
-          <Divider />
-
-          <div class="flex flex-col gap-2 mt-4">
-            <Button
-              label="Manage Environments"
-              icon="pi pi-server"
-              outlined
-              class="w-full"
-              @click="$router.push(`/projects/${project.id}/environments`)"
-            />
-            <Button
-              label="Edit Project"
-              icon="pi pi-cog"
-              severity="secondary"
-              outlined
-              class="w-full"
-              @click="$router.push(`/projects/${project.id}`)"
-            />
+          <!-- Action buttons -->
+          <div class="flex gap-2">
+            <button
+              class="flex-1 px-4 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-600 text-sm font-medium text-slate-900 dark:text-white rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group/btn"
+            >
+              <i class="pi pi-cog text-sm group-hover/btn:scale-110 transition-transform"></i>
+              Edit
+            </button>
+            <button
+              class="px-4 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-red-100 dark:hover:bg-red-900/30 border border-slate-300/50 dark:border-slate-700/50 hover:border-red-400 dark:hover:border-red-500/50 rounded-lg transition-all duration-200"
+              @click.stop="confirmDelete(project)"
+              v-tooltip.top="'Delete'"
+            >
+              <i class="pi pi-trash text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"></i>
+            </button>
           </div>
-        </template>
-      </Card>
+
+          <div class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-10 dark:group-hover:opacity-10 bg-gradient-to-br from-blue-500 to-purple-500 transition-opacity pointer-events-none"></div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -106,9 +96,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
-import Card from 'primevue/card';
 import Button from 'primevue/button';
-import Divider from 'primevue/divider';
 import ProgressSpinner from 'primevue/progressspinner';
 import { useNotification } from '../composables/useNotification';
 
