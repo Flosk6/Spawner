@@ -4,7 +4,7 @@ type Theme = 'light' | 'dark';
 
 const THEME_STORAGE_KEY = 'spawner-theme';
 
-const currentTheme = ref<Theme>('dark');
+const currentTheme = ref<Theme>('light');
 
 export function useTheme() {
   const isDark = ref(currentTheme.value === 'dark');

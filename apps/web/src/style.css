@@ -17,15 +17,17 @@
 
 /* Tooltip width override */
 .p-tooltip {
-  max-width: 32rem !important;
-  min-width: 24rem !important;
+  max-width: fit-content !important;
+  min-width: auto !important;
 }
 
 .p-tooltip .p-tooltip-text {
-  max-width: 32rem !important;
-  min-width: 24rem !important;
+  max-width: fit-content !important;
+  min-width: auto !important;
   width: auto !important;
-  white-space: normal !important;
+  white-space: nowrap !important;
+  padding: 0.375rem 0.75rem !important;
+  font-size: 0.875rem !important;
 }
 
 body {

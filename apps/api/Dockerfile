@@ -72,11 +72,15 @@ COPY --from=builder /app/packages/config/dist ./packages/config/dist
 COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
+# Copy entrypoint script
+COPY apps/api/docker-entrypoint.sh /app/docker-entrypoint.sh
+
 # Use existing user with UID 1000 (usually 'node' in node base image)
 # and add to docker group (GID 988) for Docker socket access
 RUN groupadd -g 988 docker && \
     usermod -aG docker node && \
-    chown -R node:node /app
+    chown -R node:node /app && \
+    chmod +x /app/docker-entrypoint.sh
 
 USER node
 
@@ -91,5 +95,5 @@ ENV PORT=3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/api/auth/status', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start the application
-CMD ["node", "apps/api/dist/main.js"]
+# Start the application with entrypoint script
+CMD ["/app/docker-entrypoint.sh"]

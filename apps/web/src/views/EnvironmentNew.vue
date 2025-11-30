@@ -5,7 +5,7 @@
         label="Back to Environments"
         icon="pi pi-arrow-left"
         text
-        @click="$router.push(`/projects/${projectId}/environments`)"
+        @click="handleBack"
       />
     </div>
 
@@ -13,6 +13,7 @@
       <template #title>Create New Environment</template>
       <template #subtitle>
         <span v-if="project">Project: <strong>{{ project.name }}</strong></span>
+        <span v-else-if="!isProjectBased">Select a project to create an environment</span>
       </template>
       <template #content>
         <div v-if="loading" class="flex justify-center py-8">
@@ -20,6 +21,22 @@
         </div>
 
         <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-6">
+          <!-- Project Selection (only in global mode) -->
+          <div v-if="!isProjectBased" class="flex flex-col gap-2">
+            <label for="project" class="font-semibold">
+              Select Project <span class="text-red-500">*</span>
+            </label>
+            <Dropdown
+              id="project"
+              v-model="selectedProjectId"
+              :options="allProjects"
+              optionLabel="name"
+              optionValue="id"
+              placeholder="Choose a project..."
+              @change="onProjectChange"
+              class="w-full"
+            />
+          </div>
           <!-- Environment Name -->
           <div class="flex flex-col gap-2">
             <label for="envName" class="font-semibold">
@@ -103,7 +120,7 @@
               label="Cancel"
               severity="secondary"
               outlined
-              @click="$router.push(`/projects/${projectId}/environments`)"
+              @click="handleBack"
               class="flex-1"
             />
           </div>
@@ -180,6 +197,7 @@ import axios from 'axios';
 import Card from 'primevue/card';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
+import Dropdown from 'primevue/dropdown';
 import Checkbox from 'primevue/checkbox';
 import Message from 'primevue/message';
 import Dialog from 'primevue/dialog';
@@ -202,7 +220,10 @@ interface Resource {
 const route = useRoute();
 const router = useRouter();
 
+const isProjectBased = computed(() => !!route.params.projectId);
 const projectId = ref<number>(0);
+const selectedProjectId = ref<number | null>(null);
+const allProjects = ref<Project[]>([]);
 const project = ref<Project | null>(null);
 const envName = ref('');
 const branches = ref<Record<string, string>>({});
@@ -260,15 +281,31 @@ function getStepIcon(stepId: string): string {
 }
 
 async function loadProject() {
-  projectId.value = parseInt(route.params.projectId as string);
+  if (isProjectBased.value) {
+    projectId.value = parseInt(route.params.projectId as string);
+    await loadProjectDetails(projectId.value);
+  } else {
+    try {
+      loading.value = true;
+      const response = await axios.get('/api/projects');
+      allProjects.value = response.data;
+    } catch (err: any) {
+      console.error('Error loading projects:', err);
+      error.value = err.response?.data?.message || 'Failed to load projects';
+    } finally {
+      loading.value = false;
+    }
+  }
+}
 
+async function loadProjectDetails(id: number) {
   try {
     loading.value = true;
 
-    const projectResponse = await axios.get(`/api/projects/${projectId.value}`);
+    const projectResponse = await axios.get(`/api/projects/${id}`);
     project.value = projectResponse.data;
 
-    const resourcesResponse = await axios.get(`/api/projects/${projectId.value}/resources`);
+    const resourcesResponse = await axios.get(`/api/projects/${id}/resources`);
     gitResources.value = resourcesResponse.data.filter(
       (r: Resource) => r.type === 'laravel-api' || r.type === 'nextjs-front'
     );
@@ -281,6 +318,23 @@ async function loadProject() {
     error.value = err.response?.data?.message || 'Failed to load project';
   } finally {
     loading.value = false;
+  }
+}
+
+async function onProjectChange() {
+  if (selectedProjectId.value) {
+    projectId.value = selectedProjectId.value;
+    branches.value = {};
+    gitResources.value = [];
+    await loadProjectDetails(selectedProjectId.value);
+  }
+}
+
+function handleBack() {
+  if (isProjectBased.value) {
+    router.push(`/projects/${projectId.value}/environments`);
+  } else {
+    router.push('/environments');
   }
 }
 

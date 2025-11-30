@@ -2,7 +2,7 @@
 export type ResourceType = 'laravel-api' | 'nextjs-front' | 'mysql-db';
 
 // Environment Status
-export type EnvironmentStatus = 'creating' | 'running' | 'failed' | 'deleting';
+export type EnvironmentStatus = 'creating' | 'running' | 'failed' | 'deleting' | 'stopped';
 
 // User Role
 export type UserRole = 'user' | 'admin';
@@ -38,6 +38,12 @@ export interface Environment {
   status: EnvironmentStatus;
   createdAt: string | Date;
   branches?: Record<string, string>;
+  project?: {
+    id: number;
+    name: string;
+    baseDomain: string;
+  };
+  resources?: EnvironmentResource[];
 }
 
 export interface EnvironmentDetail extends Environment {

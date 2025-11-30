@@ -2,7 +2,9 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import Dashboard from '../views/Dashboard.vue';
 import ProjectList from '../views/ProjectList.vue';
+import ProjectDetail from '../views/ProjectDetail.vue';
 import ProjectForm from '../views/ProjectForm.vue';
+import EnvironmentsGlobal from '../views/EnvironmentsGlobal.vue';
 import EnvironmentList from '../views/EnvironmentList.vue';
 import EnvironmentNew from '../views/EnvironmentNew.vue';
 import EnvironmentDetail from '../views/EnvironmentDetail.vue';
@@ -22,7 +24,7 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/projects',
+      redirect: '/environments',
     },
     {
       path: '/dashboard',
@@ -49,6 +51,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/environments',
+      name: 'EnvironmentsGlobal',
+      component: EnvironmentsGlobal,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/environments/new',
+      name: 'EnvironmentNewGlobal',
+      component: EnvironmentNew,
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/projects',
       name: 'ProjectList',
       component: ProjectList,
@@ -61,9 +75,15 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/projects/:id',
+      path: '/projects/:id/edit',
       name: 'ProjectEdit',
       component: ProjectForm,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects/:id',
+      name: 'ProjectDetail',
+      component: ProjectDetail,
       meta: { requiresAuth: true },
     },
     {
@@ -101,8 +121,8 @@ router.beforeEach(async (to, _from, next) => {
     // Redirect to login if route requires auth and user is not authenticated
     next({ name: 'Login' });
   } else if (to.name === 'Login' && authStore.isAuthenticated) {
-    // Redirect to dashboard if user is authenticated and tries to access login
-    next({ name: 'ProjectList' });
+    // Redirect to environments if user is authenticated and tries to access login
+    next({ name: 'EnvironmentsGlobal' });
   } else {
     next();
   }

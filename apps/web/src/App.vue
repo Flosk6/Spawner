@@ -11,8 +11,8 @@
       </template>
       <template #end>
         <div class="flex items-center gap-3">
-          <Button :icon="isDark ? 'pi pi-sun' : 'pi pi-moon'" :label="isDark ? 'Light' : 'Dark'" text rounded
-            @click="toggleTheme" v-tooltip.bottom="isDark ? 'Switch to light mode' : 'Switch to dark mode'" />
+          <!-- <Button :icon="isDark ? 'pi pi-sun' : 'pi pi-moon'" :label="isDark ? 'Light' : 'Dark'" text rounded
+            @click="toggleTheme" v-tooltip.bottom="isDark ? 'Switch to light mode' : 'Switch to dark mode'" /> -->
           <UserMenu v-if="authStore.user" :user="authStore.user" />
         </div>
       </template>
@@ -30,17 +30,19 @@ import { useRouter } from 'vue-router';
 import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
 import Menubar from 'primevue/menubar';
-import Button from 'primevue/button';
 import { useAuthStore } from './stores/auth';
-import { useTheme } from './composables/useTheme';
 import UserMenu from './components/UserMenu.vue';
 import Logo from './components/Logo.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();
-const { isDark, toggleTheme } = useTheme();
 
 const menuItems = computed(() => [
+  {
+    label: 'Environments',
+    icon: 'pi pi-server',
+    command: () => router.push('/environments')
+  },
   {
     label: 'Projects',
     icon: 'pi pi-folder',
@@ -58,7 +60,7 @@ const menuItems = computed(() => [
   },
   {
     label: 'System',
-    icon: 'pi pi-server',
+    icon: 'pi pi-cog',
     command: () => router.push('/settings/system')
   }
 ]);
