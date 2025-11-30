@@ -72,16 +72,13 @@ COPY --from=builder /app/packages/config/dist ./packages/config/dist
 COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Create user with same UID as host 'spawner' user (1000)
+# Use existing user with UID 1000 (usually 'node' in node base image)
 # and add to docker group (GID 988) for Docker socket access
-# Use existing group 1000 if it exists, otherwise create it
-RUN (groupadd -g 1000 spawner 2>/dev/null || true) && \
-    useradd -r -u 1000 -g 1000 spawner && \
-    groupadd -g 988 docker && \
-    usermod -aG docker spawner && \
-    chown -R spawner:spawner /app
+RUN groupadd -g 988 docker && \
+    usermod -aG docker node && \
+    chown -R node:node /app
 
-USER spawner
+USER node
 
 # Expose port
 EXPOSE 3000
