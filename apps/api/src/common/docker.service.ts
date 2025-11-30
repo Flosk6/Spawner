@@ -455,4 +455,292 @@ export class DockerService implements OnModuleInit {
       }
     }
   }
+
+  async getSystemDiskUsage(): Promise<any> {
+    try {
+      return await this.docker.df();
+    } catch (error) {
+      throw new Error(`Failed to get disk usage: ${error.message}`);
+    }
+  }
+
+  async pruneImages(dangling: boolean = true): Promise<any> {
+    try {
+      const filters: any = {};
+      if (dangling) {
+        filters.dangling = { true: true };
+      }
+      return await this.docker.pruneImages({ filters });
+    } catch (error) {
+      throw new Error(`Failed to prune images: ${error.message}`);
+    }
+  }
+
+  async pruneBuildCache(): Promise<any> {
+    try {
+      const buildPruneUrl = "/build/prune";
+      return await new Promise((resolve, reject) => {
+        this.docker.modem.dial(
+          {
+            path: buildPruneUrl,
+            method: "POST",
+            statusCodes: {
+              200: true,
+              204: true,
+              500: "server error",
+            },
+          },
+          (err, data) => {
+            if (err) {
+              reject(new Error(`Failed to prune build cache: ${err.message}`));
+            } else {
+              resolve(data);
+            }
+          }
+        );
+      });
+    } catch (error) {
+      throw new Error(`Failed to prune build cache: ${error.message}`);
+    }
+  }
+
+  async pruneVolumes(): Promise<any> {
+    try {
+      return await this.docker.pruneVolumes();
+    } catch (error) {
+      throw new Error(`Failed to prune volumes: ${error.message}`);
+    }
+  }
+
+  async pruneContainers(): Promise<any> {
+    try {
+      return await this.docker.pruneContainers();
+    } catch (error) {
+      throw new Error(`Failed to prune containers: ${error.message}`);
+    }
+  }
+
+  async pruneNetworks(): Promise<any> {
+    try {
+      return await this.docker.pruneNetworks();
+    } catch (error) {
+      throw new Error(`Failed to prune networks: ${error.message}`);
+    }
+  }
+
+  async listAllImages(): Promise<any[]> {
+    try {
+      const images = await this.docker.listImages({ all: true });
+      const containers = await this.docker.listContainers({ all: true });
+
+      return images.map((image) => {
+        const usedByContainers = containers.filter(
+          (c) => c.ImageID === image.Id || c.Image === image.RepoTags?.[0]
+        );
+
+        const isDangling =
+          !image.RepoTags ||
+          image.RepoTags.length === 0 ||
+          image.RepoTags.includes("<none>:<none>");
+
+        const ageInDays = Math.floor(
+          (Date.now() - image.Created * 1000) / (1000 * 60 * 60 * 24)
+        );
+
+        let recommendation = "unknown";
+        if (isDangling) {
+          recommendation = "safe";
+        } else if (usedByContainers.length === 0 && ageInDays > 30) {
+          recommendation = "safe";
+        } else if (usedByContainers.length === 0 && ageInDays > 7) {
+          recommendation = "probably-safe";
+        } else if (usedByContainers.length > 0) {
+          recommendation = "in-use";
+        }
+
+        return {
+          ...image,
+          isDangling,
+          usedByContainers: usedByContainers.map((c) => ({
+            id: c.Id,
+            name: c.Names?.[0]?.replace(/^\//, "") || c.Id.substring(0, 12),
+            state: c.State,
+          })),
+          ageInDays,
+          createdAt: new Date(image.Created * 1000).toISOString(),
+          recommendation,
+        };
+      });
+    } catch (error) {
+      throw new Error(`Failed to list images: ${error.message}`);
+    }
+  }
+
+  async listAllContainers(): Promise<any[]> {
+    try {
+      const containers = await this.docker.listContainers({ all: true });
+
+      return containers.map((container) => {
+        const createdAt = new Date(container.Created * 1000);
+        const ageInDays = Math.floor(
+          (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+        );
+
+        const isStopped = container.State !== "running";
+        const isSpawnerContainer = container.Names?.some((name) =>
+          name.includes("env-")
+        );
+
+        let recommendation = "unknown";
+        if (isStopped && ageInDays > 7) {
+          recommendation = "safe";
+        } else if (isStopped && ageInDays > 1) {
+          recommendation = "probably-safe";
+        } else if (container.State === "running") {
+          recommendation = "in-use";
+        }
+
+        const environmentName = isSpawnerContainer
+          ? this.extractEnvironmentName(container.Names?.[0])
+          : null;
+
+        return {
+          ...container,
+          ageInDays,
+          createdAt: createdAt.toISOString(),
+          isStopped,
+          isSpawnerContainer,
+          environmentName,
+          recommendation,
+        };
+      });
+    } catch (error) {
+      throw new Error(`Failed to list containers: ${error.message}`);
+    }
+  }
+
+  private extractEnvironmentName(containerName: string): string | null {
+    if (!containerName) return null;
+    const match = containerName.match(/^\/env-([^-]+)-([^-]+)-/);
+    if (match) {
+      return `${match[1]}-${match[2]}`;
+    }
+    return null;
+  }
+
+  async listAllVolumes(): Promise<any> {
+    try {
+      return await this.docker.listVolumes();
+    } catch (error) {
+      throw new Error(`Failed to list volumes: ${error.message}`);
+    }
+  }
+
+  async listAllNetworks(): Promise<any[]> {
+    try {
+      return await this.docker.listNetworks();
+    } catch (error) {
+      throw new Error(`Failed to list networks: ${error.message}`);
+    }
+  }
+
+  async removeImageById(imageId: string, force: boolean = false): Promise<void> {
+    try {
+      const image = this.docker.getImage(imageId);
+      await image.remove({ force });
+    } catch (error) {
+      if (error.statusCode === 409) {
+        throw new Error(`Cannot remove image (has dependent child images). Try removing child images first, or use force option.`);
+      } else if (error.statusCode === 404) {
+        throw new Error(`Image not found (may have been already deleted)`);
+      }
+      throw new Error(`Failed to remove image ${imageId}: ${error.message}`);
+    }
+  }
+
+  async removeVolumeByName(volumeName: string): Promise<void> {
+    try {
+      const volume = this.docker.getVolume(volumeName);
+      await volume.remove();
+    } catch (error) {
+      throw new Error(`Failed to remove volume ${volumeName}: ${error.message}`);
+    }
+  }
+
+  async removeNetworkById(networkId: string): Promise<void> {
+    try {
+      const network = this.docker.getNetwork(networkId);
+      await network.remove();
+    } catch (error) {
+      throw new Error(`Failed to remove network ${networkId}: ${error.message}`);
+    }
+  }
+
+  async intelligentCleanup(options?: {
+    imageDaysThreshold?: number;
+    containerDaysThreshold?: number;
+    cacheDaysThreshold?: number;
+  }): Promise<{
+    images: { removed: number; spaceFreed: number; ids: string[] };
+    containers: { removed: number; ids: string[] };
+    cache: { spaceFreed: number };
+    volumes: { removed: number; names: string[] };
+  }> {
+    const imageDaysThreshold = options?.imageDaysThreshold || 30;
+    const containerDaysThreshold = options?.containerDaysThreshold || 7;
+
+    const result = {
+      images: { removed: 0, spaceFreed: 0, ids: [] as string[] },
+      containers: { removed: 0, ids: [] as string[] },
+      cache: { spaceFreed: 0 },
+      volumes: { removed: 0, names: [] as string[] },
+    };
+
+    try {
+      const images = await this.listAllImages();
+      const containers = await this.listAllContainers();
+
+      for (const container of containers) {
+        if (container.isStopped && container.ageInDays > containerDaysThreshold) {
+          try {
+            await this.removeContainer(container.Id, true);
+            result.containers.removed++;
+            result.containers.ids.push(container.Id);
+          } catch (error) {
+            console.error(
+              `Failed to remove container ${container.Id}:`,
+              error.message
+            );
+          }
+        }
+      }
+
+      for (const image of images) {
+        if (
+          image.isDangling ||
+          (image.usedByContainers.length === 0 && image.ageInDays > imageDaysThreshold)
+        ) {
+          try {
+            await this.removeImageById(image.Id);
+            result.images.removed++;
+            result.images.spaceFreed += image.Size || 0;
+            result.images.ids.push(image.Id);
+          } catch (error) {
+            console.error(`Failed to remove image ${image.Id}:`, error.message);
+          }
+        }
+      }
+
+      try {
+        const cacheResult = await this.pruneBuildCache();
+        result.cache.spaceFreed = cacheResult?.SpaceReclaimed || 0;
+      } catch (error) {
+        console.error("Failed to prune cache:", error.message);
+      }
+
+      return result;
+    } catch (error) {
+      throw new Error(`Intelligent cleanup failed: ${error.message}`);
+    }
+  }
 }
