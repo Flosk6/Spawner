@@ -5,12 +5,17 @@
         <h1 class="text-4xl font-bold mb-2">Environments</h1>
         <p class="text-lg opacity-70">Manage all your preview environments</p>
       </div>
-      <Button
-        label="New Environment"
-        icon="pi pi-plus"
-        size="large"
+      <button
         @click="$router.push('/environments/new')"
-      />
+        class="group relative px-6 py-3 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30"
+      >
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105"></div>
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300"></div>
+        <div class="relative flex items-center gap-2">
+          <i class="pi pi-plus text-lg"></i>
+          <span class="text-lg">New Environment</span>
+        </div>
+      </button>
     </div>
 
     <div v-if="loading" class="flex justify-center py-20">
@@ -20,12 +25,17 @@
     <div v-else-if="environments.length === 0" class="text-center py-20">
       <i class="pi pi-server text-6xl mb-6 block opacity-30"></i>
       <p class="text-xl mb-6 opacity-60">No environments yet</p>
-      <Button
-        label="Create your first environment"
-        icon="pi pi-plus"
-        size="large"
+      <button
         @click="$router.push('/environments/new')"
-      />
+        class="group relative px-8 py-4 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30"
+      >
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105"></div>
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300"></div>
+        <div class="relative flex items-center gap-2">
+          <i class="pi pi-plus text-xl"></i>
+          <span class="text-xl">Create your first environment</span>
+        </div>
+      </button>
     </div>
 
     <div v-else>
@@ -80,7 +90,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import axios from 'axios';
-import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import ProgressSpinner from 'primevue/progressspinner';
 import ProgressBar from 'primevue/progressbar';

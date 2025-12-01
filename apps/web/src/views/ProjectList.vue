@@ -1,21 +1,21 @@
 <template>
   <div>
     <div class="flex justify-between items-center mb-6">
-      <h1 class="text-4xl font-bold">Projects</h1>
-      <div class="flex gap-3">
-        <Button
-          label="SSH Keys"
-          icon="pi pi-key"
-          severity="secondary"
-          outlined
-          @click="$router.push('/settings/git')"
-        />
-        <Button
-          label="New Project"
-          icon="pi pi-plus"
-          @click="$router.push('/projects/new')"
-        />
+      <div>
+        <h1 class="text-4xl font-bold mb-2">Projects</h1>
+        <p class="text-lg opacity-70">Configure your application projects</p>
       </div>
+      <button
+        @click="$router.push('/projects/new')"
+        class="group relative px-6 py-3 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30"
+      >
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105"></div>
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300"></div>
+        <div class="relative flex items-center gap-2">
+          <i class="pi pi-plus text-lg"></i>
+          <span class="text-lg">New Project</span>
+        </div>
+      </button>
     </div>
 
     <div v-if="loading" class="flex justify-center py-20">
@@ -25,12 +25,17 @@
     <div v-else-if="projects.length === 0" class="text-center py-20">
       <i class="pi pi-folder-open text-6xl mb-6 block opacity-30"></i>
       <p class="text-xl mb-6 opacity-60">No projects yet</p>
-      <Button
-        label="Create your first project"
-        icon="pi pi-plus"
-        size="large"
+      <button
         @click="$router.push('/projects/new')"
-      />
+        class="group relative px-8 py-4 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30"
+      >
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105"></div>
+        <div class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300"></div>
+        <div class="relative flex items-center gap-2">
+          <i class="pi pi-plus text-xl"></i>
+          <span class="text-xl">Create your first project</span>
+        </div>
+      </button>
     </div>
 
     <div v-else class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -96,7 +101,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
-import Button from 'primevue/button';
 import ProgressSpinner from 'primevue/progressspinner';
 import { useNotification } from '../composables/useNotification';
 

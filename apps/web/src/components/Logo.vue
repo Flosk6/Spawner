@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center gap-1.5">
+  <div class="flex items-center gap-2.5">
     <img
       :src="logoUrl"
       :alt="alt"
@@ -9,7 +9,7 @@
     <span
       v-if="showText"
       :class="textSizeClass"
-      class="font-bold text-primary"
+      class="font-black tracking-tight bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 dark:from-purple-400 dark:via-violet-400 dark:to-indigo-400 bg-clip-text text-transparent"
     >
       {{ text }}
     </span>
@@ -46,10 +46,10 @@ const sizeClass = computed(() => {
 
 const textSizeClass = computed(() => {
   const sizes = {
-    sm: 'text-xl',
-    md: 'text-2xl',
-    lg: 'text-3xl',
-    xl: 'text-5xl'
+    sm: 'text-2xl',
+    md: 'text-3xl',
+    lg: 'text-4xl',
+    xl: 'text-6xl'
   };
   return sizes[props.size];
 });
