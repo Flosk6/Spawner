@@ -268,7 +268,7 @@ export class EnvironmentService {
         const sanitizedKeyPath = sanitizeShellArg(repoKeyPath);
         const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
         await execAsync(
-          `cd ${sanitizedRepoDir} && GIT_SSH_COMMAND="${sshCommand}" git fetch && git checkout ${sanitizedBranch} && GIT_SSH_COMMAND="${sshCommand}" git pull`
+          `cd ${sanitizedRepoDir} && GIT_SSH_COMMAND="${sshCommand}" git fetch origin && git checkout ${sanitizedBranch} && git reset --hard origin/${sanitizedBranch}`
         );
       }
 
