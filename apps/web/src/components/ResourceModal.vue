@@ -35,24 +35,6 @@
         <InputText id="defaultBranch" v-model="form.defaultBranch" placeholder="main" />
       </div>
 
-      <!-- DB Resource (for laravel-api) -->
-      <div v-if="form.type === 'laravel-api'" class="flex flex-col gap-2">
-        <label for="dbResource" class="font-semibold">
-          Database Resource <span class="text-red-500">*</span>
-        </label>
-        <Select id="dbResource" v-model="form.dbResourceId" :options="databaseResources" optionLabel="name"
-          optionValue="id" placeholder="Select a database" />
-      </div>
-
-      <!-- API Resource (for nextjs-front) -->
-      <div v-if="form.type === 'nextjs-front'" class="flex flex-col gap-2">
-        <label for="apiResource" class="font-semibold">
-          API Resource <span class="text-red-500">*</span>
-        </label>
-        <Select id="apiResource" v-model="form.apiResourceId" :options="apiResources" optionLabel="name"
-          optionValue="id" placeholder="Select an API" />
-      </div>
-
       <!-- Environment Variables -->
       <div class="flex flex-col gap-2">
         <div class="flex items-center gap-2">
@@ -179,8 +161,6 @@ interface Resource {
   type: string;
   gitRepo?: string;
   defaultBranch?: string;
-  dbResourceId?: number;
-  apiResourceId?: number;
   staticEnvVars?: Record<string, string>;
   postBuildCommands?: string[];
   resourceLimits?: ResourceLimits;
@@ -248,8 +228,6 @@ const form = ref({
   type: 'mysql-db',
   gitRepo: '',
   defaultBranch: 'main',
-  dbResourceId: null as number | null,
-  apiResourceId: null as number | null,
   staticEnvVars: '',
   exposedPort: '',
   resourceLimits: {
@@ -262,14 +240,6 @@ const form = ref({
 
 const postBuildCommandsText = ref('');
 const saving = ref(false);
-
-const databaseResources = computed(() => {
-  return props.allResources.filter(r => r.type === 'mysql-db');
-});
-
-const apiResources = computed(() => {
-  return props.allResources.filter(r => r.type === 'laravel-api');
-});
 
 const allResources = computed(() => {
   return props.allResources.map(r => ({
@@ -300,8 +270,6 @@ function initForm() {
       type: props.resource.type || 'mysql-db',
       gitRepo: props.resource.gitRepo || '',
       defaultBranch: props.resource.defaultBranch || 'main',
-      dbResourceId: props.resource.dbResourceId || null,
-      apiResourceId: props.resource.apiResourceId || null,
       staticEnvVars: stringifyEnvVars(props.resource.staticEnvVars || {}),
       exposedPort: props.resource.exposedPort?.toString() || '',
       resourceLimits: {
@@ -336,16 +304,6 @@ async function save() {
     }
   }
 
-  if (form.value.type === 'laravel-api' && !form.value.dbResourceId) {
-    showError('Please select a database resource');
-    return;
-  }
-
-  if (form.value.type === 'nextjs-front' && !form.value.apiResourceId) {
-    showError('Please select an API resource');
-    return;
-  }
-
   try {
     saving.value = true;
 
@@ -366,8 +324,6 @@ async function save() {
       type: form.value.type,
       gitRepo: form.value.gitRepo || null,
       defaultBranch: form.value.defaultBranch || null,
-      dbResourceId: form.value.dbResourceId || null,
-      apiResourceId: form.value.apiResourceId || null,
       staticEnvVars: form.value.staticEnvVars,
       postBuildCommands: postBuildCommands,
       resourceLimits: Object.keys(resourceLimits).length > 0 ? resourceLimits : null,
