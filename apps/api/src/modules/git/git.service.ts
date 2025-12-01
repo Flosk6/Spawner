@@ -94,14 +94,13 @@ export class GitService {
    *
    * This handles the Git workflow for environment provisioning:
    * - First call: Clones the repository to persistent storage
-   * - Subsequent calls: Fetches updates and switches branches
-   * - Discards any local changes (hard reset) before pulling
+   * - Subsequent calls: Fetches updates and hard resets to remote branch
    *
    * Security: All inputs (repo URL, branch, paths) are validated and sanitized
    * to prevent command injection. Uses per-repository SSH keys for authentication.
    *
-   * Why hard reset: Preview environments should always reflect the exact Git state,
-   * not preserve any local modifications from previous builds or testing.
+   * Why hard reset: Preview environments should always reflect the exact remote state.
+   * This handles force pushes and divergent branches without conflicts.
    *
    * @param gitRepo - Repository URL (SSH or HTTPS format)
    * @param resourceName - Resource identifier (used as directory name)
@@ -157,18 +156,14 @@ export class GitService {
     await execAsync(fetchCmd, { timeout: 120000 });
 
     console.log(`Checking out branch ${sanitizedBranch} for ${sanitizedResourceName}...`);
-    const resetCmd = `cd ${sanitizedRepoPath} && git reset --hard HEAD`;
-    await execAsync(resetCmd, { timeout: 30000 });
-
     const checkoutCmd = `cd ${sanitizedRepoPath} && git checkout ${sanitizedBranch}`;
     console.log(`[DEBUG] Checkout command: ${checkoutCmd}`);
     await execAsync(checkoutCmd, { timeout: 30000 });
 
-    const pullCmd = isHttps
-      ? `cd ${sanitizedRepoPath} && git pull origin ${sanitizedBranch}`
-      : `cd ${sanitizedRepoPath} && GIT_SSH_COMMAND="${sshCommand}" git pull origin ${sanitizedBranch}`;
-    console.log(`[DEBUG] Pull command: ${pullCmd}`);
-    await execAsync(pullCmd, { timeout: 120000 });
+    console.log(`Syncing ${sanitizedResourceName} with remote ${sanitizedBranch}...`);
+    const resetCmd = `cd ${sanitizedRepoPath} && git reset --hard origin/${sanitizedBranch}`;
+    console.log(`[DEBUG] Reset command: ${resetCmd}`);
+    await execAsync(resetCmd, { timeout: 30000 });
     console.log(`${sanitizedResourceName} ready on branch ${sanitizedBranch}`);
   }
 
