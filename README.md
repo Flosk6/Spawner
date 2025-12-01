@@ -2,7 +2,7 @@
 
 > Self-hosted preview environments with automatic Docker orchestration
 >
-> **License:** AGPL-3.0 | **Copyright © 2024 Florian**
+> **License:** AGPL-3.0 | **Copyright © 2025 Florian-mfr**
 
 Create and manage preview environments for Laravel APIs, Next.js frontends, and MySQL databases based on Git branches. Automatic Docker orchestration with GitHub OAuth authentication.
 
