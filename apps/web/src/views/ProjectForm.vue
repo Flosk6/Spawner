@@ -1,53 +1,67 @@
 <template>
-  <div>
-    <div class="mb-6">
-      <Button
-        label="Back to Projects"
-        icon="pi pi-arrow-left"
-        text
-        @click="$router.push('/projects')"
-      />
-    </div>
-
-    <div class="mb-6">
-      <h1 class="text-4xl font-bold">
-        {{ isEdit ? 'Edit Project' : 'New Project' }}
-      </h1>
-    </div>
-
-    <!-- Project Info -->
-    <Card class="mb-6">
-      <template #title>Project Information</template>
-      <template #content>
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-2">
-            <label for="projectName" class="font-semibold">Project Name</label>
-            <InputText
-              id="projectName"
-              v-model="form.name"
-              placeholder="my-project"
-            />
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <label for="baseDomain" class="font-semibold">Base Domain</label>
-            <InputText
-              id="baseDomain"
-              v-model="form.baseDomain"
-              placeholder="preview.yourdomain.com"
-            />
-          </div>
-
+  <div class="flex flex-col h-[calc(100vh-5rem)]">
+    <!-- Sticky Header -->
+    <div class="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-4">
           <Button
-            :label="saving ? 'Saving...' : 'Save Project Info'"
+            icon="pi pi-arrow-left"
+            text
+            rounded
+            @click="$router.push('/projects')"
+            v-tooltip.bottom="'Back to Projects'"
+          />
+          <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">
+              {{ isEdit ? 'Edit Project' : 'New Project' }}
+            </h1>
+          </div>
+        </div>
+
+        <div class="flex gap-3">
+          <Button
+            label="Cancel"
+            severity="secondary"
+            outlined
+            @click="$router.push('/projects')"
+          />
+          <Button
+            :label="saving ? 'Saving...' : (isEdit ? 'Update' : 'Create')"
+            :loading="saving"
             icon="pi pi-save"
             @click="saveProject"
-            :disabled="saving"
-            :loading="saving"
           />
         </div>
-      </template>
-    </Card>
+      </div>
+    </div>
+
+    <!-- Scrollable Content -->
+    <div class="flex-1 overflow-y-auto px-6 py-6">
+      <!-- Project Info -->
+      <Card class="mb-6 max-w-2xl">
+        <template #title>Project Information</template>
+        <template #content>
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-2">
+              <label for="projectName" class="font-semibold">Project Name</label>
+              <InputText
+                id="projectName"
+                v-model="form.name"
+                placeholder="my-project"
+              />
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <label for="baseDomain" class="font-semibold">Base Domain</label>
+              <InputText
+                id="baseDomain"
+                v-model="form.baseDomain"
+                placeholder="preview.yourdomain.com"
+              />
+            </div>
+          </div>
+        </template>
+      </Card>
 
     <!-- Resources Section (only if project exists) -->
     <Card v-if="projectId">
@@ -168,6 +182,7 @@
         />
       </template>
     </Dialog>
+    </div>
   </div>
 </template>
 
