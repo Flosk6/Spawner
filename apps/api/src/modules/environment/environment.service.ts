@@ -24,7 +24,6 @@ import {
 } from "@spawner/utils";
 import type { EnvironmentStatus, ResourceType } from "@spawner/types";
 import { isGitResource, DEFAULT_EXPOSED_PORTS } from "@spawner/config";
-import { DockerComposeGenerator } from "../../common/docker-compose.generator";
 import { EnvironmentLogsEmitter } from "../../common/environment-logs.emitter";
 import { EnvVarsGenerator } from "../../common/env-vars.generator";
 import { DockerService } from "../../common/docker.service";
@@ -299,23 +298,6 @@ export class EnvironmentService {
           resourcePorts
         );
       }
-
-      log("info", "Generating docker-compose.yml...");
-      const generator = new DockerComposeGenerator(
-        envName,
-        project.baseDomain,
-        project.resources as any[],
-        branches,
-        reposPath,
-        resourcesEnvVars,
-        localMode
-      );
-      const composeContent = generator.generate();
-      await fs.writeFile(
-        path.join(envDir, "docker-compose.yml"),
-        composeContent,
-        { mode: 0o600 }
-      );
 
       this.logsEmitter.emitLog(
         envId,

@@ -114,14 +114,6 @@
                       <i class="pi pi-code-branch"></i>
                       <span>Branch: {{ resource.defaultBranch }}</span>
                     </div>
-                    <div v-if="resource.type === 'laravel-api'" class="flex items-center gap-2">
-                      <i class="pi pi-database"></i>
-                      <span>Database: {{ getResourceName(resource.dbResourceId) }}</span>
-                    </div>
-                    <div v-if="resource.type === 'nextjs-front'" class="flex items-center gap-2">
-                      <i class="pi pi-cog"></i>
-                      <span>API: {{ getResourceName(resource.apiResourceId) }}</span>
-                    </div>
                   </div>
                 </div>
 
@@ -205,8 +197,6 @@ interface Resource {
   type: string;
   gitRepo?: string;
   defaultBranch?: string;
-  dbResourceId?: number;
-  apiResourceId?: number;
 }
 
 const route = useRoute();
@@ -236,12 +226,6 @@ function getResourceIcon(type: string): string {
     'nextjs-front': 'pi pi-palette',
   };
   return icons[type] || 'pi pi-box';
-}
-
-function getResourceName(resourceId?: number): string {
-  if (!resourceId) return 'Unknown';
-  const resource = resources.value.find(r => r.id === resourceId);
-  return resource ? resource.name : 'Unknown';
 }
 
 async function loadProject() {

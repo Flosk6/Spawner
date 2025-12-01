@@ -30,8 +30,6 @@ export class ProjectResourcesController {
       type: 'laravel-api' | 'nextjs-front' | 'mysql-db';
       gitRepo?: string;
       defaultBranch?: string;
-      dbResourceId?: number;
-      apiResourceId?: number;
       staticEnvVars?: string;
       postBuildCommands?: string[];
       resourceLimits?: {
@@ -40,6 +38,7 @@ export class ProjectResourcesController {
         cpuReservation?: string;
         memoryReservation?: string;
       };
+      exposedPort?: number;
     },
   ) {
     return this.resourcesService.create(projectId, data);
@@ -54,8 +53,6 @@ export class ProjectResourcesController {
       type?: 'laravel-api' | 'nextjs-front' | 'mysql-db';
       gitRepo?: string;
       defaultBranch?: string;
-      dbResourceId?: number;
-      apiResourceId?: number;
       staticEnvVars?: string;
       postBuildCommands?: string[];
       resourceLimits?: {
@@ -64,6 +61,7 @@ export class ProjectResourcesController {
         cpuReservation?: string;
         memoryReservation?: string;
       };
+      exposedPort?: number;
     },
   ) {
     return this.resourcesService.update(projectId, id, data);

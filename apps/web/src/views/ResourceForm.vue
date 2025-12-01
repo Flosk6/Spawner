@@ -141,57 +141,6 @@
         </template>
       </Card>
 
-      <!-- Dependencies Card -->
-      <Card v-if="form.type === 'laravel-api' || form.type === 'nextjs-front'">
-        <template #title>
-          <div class="flex items-center gap-2">
-            <i class="pi pi-link text-green-500"></i>
-            <span>Dependencies</span>
-          </div>
-        </template>
-        <template #content>
-          <div class="grid gap-6">
-            <!-- DB Resource (for laravel-api) -->
-            <div v-if="form.type === 'laravel-api'" class="flex flex-col gap-2">
-              <label for="dbResource" class="font-semibold text-slate-700 dark:text-slate-300">
-                Database Resource <span class="text-red-500">*</span>
-              </label>
-              <Select
-                id="dbResource"
-                v-model="form.dbResourceId"
-                :options="databaseResources"
-                optionLabel="name"
-                optionValue="id"
-                placeholder="Select a database"
-                class="w-full"
-              />
-              <small class="text-slate-600 dark:text-slate-400">
-                The MySQL database this API will connect to
-              </small>
-            </div>
-
-            <!-- API Resource (for nextjs-front) -->
-            <div v-if="form.type === 'nextjs-front'" class="flex flex-col gap-2">
-              <label for="apiResource" class="font-semibold text-slate-700 dark:text-slate-300">
-                API Resource <span class="text-red-500">*</span>
-              </label>
-              <Select
-                id="apiResource"
-                v-model="form.apiResourceId"
-                :options="apiResources"
-                optionLabel="name"
-                optionValue="id"
-                placeholder="Select an API"
-                class="w-full"
-              />
-              <small class="text-slate-600 dark:text-slate-400">
-                The backend API this frontend will communicate with
-              </small>
-            </div>
-          </div>
-        </template>
-      </Card>
-
       <!-- Advanced Configuration Card -->
       <Card v-if="form.type !== 'mysql-db'">
         <template #title>
@@ -377,8 +326,6 @@ interface Resource {
   type: string;
   gitRepo?: string;
   defaultBranch?: string;
-  dbResourceId?: number;
-  apiResourceId?: number;
   staticEnvVars?: Record<string, string>;
   postBuildCommands?: string[];
   resourceLimits?: ResourceLimits;
@@ -443,8 +390,6 @@ const form = ref({
   type: 'mysql-db',
   gitRepo: '',
   defaultBranch: 'main',
-  dbResourceId: null as number | null,
-  apiResourceId: null as number | null,
   staticEnvVars: '',
   exposedPort: '',
   resourceLimits: {
@@ -456,14 +401,6 @@ const form = ref({
 });
 
 const postBuildCommandsText = ref('');
-
-const databaseResources = computed(() => {
-  return allResources.value.filter(r => r.type === 'mysql-db');
-});
-
-const apiResources = computed(() => {
-  return allResources.value.filter(r => r.type === 'laravel-api');
-});
 
 function getDefaultLimit(field: keyof ResourceLimits): string {
   const defaults = defaultResourceLimits[form.value.type];
@@ -502,8 +439,6 @@ async function loadData() {
           type: resource.type || 'mysql-db',
           gitRepo: resource.gitRepo || '',
           defaultBranch: resource.defaultBranch || 'main',
-          dbResourceId: resource.dbResourceId || null,
-          apiResourceId: resource.apiResourceId || null,
           staticEnvVars: stringifyEnvVars(resource.staticEnvVars || {}),
           exposedPort: resource.exposedPort?.toString() || '',
           resourceLimits: {
@@ -540,17 +475,7 @@ async function save() {
     }
   }
 
-  if (form.value.type === 'laravel-api' && !form.value.dbResourceId) {
-    showError('Please select a database resource');
-    return;
-  }
-
-  if (form.value.type === 'nextjs-front' && !form.value.apiResourceId) {
-    showError('Please select an API resource');
-    return;
-  }
-
-  try {
+  try{
     saving.value = true;
 
     // Convert post-build commands text to array
@@ -570,8 +495,6 @@ async function save() {
       type: form.value.type,
       gitRepo: form.value.gitRepo || null,
       defaultBranch: form.value.defaultBranch || null,
-      dbResourceId: form.value.dbResourceId || null,
-      apiResourceId: form.value.apiResourceId || null,
       staticEnvVars: form.value.staticEnvVars,
       postBuildCommands: postBuildCommands,
       resourceLimits: Object.keys(resourceLimits).length > 0 ? resourceLimits : null,
