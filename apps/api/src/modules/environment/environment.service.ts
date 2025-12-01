@@ -734,11 +734,23 @@ export class EnvironmentService {
     const buildContext = path.join(reposPath, resource.name);
     const hostname = `${resource.name}.${envName}.${baseDomain}`;
 
+    const spawnerDockerfilePath = path.join(buildContext, ".spawner", "Dockerfile");
+    const spawnerDockerfileExists = await fs
+      .access(spawnerDockerfilePath)
+      .then(() => true)
+      .catch(() => false);
+
+    const dockerfilePath = spawnerDockerfileExists ? ".spawner/Dockerfile" : undefined;
+
+    if (spawnerDockerfileExists) {
+      log("info", `Using Dockerfile from .spawner/ directory`);
+    }
+
     log("info", `Building Laravel image for ${serviceName}...`);
     const imageTag = `spawner-${resource.name}:${envName}`;
     await this.dockerService.buildImage(buildContext, imageTag, (message) => {
       log("info", message);
-    });
+    }, dockerfilePath);
 
     log("success", `Build completed for ${serviceName}`);
     log("info", `Creating Laravel container ${serviceName}...`);
@@ -824,11 +836,23 @@ export class EnvironmentService {
       mode: 0o600,
     });
 
+    const spawnerDockerfilePath = path.join(buildContext, ".spawner", "Dockerfile");
+    const spawnerDockerfileExists = await fs
+      .access(spawnerDockerfilePath)
+      .then(() => true)
+      .catch(() => false);
+
+    const dockerfilePath = spawnerDockerfileExists ? ".spawner/Dockerfile" : undefined;
+
+    if (spawnerDockerfileExists) {
+      log("info", `Using Dockerfile from .spawner/ directory`);
+    }
+
     log("info", `Building Next.js image for ${serviceName}...`);
     const imageTag = `spawner-${resource.name}:${envName}`;
     await this.dockerService.buildImage(buildContext, imageTag, (message) => {
       log("info", message);
-    });
+    }, dockerfilePath);
 
     log("success", `Build completed for ${serviceName}`);
     log("info", `Creating Next.js container ${serviceName}...`);
