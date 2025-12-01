@@ -4,6 +4,7 @@ import Dashboard from '../views/Dashboard.vue';
 import ProjectList from '../views/ProjectList.vue';
 import ProjectDetail from '../views/ProjectDetail.vue';
 import ProjectForm from '../views/ProjectForm.vue';
+import ResourceForm from '../views/ResourceForm.vue';
 import EnvironmentsGlobal from '../views/EnvironmentsGlobal.vue';
 import EnvironmentList from '../views/EnvironmentList.vue';
 import EnvironmentNew from '../views/EnvironmentNew.vue';
@@ -84,6 +85,18 @@ const router = createRouter({
       path: '/projects/:id',
       name: 'ProjectDetail',
       component: ProjectDetail,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects/:projectId/resources/new',
+      name: 'ResourceNew',
+      component: ResourceForm,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects/:projectId/resources/:resourceId/edit',
+      name: 'ResourceEdit',
+      component: ResourceForm,
       meta: { requiresAuth: true },
     },
     {

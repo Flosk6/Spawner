@@ -142,7 +142,7 @@
             <Button
               label="Add Resource"
               icon="pi pi-plus"
-              @click="showResourceModal = true"
+              @click="$router.push(`/projects/${project.id}/resources/new`)"
             />
           </div>
 
@@ -156,7 +156,7 @@
             <Button
               label="Add your first resource"
               icon="pi pi-plus"
-              @click="showResourceModal = true"
+              @click="$router.push(`/projects/${project.id}/resources/new`)"
             />
           </div>
 
@@ -200,7 +200,7 @@
                       icon="pi pi-pencil"
                       severity="secondary"
                       outlined
-                      @click="editResource(resource)"
+                      @click="$router.push(`/projects/${project.id}/resources/${resource.id}/edit`)"
                       v-tooltip.top="'Edit resource'"
                     />
                     <Button
@@ -315,16 +315,6 @@
       </div>
     </div>
 
-    <!-- Resource Modal -->
-    <ResourceModal
-      v-if="showResourceModal && project"
-      :project-id="project.id"
-      :resource="editingResource"
-      :all-resources="project.resources || []"
-      @close="closeResourceModal"
-      @saved="handleResourceSaved"
-    />
-
     <!-- Delete Resource Confirmation -->
     <Dialog
       v-model:visible="showDeleteResourceDialog"
@@ -388,7 +378,6 @@ import Tag from 'primevue/tag';
 import Dialog from 'primevue/dialog';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
-import ResourceModal from '../components/ResourceModal.vue';
 import EnvironmentCard from '../components/EnvironmentCard.vue';
 import { useNotification } from '../composables/useNotification';
 import type { Environment } from '../types';
@@ -438,8 +427,6 @@ const editForm = ref({
   baseDomain: '',
 });
 
-const showResourceModal = ref(false);
-const editingResource = ref<Resource | null>(null);
 const resourceToDelete = ref<Resource | null>(null);
 const showDeleteResourceDialog = ref(false);
 const environmentToDelete = ref<Environment | null>(null);
@@ -522,21 +509,6 @@ async function saveProject() {
   } finally {
     saving.value = false;
   }
-}
-
-function editResource(resource: Resource) {
-  editingResource.value = resource;
-  showResourceModal.value = true;
-}
-
-function closeResourceModal() {
-  showResourceModal.value = false;
-  editingResource.value = null;
-}
-
-async function handleResourceSaved() {
-  closeResourceModal();
-  await loadProject();
 }
 
 function confirmDeleteResource(resource: Resource) {

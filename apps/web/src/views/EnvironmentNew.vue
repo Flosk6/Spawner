@@ -1,26 +1,52 @@
 <template>
-  <div>
-    <div class="mb-6">
-      <Button
-        label="Back to Environments"
-        icon="pi pi-arrow-left"
-        text
-        @click="handleBack"
-      />
-    </div>
-
-    <Card>
-      <template #title>Create New Environment</template>
-      <template #subtitle>
-        <span v-if="project">Project: <strong>{{ project.name }}</strong></span>
-        <span v-else-if="!isProjectBased">Select a project to create an environment</span>
-      </template>
-      <template #content>
-        <div v-if="loading" class="flex justify-center py-8">
-          <ProgressSpinner />
+  <div class="flex flex-col h-[calc(100vh-5rem)]">
+    <!-- Sticky Header -->
+    <div class="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <Button
+            icon="pi pi-arrow-left"
+            text
+            rounded
+            @click="handleBack"
+            v-tooltip.bottom="'Back to Environments'"
+          />
+          <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Create New Environment</h1>
+            <p class="text-sm text-slate-600 dark:text-slate-400">
+              <span v-if="project">Project: <strong>{{ project.name }}</strong></span>
+              <span v-else-if="!isProjectBased">Select a project to create an environment</span>
+            </p>
+          </div>
         </div>
 
-        <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-6">
+        <div class="flex gap-3">
+          <Button
+            label="Cancel"
+            severity="secondary"
+            outlined
+            @click="handleBack"
+          />
+          <Button
+            :label="creating ? 'Creating...' : 'Create Environment'"
+            :loading="creating"
+            :disabled="loading || !canSubmit"
+            icon="pi pi-plus"
+            @click="handleSubmit"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrollable Content -->
+    <div class="flex-1 overflow-y-auto px-6 py-6">
+      <Card class="max-w-2xl">
+        <template #content>
+          <div v-if="loading" class="flex justify-center py-8">
+            <ProgressSpinner />
+          </div>
+
+          <div v-else class="flex flex-col gap-6">
           <!-- Project Selection (only in global mode) -->
           <div v-if="!isProjectBased" class="flex flex-col gap-2">
             <label for="project" class="font-semibold">
@@ -106,27 +132,10 @@
             {{ error }}
           </Message>
 
-          <!-- Actions -->
-          <div class="flex gap-3 pt-4">
-            <Button
-              type="submit"
-              label="Create Environment"
-              icon="pi pi-plus"
-              :loading="creating"
-              :disabled="gitResources.length === 0"
-              class="flex-1"
-            />
-            <Button
-              label="Cancel"
-              severity="secondary"
-              outlined
-              @click="handleBack"
-              class="flex-1"
-            />
-          </div>
-        </form>
-      </template>
-    </Card>
+        </div>
+        </template>
+      </Card>
+    </div>
 
     <!-- Creation Logs Dialog -->
     <Dialog
@@ -221,6 +230,10 @@ const route = useRoute();
 const router = useRouter();
 
 const isProjectBased = computed(() => !!route.params.projectId);
+
+const canSubmit = computed(() => {
+  return envName.value && gitResources.value.length > 0;
+});
 const projectId = ref<number>(0);
 const selectedProjectId = ref<number | null>(null);
 const allProjects = ref<Project[]>([]);
