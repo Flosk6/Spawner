@@ -11,34 +11,49 @@
     <div v-else-if="environment" class="flex gap-6">
       <!-- Left Sidebar - Navigation -->
       <div class="w-64 flex-shrink-0">
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-700 p-4 sticky top-6">
-          <!-- Environment Info -->
-          <div class="mb-6 pb-6 border-b border-slate-300 dark:border-slate-700">
-            <h2 class="text-xl font-bold mb-2 text-slate-900 dark:text-white">{{ environment.name }}</h2>
-            <Tag :value="environment.status" :severity="getStatusSeverity(environment.status)" class="mb-3" />
-            <p class="text-xs text-slate-600 dark:text-slate-400">
-              Created {{ formatDate(environment.createdAt) }}
-            </p>
+        <!-- Environment Info Header -->
+        <div class="mb-6 p-4 rounded-xl bg-gradient-to-br from-green-500/10 to-blue-500/10 border border-green-500/20 dark:border-green-400/20">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center">
+              <i class="pi pi-server text-white text-xl"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <h2 class="font-bold text-lg text-slate-900 dark:text-white truncate">{{ environment.name }}</h2>
+              <div class="mt-1">
+                <Tag :value="environment.status" :severity="getStatusSeverity(environment.status)" size="small" />
+              </div>
+            </div>
           </div>
 
-          <!-- Navigation Tabs -->
-          <nav class="space-y-1">
-            <button
-              v-for="tab in tabs"
-              :key="tab.value"
-              @click="activeTab = tab.value"
-              :class="[
-                'w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200',
-                activeTab === tab.value
-                  ? 'bg-blue-500 text-white'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              ]"
-            >
-              <i :class="[tab.icon, 'text-lg']"></i>
-              <span class="font-medium">{{ tab.label }}</span>
-            </button>
-          </nav>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg p-2 text-center">
+              <div class="text-lg font-bold text-slate-900 dark:text-white">{{ environment.resources?.length || 0 }}</div>
+              <div class="text-xs text-slate-600 dark:text-slate-400">Resources</div>
+            </div>
+            <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg p-2 text-center">
+              <div class="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Created</div>
+              <div class="text-xs text-slate-900 dark:text-white">{{ formatDateShort(environment.createdAt) }}</div>
+            </div>
+          </div>
         </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="space-y-1">
+          <button
+            v-for="tab in tabs"
+            :key="tab.value"
+            @click="activeTab = tab.value"
+            :class="[
+              'w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200',
+              activeTab === tab.value
+                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/70'
+            ]"
+          >
+            <i :class="tab.icon"></i>
+            <span>{{ tab.label }}</span>
+          </button>
+        </nav>
       </div>
 
       <!-- Right Content Area -->
@@ -421,8 +436,8 @@ function getStatusSeverity(status: string): string {
   }
 }
 
-function formatDate(dateStr: string | Date): string {
+function formatDateShort(dateStr: string | Date): string {
   const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-  return date.toLocaleString();
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 </script>

@@ -1,5 +1,10 @@
 <template>
   <div>
+    <!-- Back Button - Sticky at top -->
+    <div v-if="!loading && !error" class="mb-6">
+      <Button label="Back" icon="pi pi-arrow-left" text @click="$router.push('/projects')" />
+    </div>
+
     <div v-if="loading" class="flex justify-center items-center min-h-[400px]">
       <ProgressSpinner />
     </div>
@@ -55,17 +60,6 @@
             <span>{{ tab.label }}</span>
           </button>
         </nav>
-
-        <!-- Back Button -->
-        <div class="mt-6">
-          <Button
-            label="Back to Projects"
-            icon="pi pi-arrow-left"
-            text
-            class="w-full"
-            @click="$router.push('/projects')"
-          />
-        </div>
       </div>
 
       <!-- Right Content Area -->
