@@ -33,8 +33,6 @@ pnpm dev
 
 Access at `http://localhost:8080`
 
-📚 **Full guides:** [VPS Deployment](VPS-DEPLOYMENT-GUIDE.md) | [OAuth Setup](OAUTH-SETUP.md) | [Environment Variables](ENV-CONFIGURATION.md)
-
 ## ✨ Features
 
 - 🔐 **GitHub OAuth** - Team-based access control
@@ -75,8 +73,6 @@ packages/
 6. **View Logs** - Real-time container logs
 7. **Delete** - Clean removal of all resources
 
-See [UPDATE-SYSTEM.md](UPDATE-SYSTEM.md) for auto-update configuration and system patch management.
-
 ## 💻 Development
 
 **Setup:**
@@ -114,8 +110,6 @@ Configuration is in `.env` (development) or `.env.production` (production).
 - `GIT_KEYS_PATH`, `REPOS_PATH`, `ENVS_PATH` - Storage paths
 - `DB_LOGGING` - Enable SQL logs (`true`/`false`)
 
-See [ENV-CONFIGURATION.md](ENV-CONFIGURATION.md) for complete reference.
-
 ## 🔧 Resource Types
 
 | Type | Description | Required Fields |
@@ -134,8 +128,6 @@ All resources get automatic HTTPS, environment variables, and Traefik routing.
 - **Audit** - All actions logged (including terminal commands)
 - **HTTPS** - Automatic SSL via Let's Encrypt + Traefik
 - **Deploy Keys** - Read-only SSH access to repositories
-
-See [OAUTH-SETUP.md](OAUTH-SETUP.md) for OAuth configuration.
 
 ## 🐛 Troubleshooting
 
@@ -157,4 +149,4 @@ docker-compose logs -f         # All services
 
 **AGPL-3.0** - Free to use, modify, and distribute. If you run Spawner as a SaaS, you must share your source code with users.
 
-**Copyright © 2024 Florian** - See [LICENSE](LICENSE) | Commercial license available for proprietary use.
+**Copyright © 2025 Florian-mfr** - See [LICENSE](LICENSE) | Commercial license available for proprietary use.
