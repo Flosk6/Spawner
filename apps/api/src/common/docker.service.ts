@@ -120,15 +120,22 @@ export class DockerService implements OnModuleInit {
   async buildImage(
     buildContext: string,
     tag: string,
-    onProgress?: (message: string) => void
+    onProgress?: (message: string) => void,
+    dockerfilePath?: string
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      const buildOptions: any = {
+        context: buildContext,
+        src: ["."],
+      };
+
+      if (dockerfilePath) {
+        buildOptions.src.push(dockerfilePath);
+      }
+
       this.docker.buildImage(
-        {
-          context: buildContext,
-          src: ["."],
-        },
-        { t: tag },
+        buildOptions,
+        dockerfilePath ? { t: tag, dockerfile: dockerfilePath } : { t: tag },
         (err, stream) => {
           if (err) {
             reject(new Error(`Failed to build image ${tag}: ${err.message}`));
