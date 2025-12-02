@@ -95,12 +95,30 @@
                       (default: {{ resource.defaultBranch }})
                     </small>
                   </label>
-                  <InputText
-                    :id="`branch-${resource.name}`"
-                    v-model="branches[resource.name]"
-                    required
-                    :placeholder="resource.defaultBranch"
-                  />
+                  <div class="flex gap-2">
+                    <AutoComplete
+                      :id="`branch-${resource.name}`"
+                      v-model="branches[resource.name]"
+                      :suggestions="branchSuggestions[resource.name] || []"
+                      @complete="(event) => searchBranches(event, resource)"
+                      :placeholder="resource.defaultBranch"
+                      :loading="loadingBranches[resource.name]"
+                      dropdown
+                      class="flex-1"
+                    />
+                    <Button
+                      icon="pi pi-refresh"
+                      :loading="refreshingBranches[resource.name]"
+                      :disabled="loadingBranches[resource.name]"
+                      @click="refreshBranches(resource)"
+                      v-tooltip.bottom="'Refresh branches from remote'"
+                      outlined
+                      severity="secondary"
+                    />
+                  </div>
+                  <small v-if="!loadingBranches[resource.name] && (!allBranches[resource.name] || allBranches[resource.name].length === 0)" class="text-orange-600 text-xs mt-1 block">
+                    Could not load branches. You can type the branch name manually.
+                  </small>
                 </template>
               </Card>
             </div>
@@ -202,10 +220,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useToast } from 'primevue/usetoast';
 import axios from 'axios';
 import Card from 'primevue/card';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
+import AutoComplete from 'primevue/autocomplete';
 import Dropdown from 'primevue/dropdown';
 import Checkbox from 'primevue/checkbox';
 import Message from 'primevue/message';
@@ -224,10 +244,12 @@ interface Resource {
   name: string;
   type: string;
   defaultBranch: string;
+  gitRepo?: string;
 }
 
 const route = useRoute();
 const router = useRouter();
+const toast = useToast();
 
 const isProjectBased = computed(() => !!route.params.projectId);
 
@@ -245,6 +267,12 @@ const gitResources = ref<Resource[]>([]);
 const loading = ref(true);
 const creating = ref(false);
 const error = ref('');
+
+const branchSuggestions = ref<Record<string, string[]>>({});
+const loadingBranches = ref<Record<string, boolean>>({});
+const refreshingBranches = ref<Record<string, boolean>>({});
+const allBranches = ref<Record<string, string[]>>({});
+const errorTimeouts = ref<number[]>([]);
 
 // Logs modal state
 const showLogsModal = ref(false);
@@ -326,11 +354,83 @@ async function loadProjectDetails(id: number) {
     gitResources.value.forEach(resource => {
       branches.value[resource.name] = resource.defaultBranch || '';
     });
+
+    await loadAllBranches();
   } catch (err: any) {
     console.error('Error loading project:', err);
     error.value = err.response?.data?.message || 'Failed to load project';
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadAllBranches() {
+  await Promise.allSettled(
+    gitResources.value.map(async (resource) => {
+      if (!resource.gitRepo) return;
+
+      try {
+        loadingBranches.value[resource.name] = true;
+        const response = await axios.post('/api/git/branches', {
+          gitRepo: resource.gitRepo,
+          resourceName: resource.name,
+        });
+        allBranches.value[resource.name] = response.data.branches;
+        branchSuggestions.value[resource.name] = response.data.branches;
+      } catch (err: any) {
+        console.warn(`Could not load branches for ${resource.name}. SSH key may not be configured.`);
+        allBranches.value[resource.name] = [];
+        branchSuggestions.value[resource.name] = [];
+      } finally {
+        loadingBranches.value[resource.name] = false;
+      }
+    })
+  );
+}
+
+function searchBranches(event: any, resource: Resource) {
+  const query = event.query.toLowerCase();
+  const resourceBranches = allBranches.value[resource.name] || [];
+
+  if (!query) {
+    branchSuggestions.value[resource.name] = resourceBranches;
+  } else {
+    branchSuggestions.value[resource.name] = resourceBranches.filter(branch =>
+      branch.toLowerCase().includes(query)
+    );
+  }
+}
+
+async function refreshBranches(resource: Resource) {
+  if (!resource.gitRepo) return;
+
+  try {
+    refreshingBranches.value[resource.name] = true;
+    const response = await axios.post('/api/git/branches/refresh', {
+      gitRepo: resource.gitRepo,
+      resourceName: resource.name,
+    });
+    allBranches.value[resource.name] = response.data.branches;
+    branchSuggestions.value[resource.name] = response.data.branches;
+
+    toast.add({
+      severity: 'success',
+      summary: 'Branches refreshed',
+      detail: `Found ${response.data.branches.length} branches for ${resource.name}`,
+      life: 3000,
+    });
+  } catch (err: any) {
+    console.error(`Error refreshing branches for ${resource.name}:`, err);
+    const errorMessage = err.response?.data?.message || 'Failed to refresh branches. You can still type the branch name manually.';
+
+    toast.add({
+      severity: 'error',
+      summary: 'Refresh failed',
+      detail: errorMessage,
+      life: 5000,
+    });
+  } finally {
+    refreshingBranches.value[resource.name] = false;
   }
 }
 
@@ -474,5 +574,8 @@ onBeforeUnmount(() => {
     eventSource.value.close();
     eventSource.value = null;
   }
+
+  errorTimeouts.value.forEach(timeout => clearTimeout(timeout));
+  errorTimeouts.value = [];
 });
 </script>

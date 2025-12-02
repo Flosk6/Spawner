@@ -49,4 +49,26 @@ export class GitController {
 
     return this.gitKeysService.generateKeyForRepo(body.gitRepo);
   }
+
+  @Post('branches')
+  @Throttle({ medium: { limit: 30, ttl: 60000 } })
+  async listBranches(@Body() body: { gitRepo: string; resourceName?: string }) {
+    if (!body.gitRepo) {
+      throw new BadRequestException('gitRepo is required');
+    }
+
+    const branches = await this.gitService.listRemoteBranches(body.gitRepo, body.resourceName);
+    return { branches };
+  }
+
+  @Post('branches/refresh')
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  async refreshBranches(@Body() body: { gitRepo: string; resourceName: string }) {
+    if (!body.gitRepo || !body.resourceName) {
+      throw new BadRequestException('gitRepo and resourceName are required');
+    }
+
+    const branches = await this.gitService.refreshRemoteBranches(body.gitRepo, body.resourceName);
+    return { branches };
+  }
 }
