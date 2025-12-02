@@ -32,11 +32,11 @@
           </div>
 
           <div class="grid grid-cols-2 gap-2">
-            <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg p-2 text-center">
+            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
               <div class="text-lg font-bold text-slate-900 dark:text-white">{{ project.resources?.length || 0 }}</div>
               <div class="text-xs text-slate-600 dark:text-slate-400">Resources</div>
             </div>
-            <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg p-2 text-center">
+            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
               <div class="text-lg font-bold text-slate-900 dark:text-white">{{ environments.length }}</div>
               <div class="text-xs text-slate-600 dark:text-slate-400">Environments</div>
             </div>
@@ -108,17 +108,17 @@
               </template>
               <template #content>
                 <div class="grid grid-cols-3 gap-4">
-                  <div class="text-center p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                  <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
                     <i class="pi pi-box text-3xl text-blue-500 mb-2"></i>
                     <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ project.resources?.length || 0 }}</div>
                     <div class="text-sm text-slate-600 dark:text-slate-400">Resources</div>
                   </div>
-                  <div class="text-center p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                  <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
                     <i class="pi pi-server text-3xl text-green-500 mb-2"></i>
                     <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ environments.length }}</div>
                     <div class="text-sm text-slate-600 dark:text-slate-400">Environments</div>
                   </div>
-                  <div class="text-center p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                  <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
                     <i class="pi pi-check-circle text-3xl text-green-500 mb-2"></i>
                     <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ runningEnvironments }}</div>
                     <div class="text-sm text-slate-600 dark:text-slate-400">Running</div>
@@ -160,7 +160,7 @@
               :key="resource.id"
               class="group relative rounded-xl p-[1px] bg-gradient-to-br from-slate-300 to-slate-400 dark:from-slate-700 dark:to-slate-600 hover:from-blue-500 hover:to-purple-600 transition-all duration-300"
             >
-              <div class="relative rounded-xl bg-white dark:bg-slate-900 p-6">
+              <div class="relative rounded-xl bg-white dark:bg-dark-800 p-6">
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
                     <div class="flex items-center gap-3 mb-3">

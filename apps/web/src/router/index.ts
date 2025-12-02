@@ -13,6 +13,7 @@ import GitSettings from '../views/GitSettings.vue';
 import SystemSettings from '../views/SystemSettings.vue';
 import DockerResources from '../views/DockerResources.vue';
 import Login from '../views/Login.vue';
+import TypographyTest from '../views/TypographyTest.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -49,6 +50,12 @@ const router = createRouter({
       path: '/docker',
       name: 'DockerResources',
       component: DockerResources,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/typography-test',
+      name: 'TypographyTest',
+      component: TypographyTest,
       meta: { requiresAuth: true },
     },
     {

@@ -1,10 +1,10 @@
 <template>
-  <div class="min-h-screen">
+  <div class="min-h-screen bg-slate-50 dark:bg-transparent">
     <Toast />
     <ConfirmDialog />
 
     <!-- Modern Header -->
-    <header v-if="authStore.isAuthenticated" class="sticky top-0 z-50 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 backdrop-blur-sm bg-opacity-90 dark:bg-opacity-90">
+    <header v-if="authStore.isAuthenticated" class="sticky top-0 z-50 bg-white/90 dark:bg-dark-900/90 border-b border-slate-200 dark:border-purple-900/30 backdrop-blur-md">
       <div class="px-6 py-3">
         <div class="flex items-center justify-between">
           <!-- Logo -->
@@ -21,8 +21,8 @@
               class="group relative px-4 py-2 rounded-lg font-medium transition-all duration-200"
               :class="[
                 isActive(item.path)
-                  ? 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/30'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                  ? 'text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
               ]"
             >
               <div class="flex items-center gap-2">
@@ -37,8 +37,16 @@
             </router-link>
           </nav>
 
-          <!-- User Menu -->
+          <!-- Theme Toggle & User Menu -->
           <div class="flex items-center gap-3">
+            <button
+              @click="toggleTheme"
+              class="p-2 rounded-lg transition-all duration-200 hover:bg-slate-100 dark:hover:bg-purple-500/10"
+              :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+            >
+              <i v-if="isDark" class="pi pi-sun text-xl text-yellow-400"></i>
+              <i v-else class="pi pi-moon text-xl text-slate-600"></i>
+            </button>
             <UserMenu v-if="authStore.user" :user="authStore.user" />
           </div>
         </div>
@@ -52,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed } from 'vue';
+import { onMounted, computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
@@ -62,6 +70,7 @@ import Logo from './components/Logo.vue';
 
 const authStore = useAuthStore();
 const route = useRoute();
+const isDark = ref(true);
 
 const menuItems = computed(() => [
   {
@@ -95,7 +104,30 @@ function isActive(path: string): boolean {
   return route.path.startsWith(path);
 }
 
+function toggleTheme() {
+  isDark.value = !isDark.value;
+  if (isDark.value) {
+    document.documentElement.classList.add('dark');
+    localStorage.setItem('theme', 'dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+    localStorage.setItem('theme', 'light');
+  }
+}
+
 onMounted(() => {
   authStore.checkAuth();
+
+  // Check saved theme preference or system preference
+  const savedTheme = localStorage.getItem('theme');
+  const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+  if (savedTheme === 'light' || (!savedTheme && !systemPrefersDark)) {
+    isDark.value = false;
+    document.documentElement.classList.remove('dark');
+  } else {
+    isDark.value = true;
+    document.documentElement.classList.add('dark');
+  }
 });
 </script>

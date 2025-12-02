@@ -25,13 +25,13 @@
 
         <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <!-- CPU Chart -->
-          <div class="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-300 dark:border-slate-700">
+          <div class="bg-slate-100 dark:bg-dark-700/50 p-4 rounded-lg border border-slate-300 dark:border-purple-800/30">
             <h3 class="text-lg font-semibold mb-4 text-slate-900 dark:text-white">CPU Usage</h3>
             <Line :data="cpuChartData" :options="chartOptions" />
           </div>
 
           <!-- Memory Chart -->
-          <div class="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-300 dark:border-slate-700">
+          <div class="bg-slate-100 dark:bg-dark-700/50 p-4 rounded-lg border border-slate-300 dark:border-purple-800/30">
             <h3 class="text-lg font-semibold mb-4 text-slate-900 dark:text-white">Memory Usage</h3>
             <Line :data="memoryChartData" :options="chartOptions" />
           </div>

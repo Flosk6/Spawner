@@ -2,7 +2,7 @@
   <div class="group relative rounded-2xl p-[1.5px] transition-all duration-300 cursor-pointer"
     :class="gradientBorderClass" @click="$emit('view', environment)">
     <!-- Card Background - adapts to theme -->
-    <div class="relative rounded-2xl bg-white dark:bg-slate-900 p-6 h-full overflow-hidden">
+    <div class="relative rounded-2xl bg-white dark:bg-dark-800 p-6 h-full overflow-hidden">
       <!-- Top shine effect -->
       <div
         class="absolute top-0 left-0 h-px w-full bg-gradient-to-r from-transparent via-slate-400/40 dark:via-white/30 to-transparent">
@@ -32,7 +32,7 @@
 
         <!-- Project badge -->
         <div
-          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-200/80 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-300/50 dark:border-slate-700/50 mb-6">
+          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-200/80 dark:bg-dark-700/50 backdrop-blur-sm border border-slate-300/50 dark:border-purple-800/30 mb-6">
           <i class="pi pi-folder text-blue-600 dark:text-blue-400 text-xs"></i>
           <span class="text-xs font-medium text-slate-700 dark:text-slate-300">{{ projectName }}</span>
         </div>
@@ -42,20 +42,20 @@
       <!-- Resources grid -->
       <div class="grid grid-cols-3 gap-3 mb-6">
         <div
-          class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
+          class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-purple-800/30">
           <i
             :class="['text-sm block mb-1', resourcesHealthy ? 'pi pi-check-circle text-green-600 dark:text-green-400' : 'pi pi-exclamation-circle text-red-600 dark:text-red-400']"></i>
           <p class="text-xs text-slate-600 dark:text-slate-500">Resources</p>
           <p class="text-lg font-bold text-slate-900 dark:text-white">{{ resourcesCount }}</p>
         </div>
         <div
-          class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
+          class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-purple-800/30">
           <i class="pi pi-server text-purple-600 dark:text-purple-400 text-sm block mb-1"></i>
           <p class="text-xs text-slate-600 dark:text-slate-500">CPU</p>
           <p class="text-lg font-bold text-slate-900 dark:text-white">{{ cpuUsage }}</p>
         </div>
         <div
-          class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-slate-700/50">
+          class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-purple-800/30">
           <i class="pi pi-chart-bar text-emerald-600 dark:text-emerald-400 text-sm block mb-1"></i>
           <p class="text-xs text-slate-600 dark:text-slate-500">RAM</p>
           <p class="text-lg font-bold text-slate-900 dark:text-white">{{ memoryUsage }}</p>
@@ -67,7 +67,7 @@
         <!-- View Button -->
         <button
           :disabled="loading"
-          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-purple-800/30 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           @click="$emit('view', environment)" v-tooltip.top="'View'">
           <i class="pi pi-eye text-slate-600 dark:text-slate-400 transition-colors"></i>
         </button>
@@ -75,7 +75,7 @@
         <!-- Pause Button -->
         <button v-if="environment.status === 'running'"
           :disabled="loading"
-          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-purple-800/30 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           @click="$emit('pause', environment)" v-tooltip.top="'Pause'">
           <i v-if="!loading" class="pi pi-pause text-slate-600 dark:text-slate-400 transition-colors"></i>
           <i v-else class="pi pi-spin pi-spinner text-slate-600 dark:text-slate-400 transition-colors"></i>
@@ -84,7 +84,7 @@
         <!-- Resume Button -->
         <button v-if="environment.status === 'paused'"
           :disabled="loading"
-          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-green-100 dark:hover:bg-green-900/30 border border-slate-300/50 dark:border-slate-700/50 hover:border-green-400 dark:hover:border-green-500/50 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-green-100 dark:hover:bg-green-900/30 border border-slate-300/50 dark:border-purple-800/30 hover:border-green-400 dark:hover:border-green-500/50 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           @click="$emit('resume', environment)" v-tooltip.top="'Resume'">
           <i v-if="!loading"
             class="pi pi-play text-slate-600 dark:text-slate-400 hover:text-green-600 dark:hover:text-green-400 transition-colors"></i>
@@ -94,7 +94,7 @@
         <!-- Restart Button -->
         <button v-if="environment.status === 'running'"
           :disabled="loading"
-          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-purple-800/30 hover:border-slate-400 dark:hover:border-slate-600 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           @click="$emit('restart', environment)" v-tooltip.top="'Restart'">
           <i v-if="!loading" class="pi pi-refresh text-slate-600 dark:text-slate-400 transition-colors"></i>
           <i v-else class="pi pi-spin pi-spinner text-slate-600 dark:text-slate-400 transition-colors"></i>
@@ -103,7 +103,7 @@
         <!-- Update Button -->
         <button v-if="environment.status === 'running' || environment.status === 'paused'"
           :disabled="loading"
-          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-slate-300/50 dark:border-slate-700/50 hover:border-blue-400 dark:hover:border-blue-500/50 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-slate-300/50 dark:border-purple-800/30 hover:border-blue-400 dark:hover:border-blue-500/50 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           @click="$emit('update', environment)" v-tooltip.top="'Update'">
           <i v-if="!loading"
             class="pi pi-upload text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"></i>
@@ -113,7 +113,7 @@
         <!-- Delete Button -->
         <button
           :disabled="loading"
-          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-red-100 dark:hover:bg-red-900/30 border border-slate-300/50 dark:border-slate-700/50 hover:border-red-400 dark:hover:border-red-500/50 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-red-100 dark:hover:bg-red-900/30 border border-slate-300/50 dark:border-purple-800/30 hover:border-red-400 dark:hover:border-red-500/50 rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           @click="$emit('delete', environment)" v-tooltip.top="'Delete'">
           <i
             class="pi pi-trash text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"></i>

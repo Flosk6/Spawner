@@ -6,40 +6,40 @@
     <!-- Intelligent Cleanup Preview Dialog -->
     <Dialog v-model:visible="showCleanupPreview" modal header="Aperçu du nettoyage intelligent" :style="{ width: '50rem' }">
       <div v-if="cleanupPreview" class="space-y-4">
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="bg-blue-50 dark:bg-purple-900/20 border border-blue-200 dark:border-purple-700/40 rounded-lg p-4">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-sm font-semibold text-blue-900">Résumé</h3>
-              <p class="text-xs text-blue-700 mt-1">Ressources qui seront supprimées</p>
+              <h3 class="text-sm font-semibold text-blue-900 dark:text-purple-200">Résumé</h3>
+              <p class="text-xs text-blue-700 dark:text-purple-400 mt-1">Ressources qui seront supprimées</p>
             </div>
             <div class="text-right">
-              <p class="text-2xl font-bold text-blue-900">{{ cleanupPreview.count }}</p>
-              <p class="text-xs text-blue-700">~{{ formatBytes(cleanupPreview.size) }}</p>
+              <p class="text-2xl font-bold text-blue-900 dark:text-purple-200">{{ cleanupPreview.count }}</p>
+              <p class="text-xs text-blue-700 dark:text-purple-400">~{{ formatBytes(cleanupPreview.size) }}</p>
             </div>
           </div>
         </div>
 
-        <div v-if="cleanupPreview.images.length > 0" class="border border-gray-200 rounded-lg p-3">
+        <div v-if="cleanupPreview.images.length > 0" class="border border-gray-200 dark:border-purple-800/30 rounded-lg p-3">
           <h4 class="font-semibold text-sm mb-2">Images ({{ cleanupPreview.images.length }})</h4>
           <div class="max-h-40 overflow-y-auto space-y-1">
-            <div v-for="img in cleanupPreview.images" :key="img.id" class="text-xs text-gray-700 flex justify-between">
+            <div v-for="img in cleanupPreview.images" :key="img.id" class="text-xs text-gray-700 dark:text-slate-300 flex justify-between">
               <span class="truncate mr-2">{{ img.name }}</span>
-              <span class="text-gray-500">{{ formatBytes(img.size) }}</span>
+              <span class="text-gray-500 dark:text-slate-500">{{ formatBytes(img.size) }}</span>
             </div>
           </div>
         </div>
 
-        <div v-if="cleanupPreview.containers.length > 0" class="border border-gray-200 rounded-lg p-3">
+        <div v-if="cleanupPreview.containers.length > 0" class="border border-gray-200 dark:border-purple-800/30 rounded-lg p-3">
           <h4 class="font-semibold text-sm mb-2">Containers ({{ cleanupPreview.containers.length }})</h4>
           <div class="max-h-40 overflow-y-auto space-y-1">
-            <div v-for="container in cleanupPreview.containers" :key="container.id" class="text-xs text-gray-700">
+            <div v-for="container in cleanupPreview.containers" :key="container.id" class="text-xs text-gray-700 dark:text-slate-300">
               {{ container.name }}
             </div>
           </div>
         </div>
 
-        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <p class="text-xs text-yellow-800">
+        <div class="bg-yellow-50 dark:bg-orange-900/20 border border-yellow-200 dark:border-orange-700/40 rounded-lg p-3">
+          <p class="text-xs text-yellow-800 dark:text-orange-200">
             <strong>Critères:</strong> Images dangling, images >30 jours inutilisées, containers stopped >7 jours, build cache
           </p>
         </div>
@@ -52,23 +52,23 @@
     </Dialog>
 
     <div class="mb-8">
-      <h1 class="text-3xl font-bold text-gray-900">Docker Resources</h1>
-      <p class="mt-2 text-sm text-gray-600">
+      <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Docker Resources</h1>
+      <p class="mt-2 text-sm text-gray-600 dark:text-slate-400">
         Monitor and manage Docker disk usage on your VPS
       </p>
     </div>
 
     <!-- Docker Resources Content -->
-    <div class="bg-white shadow rounded-lg p-6 mb-6">
+    <div class="bg-white dark:bg-dark-800 shadow rounded-lg p-6 mb-6">
       <div class="flex items-center justify-between mb-6">
         <div>
           <h2 class="text-xl font-semibold">Docker Resources</h2>
-          <p class="text-sm text-gray-600 mt-1">Monitor and manage Docker disk usage</p>
+          <p class="text-sm text-gray-600 dark:text-slate-400 mt-1">Monitor and manage Docker disk usage</p>
         </div>
         <button
           @click="refreshDockerStats"
           :disabled="loadingDockerStats"
-          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-purple-500/10 dark:bg-dark-700 disabled:opacity-50"
         >
           {{ loadingDockerStats ? 'Refreshing...' : 'Refresh' }}
         </button>
@@ -76,15 +76,15 @@
 
       <div v-if="dockerStats" class="space-y-6">
         <!-- Overview -->
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+        <div class="bg-blue-50 dark:bg-purple-900/20 border border-blue-200 dark:border-purple-700/40 rounded-lg p-4 mb-4">
           <div class="flex items-center justify-between">
             <div class="flex-1">
-              <h3 class="text-sm font-semibold text-blue-900">Total Docker Usage</h3>
-              <p class="text-xs text-blue-700 mt-1">All Docker resources on this system</p>
+              <h3 class="text-sm font-semibold text-blue-900 dark:text-purple-200">Total Docker Usage</h3>
+              <p class="text-xs text-blue-700 dark:text-purple-400 mt-1">All Docker resources on this system</p>
             </div>
             <div class="text-right">
-              <p class="text-2xl font-bold text-blue-900">{{ formatBytes(getTotalSize()) }}</p>
-              <p class="text-xs text-blue-700">{{ formatBytes(getReclaimableSize()) }} reclaimable</p>
+              <p class="text-2xl font-bold text-blue-900 dark:text-purple-200">{{ formatBytes(getTotalSize()) }}</p>
+              <p class="text-xs text-blue-700 dark:text-purple-400">{{ formatBytes(getReclaimableSize()) }} reclaimable</p>
             </div>
           </div>
         </div>
@@ -117,16 +117,16 @@
         </div>
 
         <!-- Images -->
-        <div class="border border-gray-200 rounded-lg">
+        <div class="border border-gray-200 dark:border-purple-800/30 rounded-lg">
           <div class="p-4">
             <div class="flex items-center justify-between mb-3">
               <div class="flex-1">
-                <h3 class="text-base font-semibold text-gray-900">Images</h3>
-                <p class="text-xs text-gray-500 mt-1">{{ imagesList.length }} total images</p>
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">Images</h3>
+                <p class="text-xs text-gray-500 dark:text-slate-500 mt-1">{{ imagesList.length }} total images</p>
               </div>
               <div class="text-right mr-4">
-                <p class="text-sm font-semibold text-gray-900">{{ formatBytes(getImagesSize()) }}</p>
-                <p class="text-xs text-gray-500">{{ formatBytes(getDanglingImagesSize()) }} unused</p>
+                <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatBytes(getImagesSize()) }}</p>
+                <p class="text-xs text-gray-500 dark:text-slate-500">{{ formatBytes(getDanglingImagesSize()) }} unused</p>
               </div>
               <button
                 @click="toggleSection('images')"
@@ -147,10 +147,10 @@
             </div>
 
             <!-- Expandable List -->
-            <div v-if="expandedSections.images" class="mt-4 border-t border-gray-200 pt-4">
+            <div v-if="expandedSections.images" class="mt-4 border-t border-gray-200 dark:border-purple-800/30 pt-4">
               <div v-if="danglingImages.length > 0" class="mb-4">
                 <div class="flex items-center justify-between mb-2">
-                  <label class="flex items-center text-sm font-medium text-gray-700">
+                  <label class="flex items-center text-sm font-medium text-gray-700 dark:text-slate-300">
                     <input
                       type="checkbox"
                       v-model="selectAllDanglingImages"
@@ -159,14 +159,14 @@
                     />
                     Select all dangling images ({{ danglingImages.length }})
                   </label>
-                  <span class="text-xs text-gray-500">{{ formatBytes(getDanglingImagesSize()) }}</span>
+                  <span class="text-xs text-gray-500 dark:text-slate-500">{{ formatBytes(getDanglingImagesSize()) }}</span>
                 </div>
 
                 <div class="max-h-64 overflow-y-auto space-y-2">
                   <div
                     v-for="image in danglingImages"
                     :key="image.Id"
-                    class="border border-gray-200 rounded p-3"
+                    class="border border-gray-200 dark:border-purple-800/30 rounded p-3"
                   >
                     <label class="flex items-start cursor-pointer">
                       <input
@@ -177,12 +177,12 @@
                       />
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
-                          <span class="text-gray-900 font-mono text-xs truncate">{{ getImageName(image) }}</span>
+                          <span class="text-gray-900 dark:text-white font-mono text-xs truncate">{{ getImageName(image) }}</span>
                           <span class="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full whitespace-nowrap">
                             Safe to delete
                           </span>
                         </div>
-                        <div class="text-xs text-gray-600 space-y-0.5">
+                        <div class="text-xs text-gray-600 dark:text-slate-400 space-y-0.5">
                           <div>Age: {{ formatAge(image.ageInDays) }}</div>
                           <div>Type: Dangling image (build artifact)</div>
                           <div v-if="image.usedByContainers && image.usedByContainers.length > 0">
@@ -191,14 +191,14 @@
                           <div v-else class="text-green-600">Not used by any container</div>
                         </div>
                       </div>
-                      <span class="text-gray-700 font-semibold ml-4 text-sm whitespace-nowrap">{{ formatBytes(image.Size) }}</span>
+                      <span class="text-gray-700 dark:text-slate-300 font-semibold ml-4 text-sm whitespace-nowrap">{{ formatBytes(image.Size) }}</span>
                     </label>
                   </div>
                 </div>
               </div>
 
               <div v-if="usedImages.length > 0" class="mb-4">
-                <p class="text-sm font-medium text-gray-700 mb-2">Tagged images ({{ usedImages.length }})</p>
+                <p class="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Tagged images ({{ usedImages.length }})</p>
                 <div class="max-h-64 overflow-y-auto space-y-2">
                   <div
                     v-for="image in usedImages.slice(0, 20)"
@@ -206,26 +206,26 @@
                     :class="[
                       'border rounded p-3',
                       image.recommendation === 'in-use' ? 'border-green-200 bg-green-50' :
-                      image.recommendation === 'safe' ? 'border-gray-200 bg-gray-50' :
+                      image.recommendation === 'safe' ? 'border-gray-200 dark:border-purple-800/30 bg-gray-50 dark:bg-dark-700' :
                       'border-yellow-200 bg-yellow-50'
                     ]"
                   >
                     <div class="flex items-start">
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
-                          <span class="text-gray-900 font-mono text-xs truncate">{{ getImageName(image) }}</span>
+                          <span class="text-gray-900 dark:text-white font-mono text-xs truncate">{{ getImageName(image) }}</span>
                           <span
                             :class="[
                               'px-2 py-0.5 text-xs rounded-full whitespace-nowrap',
                               image.recommendation === 'in-use' ? 'bg-green-100 text-green-800' :
                               image.recommendation === 'safe' ? 'bg-red-100 text-red-800' :
-                              'bg-yellow-100 text-yellow-800'
+                              'bg-yellow-100 text-yellow-800 dark:text-orange-200'
                             ]"
                           >
                             {{ getRecommendationLabel(image.recommendation) }}
                           </span>
                         </div>
-                        <div class="text-xs text-gray-600 space-y-0.5">
+                        <div class="text-xs text-gray-600 dark:text-slate-400 space-y-0.5">
                           <div>Age: {{ formatAge(image.ageInDays) }}</div>
                           <div v-if="image.usedByContainers && image.usedByContainers.length > 0" class="text-green-700">
                             Used by: {{ image.usedByContainers.map(c => `${c.name} (${c.state})`).join(', ') }}
@@ -236,10 +236,10 @@
                           </div>
                         </div>
                       </div>
-                      <span class="text-gray-700 font-semibold ml-4 text-sm whitespace-nowrap">{{ formatBytes(image.Size) }}</span>
+                      <span class="text-gray-700 dark:text-slate-300 font-semibold ml-4 text-sm whitespace-nowrap">{{ formatBytes(image.Size) }}</span>
                     </div>
                   </div>
-                  <p v-if="usedImages.length > 20" class="text-xs text-gray-500 text-center py-2">
+                  <p v-if="usedImages.length > 20" class="text-xs text-gray-500 dark:text-slate-500 text-center py-2">
                     ... and {{ usedImages.length - 20 }} more images
                   </p>
                 </div>
@@ -258,16 +258,16 @@
         </div>
 
         <!-- Containers -->
-        <div class="border border-gray-200 rounded-lg">
+        <div class="border border-gray-200 dark:border-purple-800/30 rounded-lg">
           <div class="p-4">
             <div class="flex items-center justify-between mb-3">
               <div class="flex-1">
-                <h3 class="text-base font-semibold text-gray-900">Containers</h3>
-                <p class="text-xs text-gray-500 mt-1">{{ containersList.length }} total containers</p>
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">Containers</h3>
+                <p class="text-xs text-gray-500 dark:text-slate-500 mt-1">{{ containersList.length }} total containers</p>
               </div>
               <div class="text-right mr-4">
-                <p class="text-sm font-semibold text-gray-900">{{ formatBytes(getContainersSize()) }}</p>
-                <p class="text-xs text-gray-500">{{ stoppedContainers.length }} stopped</p>
+                <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatBytes(getContainersSize()) }}</p>
+                <p class="text-xs text-gray-500 dark:text-slate-500">{{ stoppedContainers.length }} stopped</p>
               </div>
               <button
                 @click="toggleSection('containers')"
@@ -288,10 +288,10 @@
             </div>
 
             <!-- Expandable List -->
-            <div v-if="expandedSections.containers" class="mt-4 border-t border-gray-200 pt-4">
+            <div v-if="expandedSections.containers" class="mt-4 border-t border-gray-200 dark:border-purple-800/30 pt-4">
               <div v-if="stoppedContainers.length > 0" class="mb-4">
                 <div class="flex items-center justify-between mb-2">
-                  <label class="flex items-center text-sm font-medium text-gray-700">
+                  <label class="flex items-center text-sm font-medium text-gray-700 dark:text-slate-300">
                     <input
                       type="checkbox"
                       v-model="selectAllStoppedContainers"
@@ -308,7 +308,7 @@
                     :key="container.Id"
                     :class="[
                       'border rounded p-3',
-                      container.recommendation === 'safe' ? 'border-green-200 bg-gray-50' : 'border-yellow-200 bg-yellow-50'
+                      container.recommendation === 'safe' ? 'border-green-200 bg-gray-50 dark:bg-dark-700' : 'border-yellow-200 bg-yellow-50'
                     ]"
                   >
                     <label class="flex items-start cursor-pointer">
@@ -320,45 +320,45 @@
                       />
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
-                          <span class="text-gray-900 font-mono text-xs truncate">{{ getContainerName(container) }}</span>
+                          <span class="text-gray-900 dark:text-white font-mono text-xs truncate">{{ getContainerName(container) }}</span>
                           <span
                             :class="[
                               'px-2 py-0.5 text-xs rounded-full whitespace-nowrap',
-                              container.recommendation === 'safe' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                              container.recommendation === 'safe' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800 dark:text-orange-200'
                             ]"
                           >
                             {{ getRecommendationLabel(container.recommendation) }}
                           </span>
-                          <span v-if="container.isSpawnerContainer" class="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full whitespace-nowrap">
+                          <span v-if="container.isSpawnerContainer" class="px-2 py-0.5 bg-blue-100 text-blue-800 dark:text-purple-300 text-xs rounded-full whitespace-nowrap">
                             Spawner
                           </span>
                         </div>
-                        <div class="text-xs text-gray-600 space-y-0.5">
+                        <div class="text-xs text-gray-600 dark:text-slate-400 space-y-0.5">
                           <div>State: {{ container.State }} - Age: {{ formatAge(container.ageInDays) }}</div>
-                          <div v-if="container.environmentName" class="text-blue-700">
+                          <div v-if="container.environmentName" class="text-blue-700 dark:text-purple-400">
                             Environment: {{ container.environmentName }}
                           </div>
                           <div>Image: {{ container.Image }}</div>
                         </div>
                       </div>
-                      <span class="text-gray-700 font-semibold ml-4 text-sm whitespace-nowrap">{{ formatBytes(container.SizeRw || 0) }}</span>
+                      <span class="text-gray-700 dark:text-slate-300 font-semibold ml-4 text-sm whitespace-nowrap">{{ formatBytes(container.SizeRw || 0) }}</span>
                     </label>
                   </div>
                 </div>
               </div>
 
               <div v-if="runningContainers.length > 0" class="mb-4">
-                <p class="text-sm font-medium text-gray-700 mb-2">Running containers ({{ runningContainers.length }})</p>
+                <p class="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Running containers ({{ runningContainers.length }})</p>
                 <div class="max-h-48 overflow-y-auto space-y-2">
                   <div
                     v-for="container in runningContainers.slice(0, 10)"
                     :key="container.Id"
                     class="flex items-center justify-between p-2 bg-green-50 rounded text-xs"
                   >
-                    <span class="text-gray-900 font-mono flex-1">{{ getContainerName(container) }}</span>
+                    <span class="text-gray-900 dark:text-white font-mono flex-1">{{ getContainerName(container) }}</span>
                     <span class="text-green-600 ml-2">(running)</span>
                   </div>
-                  <p v-if="runningContainers.length > 10" class="text-xs text-gray-500 text-center">
+                  <p v-if="runningContainers.length > 10" class="text-xs text-gray-500 dark:text-slate-500 text-center">
                     ... and {{ runningContainers.length - 10 }} more
                   </p>
                 </div>
@@ -377,15 +377,15 @@
         </div>
 
         <!-- Volumes -->
-        <div class="border border-gray-200 rounded-lg">
+        <div class="border border-gray-200 dark:border-purple-800/30 rounded-lg">
           <div class="p-4">
             <div class="flex items-center justify-between mb-3">
               <div class="flex-1">
-                <h3 class="text-base font-semibold text-gray-900">Volumes</h3>
-                <p class="text-xs text-gray-500 mt-1">{{ volumesList.length }} total volumes</p>
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">Volumes</h3>
+                <p class="text-xs text-gray-500 dark:text-slate-500 mt-1">{{ volumesList.length }} total volumes</p>
               </div>
               <div class="text-right mr-4">
-                <p class="text-sm font-semibold text-gray-900">{{ formatBytes(getVolumesSize()) }}</p>
+                <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatBytes(getVolumesSize()) }}</p>
               </div>
               <button
                 @click="toggleSection('volumes')"
@@ -406,10 +406,10 @@
             </div>
 
             <!-- Expandable List -->
-            <div v-if="expandedSections.volumes" class="mt-4 border-t border-gray-200 pt-4">
+            <div v-if="expandedSections.volumes" class="mt-4 border-t border-gray-200 dark:border-purple-800/30 pt-4">
               <div v-if="volumesList.length > 0" class="mb-4">
                 <div class="flex items-center justify-between mb-2">
-                  <label class="flex items-center text-sm font-medium text-gray-700">
+                  <label class="flex items-center text-sm font-medium text-gray-700 dark:text-slate-300">
                     <input
                       type="checkbox"
                       v-model="selectAllVolumes"
@@ -418,14 +418,14 @@
                     />
                     Select all volumes ({{ volumesList.length }})
                   </label>
-                  <span class="text-xs text-gray-500">{{ formatBytes(getVolumesSize()) }}</span>
+                  <span class="text-xs text-gray-500 dark:text-slate-500">{{ formatBytes(getVolumesSize()) }}</span>
                 </div>
 
                 <div class="max-h-64 overflow-y-auto space-y-2">
                   <div
                     v-for="volume in volumesList"
                     :key="volume.Name"
-                    class="flex items-center justify-between p-2 bg-gray-50 rounded text-xs"
+                    class="flex items-center justify-between p-2 bg-gray-50 dark:bg-dark-700 rounded text-xs"
                   >
                     <label class="flex items-center flex-1 cursor-pointer">
                       <input
@@ -434,9 +434,9 @@
                         v-model="selectedVolumes"
                         class="mr-2 rounded"
                       />
-                      <span class="text-gray-900 font-mono flex-1">{{ volume.Name }}</span>
+                      <span class="text-gray-900 dark:text-white font-mono flex-1">{{ volume.Name }}</span>
                     </label>
-                    <span class="text-gray-600 ml-4">{{ formatBytes(volume.UsageData?.Size || 0) }}</span>
+                    <span class="text-gray-600 dark:text-slate-400 ml-4">{{ formatBytes(volume.UsageData?.Size || 0) }}</span>
                   </div>
                 </div>
               </div>
@@ -454,16 +454,16 @@
         </div>
 
         <!-- Build Cache -->
-        <div class="border border-gray-200 rounded-lg">
+        <div class="border border-gray-200 dark:border-purple-800/30 rounded-lg">
           <div class="p-4">
             <div class="flex items-center justify-between mb-3">
               <div class="flex-1">
-                <h3 class="text-base font-semibold text-gray-900">Build Cache</h3>
-                <p class="text-xs text-gray-500 mt-1">{{ dockerStats.BuildCache?.length || 0 }} cache entries</p>
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">Build Cache</h3>
+                <p class="text-xs text-gray-500 dark:text-slate-500 mt-1">{{ dockerStats.BuildCache?.length || 0 }} cache entries</p>
               </div>
               <div class="text-right mr-4">
-                <p class="text-sm font-semibold text-gray-900">{{ formatBytes(getBuildCacheSize()) }}</p>
-                <p class="text-xs text-gray-500">{{ formatBytes(getReclaimableCacheSize()) }} reclaimable</p>
+                <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ formatBytes(getBuildCacheSize()) }}</p>
+                <p class="text-xs text-gray-500 dark:text-slate-500">{{ formatBytes(getReclaimableCacheSize()) }} reclaimable</p>
               </div>
             </div>
 
@@ -486,7 +486,7 @@
         </div>
       </div>
 
-      <div v-else class="text-center py-8 text-gray-500">
+      <div v-else class="text-center py-8 text-gray-500 dark:text-slate-500">
         <p>Loading Docker statistics...</p>
       </div>
     </div>

@@ -39,7 +39,7 @@
     </div>
 
     <div v-else>
-      <div class="flex items-center gap-6 mb-8 pb-6 border-b border-slate-300 dark:border-slate-700/50">
+      <div class="flex items-center gap-6 mb-8 pb-6 border-b border-slate-300 dark:border-purple-800/30">
         <button
           v-for="status in statusFilters"
           :key="status.value"
@@ -47,7 +47,7 @@
           :class="[
             'flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200',
             activeFilter === status.value
-              ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white'
+              ? 'bg-slate-200 dark:bg-dark-700 text-slate-900 dark:text-white'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
           ]"
         >
