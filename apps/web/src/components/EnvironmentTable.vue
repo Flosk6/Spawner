@@ -128,9 +128,13 @@ function getStatusSeverity(status: string): string {
       return 'success';
     case 'creating':
       return 'info';
+    case 'updating':
+      return 'info';
     case 'failed':
       return 'danger';
     case 'deleting':
+      return 'warning';
+    case 'paused':
       return 'warning';
     default:
       return 'secondary';
@@ -143,10 +147,14 @@ function getStatusIcon(status: string): string {
       return 'pi pi-check-circle';
     case 'creating':
       return 'pi pi-spin pi-spinner';
+    case 'updating':
+      return 'pi pi-spin pi-spinner';
     case 'failed':
       return 'pi pi-times-circle';
     case 'deleting':
       return 'pi pi-spin pi-spinner';
+    case 'paused':
+      return 'pi pi-pause-circle';
     default:
       return 'pi pi-circle';
   }

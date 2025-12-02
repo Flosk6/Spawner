@@ -29,6 +29,7 @@ import { EnvVarsGenerator } from "../../common/env-vars.generator";
 import { DockerService } from "../../common/docker.service";
 import { GitKeysService } from "../git/git-keys.service";
 import { StatsService } from "../stats/stats.service";
+import * as yaml from "js-yaml";
 
 const execAsync = promisify(exec);
 
@@ -198,6 +199,8 @@ export class EnvironmentService {
     branches: Record<string, string>,
     localMode: boolean
   ): Promise<void> {
+    this.logsEmitter.clearLogs(envId);
+
     const log = (
       level: "info" | "success" | "warning" | "error",
       message: string
@@ -615,6 +618,15 @@ export class EnvironmentService {
         this.logsEmitter.off(`logs:${environmentId}`, handler);
       };
     });
+  }
+
+  getBuildLogs(environmentId: string) {
+    const logs = this.logsEmitter.getLogs(environmentId);
+    return {
+      environmentId,
+      logs,
+      count: logs.length,
+    };
   }
 
   private async readSpawnerConfig(
@@ -1175,5 +1187,469 @@ export class EnvironmentService {
       memoryUsageGB: Number(stat.memoryUsageGB),
       memoryLimitGB: Number(stat.memoryLimitGB),
     }));
+  }
+
+  async pause(id: string) {
+    const environment = await this.findOne(id);
+
+    if (environment.status !== "running") {
+      throw new ConflictException(
+        `Cannot pause environment with status ${environment.status}. Only running environments can be paused.`
+      );
+    }
+
+    const actionId = uuidv4();
+    await this.prisma.environmentAction.create({
+      data: {
+        id: actionId,
+        environmentId: id,
+        action: "pause",
+        status: "in_progress",
+      },
+    });
+
+    try {
+      for (const resource of environment.resources) {
+        const containerName = `${resource.resourceName}-${environment.name}`;
+        console.log(`Stopping container: ${containerName}`);
+        await this.dockerService.stopContainer(containerName, 10);
+      }
+
+      await this.prisma.environment.update({
+        where: { id },
+        data: { status: "paused" },
+      });
+
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+        },
+      });
+
+      console.log(`Environment ${environment.name} paused successfully`);
+      return this.findOne(id);
+    } catch (error) {
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          metadata: { error: error.message },
+        },
+      });
+
+      throw new InternalServerErrorException(
+        `Failed to pause environment: ${error.message}`
+      );
+    }
+  }
+
+  async resume(id: string) {
+    const environment = await this.findOne(id);
+
+    if (environment.status !== "paused") {
+      throw new ConflictException(
+        `Cannot resume environment with status ${environment.status}. Only paused environments can be resumed.`
+      );
+    }
+
+    const actionId = uuidv4();
+    await this.prisma.environmentAction.create({
+      data: {
+        id: actionId,
+        environmentId: id,
+        action: "resume",
+        status: "in_progress",
+      },
+    });
+
+    try {
+      for (const resource of environment.resources) {
+        const containerName = `${resource.resourceName}-${environment.name}`;
+        console.log(`Starting container: ${containerName}`);
+        await this.dockerService.startContainer(containerName);
+      }
+
+      await this.prisma.environment.update({
+        where: { id },
+        data: { status: "running" },
+      });
+
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+        },
+      });
+
+      console.log(`Environment ${environment.name} resumed successfully`);
+      return this.findOne(id);
+    } catch (error) {
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          metadata: { error: error.message },
+        },
+      });
+
+      throw new InternalServerErrorException(
+        `Failed to resume environment: ${error.message}`
+      );
+    }
+  }
+
+  async restart(id: string) {
+    const environment = await this.findOne(id);
+
+    if (environment.status !== "running") {
+      throw new ConflictException(
+        `Cannot restart environment with status ${environment.status}. Only running environments can be restarted.`
+      );
+    }
+
+    const actionId = uuidv4();
+    await this.prisma.environmentAction.create({
+      data: {
+        id: actionId,
+        environmentId: id,
+        action: "restart",
+        status: "in_progress",
+      },
+    });
+
+    try {
+      for (const resource of environment.resources) {
+        const containerName = `${resource.resourceName}-${environment.name}`;
+        console.log(`Restarting container: ${containerName}`);
+        await this.dockerService.restartContainer(containerName, 10);
+      }
+
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+        },
+      });
+
+      console.log(`Environment ${environment.name} restarted successfully`);
+      return this.findOne(id);
+    } catch (error) {
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          metadata: { error: error.message },
+        },
+      });
+
+      throw new InternalServerErrorException(
+        `Failed to restart environment: ${error.message}`
+      );
+    }
+  }
+
+  async restartResource(id: string, resourceName: string) {
+    const environment = await this.findOne(id);
+
+    const resource = environment.resources.find(
+      (r) => r.resourceName === resourceName
+    );
+    if (!resource) {
+      throw new NotFoundException(
+        `Resource ${resourceName} not found in environment ${environment.name}`
+      );
+    }
+
+    const actionId = uuidv4();
+    await this.prisma.environmentAction.create({
+      data: {
+        id: actionId,
+        environmentId: id,
+        action: "restart_resource",
+        status: "in_progress",
+        metadata: { resourceName },
+      },
+    });
+
+    try {
+      const containerName = `${resourceName}-${environment.name}`;
+      console.log(`Restarting resource container: ${containerName}`);
+      await this.dockerService.restartContainer(containerName, 10);
+
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+        },
+      });
+
+      console.log(
+        `Resource ${resourceName} in environment ${environment.name} restarted successfully`
+      );
+      return { success: true, message: "Resource restarted successfully" };
+    } catch (error) {
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          metadata: { resourceName, error: error.message },
+        },
+      });
+
+      throw new InternalServerErrorException(
+        `Failed to restart resource ${resourceName}: ${error.message}`
+      );
+    }
+  }
+
+  async update(id: string, branches?: Record<string, string>) {
+    const environment = await this.findOne(id);
+
+    if (environment.status !== "running" && environment.status !== "paused") {
+      throw new ConflictException(
+        `Cannot update environment with status ${environment.status}. Only running or paused environments can be updated.`
+      );
+    }
+
+    this.logsEmitter.clearLogs(id);
+
+    const log = (
+      level: "info" | "success" | "warning" | "error",
+      message: string
+    ) => {
+      console.log(`[${environment.name}] ${message}`);
+      this.logsEmitter.emitLog(id, level, message);
+    };
+
+    const actionId = uuidv4();
+    await this.prisma.environmentAction.create({
+      data: {
+        id: actionId,
+        environmentId: id,
+        action: "update",
+        status: "in_progress",
+        metadata: branches ? { branches } : undefined,
+      },
+    });
+
+    await this.prisma.environment.update({
+      where: { id },
+      data: { status: "updating" },
+    });
+
+    log("info", "Starting environment update...");
+
+    const reposPath = process.env.REPOS_PATH || "/opt/spawner/repos";
+    const errors: string[] = [];
+    const commitSHAs: Record<string, string> = {};
+
+    try {
+      const gitResources = environment.resources.filter((r) =>
+        isGitResource(r.resourceType as any)
+      );
+
+      for (const resource of gitResources) {
+        const resourceName = resource.resourceName;
+        const repoPath = path.join(reposPath, resourceName);
+        const targetBranch = branches?.[resourceName] || resource.branch;
+
+        // Find the corresponding project resource to get gitRepo
+        const projectResource = environment.project?.resources?.find(
+          (pr) => pr.name === resourceName
+        );
+        if (!projectResource?.gitRepo) {
+          log("warning", `No git repo found for ${resourceName}, skipping update`);
+          continue;
+        }
+
+        // Get SSH key path for this specific repository
+        const privateKeyPath = this.gitKeysService.getKeyPathForRepo(projectResource.gitRepo);
+        const sanitizedKeyPath = sanitizeShellArg(privateKeyPath);
+        const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+
+        if (!targetBranch) {
+          log("warning", `No branch specified for ${resourceName}, skipping update`);
+          continue;
+        }
+
+        log("info", `Updating ${resourceName} to branch ${targetBranch}`);
+
+        try {
+          const { stdout: currentSHA } = await execAsync(
+            `cd "${sanitizeShellArg(repoPath)}" && git rev-parse HEAD`
+          );
+          commitSHAs[resourceName] = currentSHA.trim();
+
+          const sanitizedBranch = sanitizeGitBranch(targetBranch);
+
+          await execAsync(
+            `cd "${sanitizeShellArg(repoPath)}" && GIT_SSH_COMMAND="${sshCommand}" git fetch origin`
+          );
+          await execAsync(
+            `cd "${sanitizeShellArg(repoPath)}" && git checkout ${sanitizedBranch}`
+          );
+          await execAsync(
+            `cd "${sanitizeShellArg(repoPath)}" && GIT_SSH_COMMAND="${sshCommand}" git reset --hard origin/${sanitizedBranch}`
+          );
+
+          log("success", `Git update successful for ${resourceName}`);
+        } catch (gitError) {
+          log("error", `Git update failed for ${resourceName}: ${gitError.message}`);
+          errors.push(`Git update failed for ${resourceName}: ${gitError.message}`);
+
+          if (commitSHAs[resourceName]) {
+            try {
+              await execAsync(
+                `cd "${sanitizeShellArg(repoPath)}" && git reset --hard ${commitSHAs[resourceName]}`
+              );
+              log("info", `Rolled back ${resourceName} to previous commit`);
+            } catch (rollbackError) {
+              log("error", `Failed to rollback ${resourceName}: ${rollbackError.message}`);
+            }
+          }
+          throw gitError;
+        }
+      }
+
+      log("info", "Git updates completed, starting image rebuild...");
+
+      for (const resource of gitResources) {
+        const resourceName = resource.resourceName;
+        const repoPath = path.join(reposPath, resourceName);
+        const imageTag = `spawner-${resourceName}:${environment.name}`;
+
+        log("info", `Rebuilding image ${imageTag}`);
+
+        try {
+          // Check for .spawner.yml config
+          let dockerfilePath: string | undefined;
+          const spawnerConfigPath = path.join(repoPath, '.spawner.yml');
+          try {
+            const configContent = await fs.readFile(spawnerConfigPath, 'utf-8');
+            const spawnerConfig = yaml.load(configContent) as SpawnerConfig;
+            dockerfilePath = spawnerConfig?.dockerfile || '.spawner/Dockerfile';
+          } catch {
+            dockerfilePath = '.spawner/Dockerfile';
+          }
+
+          // Check if custom Dockerfile exists
+          const dockerfileFullPath = path.join(repoPath, dockerfilePath);
+          const dockerfileExists = await fs
+            .access(dockerfileFullPath)
+            .then(() => true)
+            .catch(() => false);
+
+          const finalDockerfilePath = dockerfileExists ? dockerfilePath : undefined;
+
+          if (dockerfileExists) {
+            log("info", `Using Dockerfile: ${dockerfilePath}`);
+          } else {
+            log("info", `No custom Dockerfile found, using default build`);
+          }
+
+          await this.dockerService.buildImage(repoPath, imageTag, (msg) => {
+            log("info", `Build progress [${resourceName}]: ${msg}`);
+          }, finalDockerfilePath);
+          log("success", `Image rebuild successful for ${resourceName}`);
+        } catch (buildError) {
+          log("error", `Image rebuild failed for ${resourceName}: ${buildError.message}`);
+          errors.push(
+            `Image rebuild failed for ${resourceName}: ${buildError.message}`
+          );
+          throw buildError;
+        }
+      }
+
+      log("info", "All images rebuilt successfully, restarting containers...");
+
+      for (const resource of gitResources) {
+        const containerName = `${resource.resourceName}-${environment.name}`;
+        log("info", `Restarting container ${containerName}`);
+
+        try {
+          await this.dockerService.restartContainer(containerName, 15);
+          log("success", `Container restart successful for ${resource.resourceName}`);
+        } catch (restartError) {
+          log("error", `Container restart failed for ${resource.resourceName}: ${restartError.message}`);
+          errors.push(
+            `Container restart failed for ${resource.resourceName}: ${restartError.message}`
+          );
+          throw restartError;
+        }
+      }
+
+      if (branches) {
+        for (const resource of gitResources) {
+          const newBranch = branches[resource.resourceName];
+          if (newBranch && newBranch !== resource.branch) {
+            await this.prisma.environmentResource.update({
+              where: { id: resource.id },
+              data: { branch: newBranch },
+            });
+          }
+        }
+
+        const config = JSON.parse(environment.configJson);
+        config.branches = {
+          ...config.branches,
+          ...branches,
+        };
+
+        await this.prisma.environment.update({
+          where: { id },
+          data: { configJson: JSON.stringify(config) },
+        });
+      }
+
+      await this.prisma.environment.update({
+        where: { id },
+        data: { status: "running" },
+      });
+
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+        },
+      });
+
+      log("success", `Environment ${environment.name} updated successfully`);
+      return this.findOne(id);
+    } catch (error) {
+      // Restore environment to running or paused state (whatever it was before)
+      const previousStatus = environment.status;
+      await this.prisma.environment.update({
+        where: { id },
+        data: { status: previousStatus },
+      });
+
+      await this.prisma.environmentAction.update({
+        where: { id: actionId },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          metadata: {
+            branches,
+            errors,
+            error: error.message,
+          },
+        },
+      });
+
+      log("error", `Environment ${environment.name} update failed: ${error.message}`);
+      throw new InternalServerErrorException(
+        `Failed to update environment: ${error.message}${errors.length > 0 ? `. Errors: ${errors.join(", ")}` : ""}`
+      );
+    }
   }
 }

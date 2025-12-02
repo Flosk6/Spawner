@@ -3,11 +3,11 @@
     <h1 class="text-3xl font-bold text-gray-900">Dashboard</h1>
 
     <GitKeyCard />
-    <EnvironmentList />
+    <EnvironmentTable />
   </div>
 </template>
 
 <script setup lang="ts">
 import GitKeyCard from '../components/GitKeyCard.vue';
-import EnvironmentList from '../components/EnvironmentList.vue';
+import EnvironmentTable from '../components/EnvironmentTable.vue';
 </script>
