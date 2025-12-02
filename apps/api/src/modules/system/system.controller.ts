@@ -3,6 +3,8 @@ import { UpdateService } from './update.service';
 import { SchedulerService } from './scheduler.service';
 import { AuthGuard } from '@nestjs/passport';
 import { DockerService } from '../../common/docker.service';
+import { PrismaService } from '../../common/prisma.service';
+import { StatsService } from '../stats/stats.service';
 
 @Controller('system')
 @UseGuards(AuthGuard('session'))
@@ -11,6 +13,8 @@ export class SystemController {
     private readonly updateService: UpdateService,
     private readonly schedulerService: SchedulerService,
     private readonly dockerService: DockerService,
+    private readonly prisma: PrismaService,
+    private readonly statsService: StatsService,
   ) {}
 
   @Get('updates/check')
@@ -493,6 +497,175 @@ export class SystemController {
     } catch (error) {
       throw new HttpException(
         { success: false, message: 'Intelligent cleanup failed', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('host/stats')
+  async getHostStats() {
+    try {
+      const os = require('os');
+      const { execSync } = require('child_process');
+
+      const totalMemory = os.totalmem();
+      const freeMemory = os.freemem();
+      const usedMemory = totalMemory - freeMemory;
+
+      const cpus = os.cpus();
+      const cpuCount = cpus.length;
+
+      let cpuUsage = 0;
+      try {
+        const loadAvg = os.loadavg();
+        cpuUsage = (loadAvg[0] / cpuCount) * 100;
+      } catch (error) {
+        console.error('Failed to get CPU usage:', error.message);
+      }
+
+      let diskStats = { total: 0, used: 0, free: 0 };
+      try {
+        const platform = os.platform();
+
+        if (platform === 'darwin') {
+          const dfOutput = execSync('df -k / | tail -1').toString();
+          const parts = dfOutput.split(/\s+/).filter((p: string) => p);
+
+          const totalBlocks = parseInt(parts[1]);
+          const availableBlocks = parseInt(parts[3]);
+          const usedBlocks = totalBlocks - availableBlocks;
+
+          diskStats = {
+            total: totalBlocks * 1024,
+            used: usedBlocks * 1024,
+            free: availableBlocks * 1024,
+          };
+        } else {
+          const dfOutput = execSync('df -B1 / | tail -1').toString();
+          const parts = dfOutput.split(/\s+/).filter((p: string) => p);
+
+          diskStats = {
+            total: parseInt(parts[1]),
+            used: parseInt(parts[2]),
+            free: parseInt(parts[3]),
+          };
+        }
+      } catch (error) {
+        console.error('Failed to get disk stats:', error.message);
+      }
+
+      return {
+        success: true,
+        data: {
+          cpu: {
+            count: cpuCount,
+            usage: Math.min(100, Math.round(cpuUsage * 10) / 10),
+            model: cpus[0]?.model || 'Unknown',
+          },
+          memory: {
+            total: totalMemory,
+            used: usedMemory,
+            free: freeMemory,
+            usagePercent: Math.round((usedMemory / totalMemory) * 100 * 10) / 10,
+          },
+          disk: {
+            total: diskStats.total,
+            used: diskStats.used,
+            free: diskStats.free,
+            usagePercent: diskStats.total > 0 ? Math.round((diskStats.used / diskStats.total) * 100 * 10) / 10 : 0,
+          },
+          uptime: os.uptime(),
+          hostname: os.hostname(),
+          platform: os.platform(),
+          arch: os.arch(),
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: 'Failed to get host stats', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('spawner/environments-stats')
+  async getSpawnerEnvironmentsStats() {
+    try {
+      const environments = await this.prisma.environment.findMany({
+        where: {
+          status: 'running',
+        },
+        include: {
+          project: true,
+        },
+      });
+
+      const environmentsWithStats = await Promise.all(
+        environments.map(async (env) => {
+          const latestStats = await this.statsService.getLatestStats(env.id);
+
+          if (!latestStats) {
+            return {
+              id: env.id,
+              name: env.name,
+              projectName: env.project?.name || 'Unknown',
+              containers: [],
+              totalCpu: 0,
+              totalMemoryUsage: 0,
+              totalMemoryLimit: 0,
+            };
+          }
+
+          return {
+            id: env.id,
+            name: env.name,
+            projectName: env.project?.name || 'Unknown',
+            containers: latestStats.containers.map((c: any) => ({
+              name: c.name,
+              cpuPercent: Number(c.cpuPercent),
+              memoryUsage: Number(c.memoryUsageGB) * 1024 * 1024 * 1024,
+              memoryLimit: Number(c.memoryLimitGB) * 1024 * 1024 * 1024,
+              memoryPercent: Number(c.memoryLimitGB) > 0
+                ? Math.round((Number(c.memoryUsageGB) / Number(c.memoryLimitGB)) * 100 * 10) / 10
+                : 0,
+            })),
+            totalCpu: Number(latestStats.cpuPercent),
+            totalMemoryUsage: Number(latestStats.memoryUsageGB) * 1024 * 1024 * 1024,
+            totalMemoryLimit: Number(latestStats.memoryLimitGB) * 1024 * 1024 * 1024,
+          };
+        })
+      );
+
+      const totalStats = environmentsWithStats.reduce(
+        (acc, env) => ({
+          cpu: acc.cpu + env.totalCpu,
+          memoryUsage: acc.memoryUsage + env.totalMemoryUsage,
+          memoryLimit: acc.memoryLimit + env.totalMemoryLimit,
+          containerCount: acc.containerCount + env.containers.length,
+        }),
+        { cpu: 0, memoryUsage: 0, memoryLimit: 0, containerCount: 0 }
+      );
+
+      return {
+        success: true,
+        data: {
+          environments: environmentsWithStats,
+          total: {
+            environmentCount: environmentsWithStats.length,
+            containerCount: totalStats.containerCount,
+            totalCpu: Math.round(totalStats.cpu * 10) / 10,
+            totalMemoryUsage: totalStats.memoryUsage,
+            totalMemoryLimit: totalStats.memoryLimit,
+            totalMemoryPercent:
+              totalStats.memoryLimit > 0
+                ? Math.round((totalStats.memoryUsage / totalStats.memoryLimit) * 100 * 10) / 10
+                : 0,
+          },
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: 'Failed to get Spawner environments stats', error: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

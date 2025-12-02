@@ -240,7 +240,7 @@ php artisan db:seed --force"
       <Card>
         <template #title>
           <div class="flex items-center gap-2">
-            <i class="pi pi-server text-red-500"></i>
+            <i class="pi pi-sitemap text-red-500"></i>
             <span>Resource Limits (Optional)</span>
           </div>
         </template>

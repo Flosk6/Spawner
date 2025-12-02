@@ -648,7 +648,7 @@ export class DockerService implements OnModuleInit {
 
   async listAllContainers(): Promise<any[]> {
     try {
-      const containers = await this.docker.listContainers({ all: true });
+      const containers = await this.docker.listContainers({ all: true, size: true });
 
       return containers.map((container) => {
         const createdAt = new Date(container.Created * 1000);

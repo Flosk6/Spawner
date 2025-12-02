@@ -303,7 +303,7 @@ When `POST /api/environments` is called:
 ## Docker Container Configuration
 
 **Naming Convention:**
-- Container: `env-<project>-<env>-<resource>-1` (e.g., `env-myapp-feature-123-main-api-1`)
+- Container: `<resource>-<env>` (e.g., `main-api-test`, `main-app-test`, `psql-bdd-test`)
 - Network: `net-<project>-<env>` (e.g., `net-myapp-feature-123`)
 - Volume: `<resource>-<env>-data` (e.g., `main-db-feature-123-data`)
 - URL: `<resource>.<env>.<baseDomain>` (e.g., `main-api.feature-123.preview.example.com`)
@@ -312,10 +312,10 @@ When `POST /api/environments` is called:
 
 ```javascript
 {
-  name: 'main-api-feature-123',
+  name: 'main-api-test',
   buildContext: '/opt/spawner/repos/main-api',
   environment: {
-    DB_HOST: 'main-db-feature-123',
+    DB_HOST: 'psql-bdd-test',
     DB_DATABASE: 'myapp',
     DB_USERNAME: 'spawner',
     DB_PASSWORD: '<generated>'

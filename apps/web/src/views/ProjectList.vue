@@ -67,7 +67,7 @@
 
             <div class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-purple-800/30">
               <div class="flex items-center justify-center gap-2 mb-2">
-                <i class="pi pi-server text-green-600 dark:text-green-400 text-xl"></i>
+                <i class="pi pi-sitemap text-green-600 dark:text-green-400 text-xl"></i>
                 <span class="text-3xl font-bold text-slate-900 dark:text-white">{{ project.environments?.length || 0 }}</span>
               </div>
               <div class="text-sm text-slate-600 dark:text-slate-400 text-center">Environments</div>

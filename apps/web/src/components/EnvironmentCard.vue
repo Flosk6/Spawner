@@ -50,7 +50,7 @@
         </div>
         <div
           class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-3 border border-slate-300/50 dark:border-purple-800/30">
-          <i class="pi pi-server text-purple-600 dark:text-purple-400 text-sm block mb-1"></i>
+          <i class="pi pi-sitemap text-purple-600 dark:text-purple-400 text-sm block mb-1"></i>
           <p class="text-xs text-slate-600 dark:text-slate-500">CPU</p>
           <p class="text-lg font-bold text-slate-900 dark:text-white">{{ cpuUsage }}</p>
         </div>
