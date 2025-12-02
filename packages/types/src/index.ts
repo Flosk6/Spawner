@@ -18,6 +18,7 @@ export interface ProjectResource {
   type: ResourceType;
   gitRepo?: string;
   defaultBranch?: string;
+  baseImages?: string[];
   dbResource?: string;
   apiResource?: string;
   postBuildCommands?: string[];
@@ -109,4 +110,22 @@ export interface CreateEnvironmentDto {
 export interface EnvironmentLogsQuery {
   since?: string;
   tail?: number;
+}
+
+// Spawner Repository Configuration
+export interface SpawnerConfig {
+  baseImages?: string[];
+  dockerfile?: string;
+  exposedPort?: number;
+  healthCheck?: {
+    path: string;
+    timeout: number;
+  };
+  postBuildCommands?: string[];
+  resourceLimits?: {
+    cpu?: string;
+    memory?: string;
+    cpuReservation?: string;
+    memoryReservation?: string;
+  };
 }

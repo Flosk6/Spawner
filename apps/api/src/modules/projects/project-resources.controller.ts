@@ -30,6 +30,7 @@ export class ProjectResourcesController {
       type: 'laravel-api' | 'nextjs-front' | 'mysql-db';
       gitRepo?: string;
       defaultBranch?: string;
+      baseImages?: string[];
       staticEnvVars?: string;
       postBuildCommands?: string[];
       resourceLimits?: {
@@ -53,6 +54,7 @@ export class ProjectResourcesController {
       type?: 'laravel-api' | 'nextjs-front' | 'mysql-db';
       gitRepo?: string;
       defaultBranch?: string;
+      baseImages?: string[];
       staticEnvVars?: string;
       postBuildCommands?: string[];
       resourceLimits?: {

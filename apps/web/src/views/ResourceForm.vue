@@ -141,6 +141,53 @@
         </template>
       </Card>
 
+      <!-- Docker Configuration Card -->
+      <Card>
+        <template #title>
+          <div class="flex items-center gap-2">
+            <i class="pi pi-box text-cyan-500"></i>
+            <span>Docker Configuration</span>
+          </div>
+        </template>
+        <template #content>
+          <div class="grid gap-6">
+            <!-- Base Images -->
+            <div class="flex flex-col gap-2">
+              <label for="baseImages" class="font-semibold text-slate-700 dark:text-slate-300">
+                Base Docker Images
+              </label>
+              <small class="text-slate-600 dark:text-slate-400 mb-2">
+                Pre-pull Docker base images before building. Example: node:20-alpine, mysql:8
+              </small>
+              <div class="flex gap-2">
+                <InputText
+                  v-model="newBaseImage"
+                  placeholder="node:20-alpine"
+                  class="flex-1 font-mono text-sm"
+                  @keydown.enter.prevent="addBaseImage"
+                />
+                <Button
+                  label="Add"
+                  icon="pi pi-plus"
+                  :disabled="!newBaseImage.trim()"
+                  @click="addBaseImage"
+                />
+              </div>
+              <div v-if="baseImagesArray.length > 0" class="flex flex-wrap gap-2 mt-2">
+                <Chip
+                  v-for="(image, index) in baseImagesArray"
+                  :key="index"
+                  :label="image"
+                  removable
+                  @remove="removeBaseImage(index)"
+                  class="font-mono text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        </template>
+      </Card>
+
       <!-- Advanced Configuration Card -->
       <Card v-if="form.type !== 'mysql-db'">
         <template #title>
@@ -309,6 +356,7 @@ import Card from 'primevue/card';
 import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
 import Select from 'primevue/select';
+import Chip from 'primevue/chip';
 import ProgressSpinner from 'primevue/progressspinner';
 import { useNotification } from '../composables/useNotification';
 import TemplateAutocomplete from '../components/TemplateAutocomplete.vue';
@@ -326,6 +374,7 @@ interface Resource {
   type: string;
   gitRepo?: string;
   defaultBranch?: string;
+  baseImages?: string[];
   staticEnvVars?: Record<string, string>;
   postBuildCommands?: string[];
   resourceLimits?: ResourceLimits;
@@ -401,6 +450,8 @@ const form = ref({
 });
 
 const postBuildCommandsText = ref('');
+const baseImagesArray = ref<string[]>([]);
+const newBaseImage = ref('');
 
 function getDefaultLimit(field: keyof ResourceLimits): string {
   const defaults = defaultResourceLimits[form.value.type];
@@ -420,6 +471,18 @@ function stringifyEnvVars(vars: Record<string, string>): string {
   return Object.entries(vars)
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
+}
+
+function addBaseImage() {
+  const image = newBaseImage.value.trim();
+  if (image && !baseImagesArray.value.includes(image)) {
+    baseImagesArray.value.push(image);
+    newBaseImage.value = '';
+  }
+}
+
+function removeBaseImage(index: number) {
+  baseImagesArray.value.splice(index, 1);
 }
 
 async function loadData() {
@@ -450,6 +513,7 @@ async function loadData() {
         };
 
         postBuildCommandsText.value = (resource.postBuildCommands || []).join('\n');
+        baseImagesArray.value = resource.baseImages || [];
       }
     }
   } catch (error) {
@@ -484,6 +548,9 @@ async function save() {
       .map(cmd => cmd.trim())
       .filter(cmd => cmd.length > 0 && !cmd.startsWith('#'));
 
+    // Base images are already an array
+    const baseImages = baseImagesArray.value;
+
     const resourceLimits: ResourceLimits = {};
     if (form.value.resourceLimits.cpu) resourceLimits.cpu = form.value.resourceLimits.cpu;
     if (form.value.resourceLimits.memory) resourceLimits.memory = form.value.resourceLimits.memory;
@@ -495,6 +562,7 @@ async function save() {
       type: form.value.type,
       gitRepo: form.value.gitRepo || null,
       defaultBranch: form.value.defaultBranch || null,
+      baseImages: baseImages,
       staticEnvVars: form.value.staticEnvVars,
       postBuildCommands: postBuildCommands,
       resourceLimits: Object.keys(resourceLimits).length > 0 ? resourceLimits : null,
