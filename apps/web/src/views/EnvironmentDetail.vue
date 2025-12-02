@@ -66,6 +66,14 @@
 
               <!-- Action Buttons -->
               <div class="flex gap-2">
+                <a v-if="entryPointUrl" :href="entryPointUrl" target="_blank">
+                  <Button
+                    label="Open Environment"
+                    icon="pi pi-external-link"
+                    severity="primary"
+                    size="small"
+                  />
+                </a>
                 <Button
                   v-if="environment.status === 'running'"
                   label="Pause"
@@ -155,9 +163,12 @@
 
             <template #content>
               <DataTable :value="environment.resources" stripedRows responsiveLayout="scroll">
-                <Column field="resourceName" header="Name" sortable style="min-width: 150px">
+                <Column field="resourceName" header="Name" sortable style="min-width: 200px">
                   <template #body="{ data }: { data: EnvironmentResource }">
-                    <span class="font-semibold">{{ data.resourceName }}</span>
+                    <div class="flex items-center gap-2">
+                      <span class="font-semibold">{{ data.resourceName }}</span>
+                      <Chip v-if="data.isEntryPoint" label="Entry Point" icon="pi pi-home" class="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" size="small" />
+                    </div>
                   </template>
                 </Column>
 
@@ -748,6 +759,14 @@ function connectToBuildLogsSSE(environmentId: string) {
     buildLogsEventSource.value?.close();
   };
 }
+
+const entryPointUrl = computed(() => {
+  if (!environment.value?.resources) {
+    return null;
+  }
+  const entryPoint = environment.value.resources.find(r => r.isEntryPoint);
+  return entryPoint?.url || null;
+});
 
 watch(activeTab, (newTab) => {
   if (newTab === 'build-logs' && environment.value) {
