@@ -12,6 +12,13 @@ export interface EnvironmentLog {
 @Injectable()
 export class EnvironmentLogsEmitter extends EventEmitter {
   private logs: Map<string, EnvironmentLog[]> = new Map();
+  private readonly MAX_LOGS_PER_ENV = 1000;
+  private readonly LOG_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+  constructor() {
+    super();
+    setInterval(() => this.cleanupOldLogs(), 60 * 60 * 1000);
+  }
 
   emitLog(environmentId: string, level: EnvironmentLog['level'], message: string, step?: string) {
     const log: EnvironmentLog = {
@@ -22,14 +29,33 @@ export class EnvironmentLogsEmitter extends EventEmitter {
       step,
     };
 
-    // Store log
     if (!this.logs.has(environmentId)) {
       this.logs.set(environmentId, []);
     }
-    this.logs.get(environmentId).push(log);
 
-    // Emit event
+    const envLogs = this.logs.get(environmentId)!;
+    envLogs.push(log);
+
+    if (envLogs.length > this.MAX_LOGS_PER_ENV) {
+      envLogs.shift();
+    }
+
     this.emit(`logs:${environmentId}`, log);
+  }
+
+  private cleanupOldLogs() {
+    const now = Date.now();
+    for (const [environmentId, logs] of this.logs.entries()) {
+      const filteredLogs = logs.filter(
+        (log) => now - log.timestamp.getTime() < this.LOG_RETENTION_MS
+      );
+
+      if (filteredLogs.length === 0) {
+        this.logs.delete(environmentId);
+      } else {
+        this.logs.set(environmentId, filteredLogs);
+      }
+    }
   }
 
   getLogs(environmentId: string): EnvironmentLog[] {

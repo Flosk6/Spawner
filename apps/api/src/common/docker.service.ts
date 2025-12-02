@@ -312,6 +312,25 @@ export class DockerService implements OnModuleInit {
     }
   }
 
+  async restartContainer(
+    containerNameOrId: string,
+    timeout: number = 10
+  ): Promise<void> {
+    try {
+      const container = this.docker.getContainer(containerNameOrId);
+      await container.restart({ t: timeout });
+    } catch (error) {
+      if (error.statusCode === 404) {
+        throw new Error(
+          `Container ${containerNameOrId} not found. It may have been removed.`
+        );
+      }
+      throw new Error(
+        `Failed to restart container ${containerNameOrId}: ${error.message}`
+      );
+    }
+  }
+
   async removeContainer(
     containerNameOrId: string,
     force: boolean = false

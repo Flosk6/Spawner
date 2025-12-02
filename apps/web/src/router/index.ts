@@ -5,8 +5,8 @@ import ProjectList from '../views/ProjectList.vue';
 import ProjectDetail from '../views/ProjectDetail.vue';
 import ProjectForm from '../views/ProjectForm.vue';
 import ResourceForm from '../views/ResourceForm.vue';
-import EnvironmentsGlobal from '../views/EnvironmentsGlobal.vue';
 import EnvironmentList from '../views/EnvironmentList.vue';
+import ProjectEnvironments from '../views/ProjectEnvironments.vue';
 import EnvironmentNew from '../views/EnvironmentNew.vue';
 import EnvironmentDetail from '../views/EnvironmentDetail.vue';
 import GitSettings from '../views/GitSettings.vue';
@@ -53,8 +53,8 @@ const router = createRouter({
     },
     {
       path: '/environments',
-      name: 'EnvironmentsGlobal',
-      component: EnvironmentsGlobal,
+      name: 'EnvironmentList',
+      component: EnvironmentList,
       meta: { requiresAuth: true },
     },
     {
@@ -101,8 +101,8 @@ const router = createRouter({
     },
     {
       path: '/projects/:projectId/environments',
-      name: 'EnvironmentList',
-      component: EnvironmentList,
+      name: 'ProjectEnvironments',
+      component: ProjectEnvironments,
       meta: { requiresAuth: true },
     },
     {
@@ -135,7 +135,7 @@ router.beforeEach(async (to, _from, next) => {
     next({ name: 'Login' });
   } else if (to.name === 'Login' && authStore.isAuthenticated) {
     // Redirect to environments if user is authenticated and tries to access login
-    next({ name: 'EnvironmentsGlobal' });
+    next({ name: 'EnvironmentList' });
   } else {
     next();
   }

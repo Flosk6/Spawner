@@ -61,7 +61,53 @@
         <!-- Overview Tab -->
         <div v-if="activeTab === 'overview'">
           <div class="mb-6">
-            <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Overview</h3>
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-2xl font-bold text-slate-900 dark:text-white">Overview</h3>
+
+              <!-- Action Buttons -->
+              <div class="flex gap-2">
+                <Button
+                  v-if="environment.status === 'running'"
+                  label="Pause"
+                  icon="pi pi-pause"
+                  severity="warning"
+                  outlined
+                  size="small"
+                  @click="pauseEnvironment"
+                  :loading="loadingAction"
+                />
+                <Button
+                  v-if="environment.status === 'paused'"
+                  label="Resume"
+                  icon="pi pi-play"
+                  severity="success"
+                  outlined
+                  size="small"
+                  @click="resumeEnvironment"
+                  :loading="loadingAction"
+                />
+                <Button
+                  v-if="environment.status === 'running' || environment.status === 'paused'"
+                  label="Restart"
+                  icon="pi pi-refresh"
+                  severity="info"
+                  outlined
+                  size="small"
+                  @click="restartEnvironment"
+                  :loading="loadingAction"
+                />
+                <Button
+                  v-if="environment.status === 'running' || environment.status === 'paused'"
+                  label="Update"
+                  icon="pi pi-upload"
+                  severity="secondary"
+                  outlined
+                  size="small"
+                  @click="updateEnvironment"
+                  :loading="loadingAction"
+                />
+              </div>
+            </div>
 
             <!-- Branches -->
             <Card class="mb-6" v-if="environment.branches">
@@ -156,6 +202,25 @@
           </Card>
         </div>
 
+        <!-- Build Logs Tab -->
+        <div v-if="activeTab === 'build-logs'">
+          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Build Logs</h3>
+          <Card>
+            <template #content>
+              <ScrollPanel style="width: 100%; height: 60vh" class="border rounded" ref="buildLogsContainer">
+                <div class="p-4 font-mono text-sm whitespace-pre-wrap">
+                  <div v-for="(line, index) in buildLogsLines" :key="index" :class="getBuildLogLineClass(line)">
+                    {{ line }}
+                  </div>
+                  <div v-if="buildLogsLines.length === 0" class="opacity-50">
+                    No logs available. Logs will appear when you create or update this environment.
+                  </div>
+                </div>
+              </ScrollPanel>
+            </template>
+          </Card>
+        </div>
+
         <!-- Settings Tab -->
         <div v-if="activeTab === 'settings'">
           <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Settings</h3>
@@ -215,6 +280,49 @@
       </ScrollPanel>
     </Dialog>
 
+    <!-- Update Logs Dialog -->
+    <Dialog
+      v-model:visible="showUpdateLogsModal"
+      :header="`Updating Environment: ${environment?.name}`"
+      :modal="true"
+      :closable="updateComplete"
+      :style="{ width: '90vw', maxWidth: '1200px' }"
+      :maximizable="true"
+    >
+      <div v-if="!updateComplete" class="flex items-center gap-2 mb-4">
+        <ProgressSpinner style="width: 20px; height: 20px" />
+        <span class="font-semibold">Updating environment...</span>
+      </div>
+      <div v-else class="flex items-center gap-2 mb-4">
+        <i v-if="updateSuccess" class="pi pi-check-circle text-green-500 text-2xl"></i>
+        <i v-else class="pi pi-times-circle text-red-500 text-2xl"></i>
+        <span class="font-semibold" :class="updateSuccess ? 'text-green-600' : 'text-red-600'">
+          {{ updateSuccess ? 'Update successful!' : 'Update failed' }}
+        </span>
+      </div>
+
+      <ScrollPanel style="width: 100%; height: 60vh" class="border rounded" ref="updateLogsContainer">
+        <div class="p-4 font-mono text-sm whitespace-pre-wrap">
+          <div v-for="(line, index) in updateLogsLines" :key="index" :class="getUpdateLogLineClass(line)">
+            {{ line }}
+          </div>
+          <div v-if="updateLogsLines.length === 0" class="opacity-50">
+            Connecting to server...
+          </div>
+        </div>
+      </ScrollPanel>
+
+      <template #footer>
+        <Button
+          label="Close"
+          severity="secondary"
+          outlined
+          @click="closeUpdateLogsModal"
+          :disabled="!updateComplete"
+        />
+      </template>
+    </Dialog>
+
     <!-- Delete Progress Dialog -->
     <Dialog v-model:visible="showDeleteModal" header="Deleting Environment" :modal="true" :closable="false"
       :style="{ width: '450px' }">
@@ -231,7 +339,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch, onBeforeUnmount, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { environmentApi } from '../services/api';
 import type { EnvironmentDetail, EnvironmentResource } from '../types';
@@ -257,33 +365,42 @@ const { showSuccess, showError } = useNotification();
 const environment = ref<EnvironmentDetail | null>(null);
 const loading = ref(true);
 const deleting = ref(false);
+const loadingAction = ref(false);
 const error = ref('');
 const showLogsModal = ref(false);
 const currentLogsResource = ref('');
 const logs = ref('');
 
-// Delete progress state
 const showDeleteModal = ref(false);
 const deletionStep = ref('');
 const deletionProgress = ref(0);
 
-// Terminal state
 const showTerminalModal = ref(false);
 const currentTerminalResource = ref('');
 
-// Live logs state
 const showLiveLogsModal = ref(false);
 const currentLiveLogsResource = ref('');
 const liveLogs = ref('');
 const liveLogsContainer = ref<HTMLPreElement | null>(null);
 
-// Navigation state
+const buildLogsEventSource = ref<EventSource | null>(null);
+const buildLogsText = ref('');
+const buildLogsContainer = ref<any>(null);
+
+const showUpdateLogsModal = ref(false);
+const updateLogsText = ref('');
+const updateComplete = ref(false);
+const updateSuccess = ref(false);
+const updateEventSource = ref<EventSource | null>(null);
+const updateLogsContainer = ref<any>(null);
+
 const activeTab = ref('overview');
 
 const tabs = [
   { value: 'overview', label: 'Overview', icon: 'pi pi-home' },
   { value: 'stats', label: 'Performance', icon: 'pi pi-chart-line' },
   { value: 'resources', label: 'Resources', icon: 'pi pi-box' },
+  { value: 'build-logs', label: 'Build Logs', icon: 'pi pi-file' },
   { value: 'settings', label: 'Settings', icon: 'pi pi-cog' },
   { value: 'danger', label: 'Danger Zone', icon: 'pi pi-exclamation-triangle' },
 ];
@@ -332,7 +449,6 @@ async function viewLiveLogs(resourceName: string) {
   try {
     const id = route.params.id as string;
 
-    // Simple polling approach - fetch logs every 2 seconds
     const pollLogs = async () => {
       if (!showLiveLogsModal.value) return;
 
@@ -340,15 +456,12 @@ async function viewLiveLogs(resourceName: string) {
         const result = await environmentApi.getLogs(id, resourceName);
         liveLogs.value = result.logs;
 
-        // Auto-scroll to bottom
         if (liveLogsContainer.value) {
           liveLogsContainer.value.scrollTop = liveLogsContainer.value.scrollHeight;
         }
       } catch (err) {
-        // Ignore errors during polling
       }
 
-      // Continue polling
       if (showLiveLogsModal.value) {
         setTimeout(pollLogs, 2000);
       }
@@ -371,7 +484,6 @@ async function handleDelete() {
 
   const envName = environment.value.name;
 
-  // Use notification service for confirmation
   const { confirmDelete } = useNotification();
   confirmDelete(
     envName,
@@ -381,14 +493,11 @@ async function handleDelete() {
         showDeleteModal.value = true;
         error.value = '';
 
-        // Simulate progress steps
         deletionStep.value = 'Stopping containers...';
         deletionProgress.value = 20;
 
-        // Start deletion
         const deletePromise = environmentApi.delete(environment.value!.id);
 
-        // Simulate progress updates
         await new Promise(resolve => setTimeout(resolve, 2000));
         deletionStep.value = 'Removing volumes...';
         deletionProgress.value = 40;
@@ -401,7 +510,6 @@ async function handleDelete() {
         deletionStep.value = 'Cleaning up files...';
         deletionProgress.value = 80;
 
-        // Wait for actual deletion to complete
         await deletePromise;
 
         deletionStep.value = 'Complete!';
@@ -440,4 +548,226 @@ function formatDateShort(dateStr: string | Date): string {
   const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+async function pauseEnvironment() {
+  if (!environment.value) return;
+  try {
+    loadingAction.value = true;
+    await environmentApi.pause(environment.value.id);
+    showSuccess(`Environment "${environment.value.name}" paused successfully`);
+    await loadEnvironment();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to pause environment');
+  } finally {
+    loadingAction.value = false;
+  }
+}
+
+async function resumeEnvironment() {
+  if (!environment.value) return;
+  try {
+    loadingAction.value = true;
+    await environmentApi.resume(environment.value.id);
+    showSuccess(`Environment "${environment.value.name}" resumed successfully`);
+    await loadEnvironment();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to resume environment');
+  } finally {
+    loadingAction.value = false;
+  }
+}
+
+async function restartEnvironment() {
+  if (!environment.value) return;
+  try {
+    loadingAction.value = true;
+    await environmentApi.restart(environment.value.id);
+    showSuccess(`Environment "${environment.value.name}" restarted successfully`);
+    await loadEnvironment();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to restart environment');
+  } finally {
+    loadingAction.value = false;
+  }
+}
+
+async function updateEnvironment() {
+  if (!environment.value) return;
+  try {
+    showUpdateLogsModal.value = true;
+    updateLogsText.value = '';
+    updateComplete.value = false;
+    updateSuccess.value = false;
+
+    connectToUpdateSSE(environment.value.id);
+
+    loadingAction.value = true;
+    await environmentApi.update(environment.value.id);
+  } catch (err: any) {
+    console.error('Error updating environment:', err);
+    showUpdateLogsModal.value = false;
+    showError(err.response?.data?.message || 'Failed to update environment');
+  } finally {
+    loadingAction.value = false;
+  }
+}
+
+const updateLogsLines = computed(() => {
+  return updateLogsText.value.split('\n').filter(line => line.trim());
+});
+
+function getUpdateLogLineClass(line: string): string {
+  if (line.includes('[OK]')) {
+    return 'text-green-600';
+  } else if (line.includes('[ERR]') || line.includes('[ERROR]')) {
+    return 'text-red-600';
+  } else if (line.includes('[WARN]')) {
+    return 'text-orange-600';
+  }
+  return 'opacity-70';
+}
+
+function scrollUpdateLogsToBottom() {
+  setTimeout(() => {
+    if (updateLogsContainer.value?.$el) {
+      const scrollableContent = updateLogsContainer.value.$el.querySelector('.p-scrollpanel-content');
+      if (scrollableContent) {
+        scrollableContent.scrollTop = scrollableContent.scrollHeight;
+      }
+    }
+  }, 50);
+}
+
+function connectToUpdateSSE(environmentId: string) {
+  updateEventSource.value = new EventSource(`/api/environments/update-logs/${environmentId}`);
+
+  updateEventSource.value.onmessage = (event) => {
+    const log = JSON.parse(event.data);
+    if (log.message && log.message.trim()) {
+      const timestamp = new Date(log.timestamp).toLocaleTimeString();
+      let prefix = '';
+      if (log.level === 'success') prefix = '[OK]';
+      else if (log.level === 'error') prefix = '[ERR]';
+      else if (log.level === 'warning') prefix = '[WARN]';
+      else prefix = '[INFO]';
+
+      updateLogsText.value += `${timestamp} ${prefix} ${log.message}\n`;
+      scrollUpdateLogsToBottom();
+    }
+
+    if (log.level === 'success' && log.message.includes('updated successfully')) {
+      updateComplete.value = true;
+      updateSuccess.value = true;
+      updateEventSource.value?.close();
+      loadEnvironment();
+    }
+    if (log.level === 'error' && (log.message.includes('failed') || log.message.includes('Failed'))) {
+      updateComplete.value = true;
+      updateSuccess.value = false;
+      updateEventSource.value?.close();
+    }
+  };
+
+  updateEventSource.value.onerror = (err) => {
+    console.error('Update logs SSE connection error:', err);
+    updateComplete.value = true;
+    updateSuccess.value = false;
+    updateEventSource.value?.close();
+  };
+}
+
+function closeUpdateLogsModal() {
+  showUpdateLogsModal.value = false;
+  if (updateEventSource.value) {
+    updateEventSource.value.close();
+    updateEventSource.value = null;
+  }
+}
+
+const buildLogsLines = computed(() => {
+  return buildLogsText.value.split('\n').filter(line => line.trim());
+});
+
+function getBuildLogLineClass(line: string): string {
+  if (line.includes('[OK]')) {
+    return 'text-green-600';
+  } else if (line.includes('[ERR]') || line.includes('[ERROR]')) {
+    return 'text-red-600';
+  } else if (line.includes('[WARN]')) {
+    return 'text-orange-600';
+  }
+  return 'opacity-70';
+}
+
+function scrollBuildLogsToBottom() {
+  setTimeout(() => {
+    if (buildLogsContainer.value?.$el) {
+      const scrollableContent = buildLogsContainer.value.$el.querySelector('.p-scrollpanel-content');
+      if (scrollableContent) {
+        scrollableContent.scrollTop = scrollableContent.scrollHeight;
+      }
+    }
+  }, 50);
+}
+
+function connectToBuildLogsSSE(environmentId: string) {
+  if (buildLogsEventSource.value) {
+    buildLogsEventSource.value.close();
+  }
+
+  const endpoint = environment.value?.status === 'creating'
+    ? `/api/environments/creation-logs/${environmentId}`
+    : `/api/environments/update-logs/${environmentId}`;
+
+  buildLogsEventSource.value = new EventSource(endpoint);
+
+  buildLogsEventSource.value.onmessage = (event) => {
+    const log = JSON.parse(event.data);
+    if (log.message && log.message.trim()) {
+      const timestamp = new Date(log.timestamp).toLocaleTimeString();
+      let prefix = '';
+      if (log.level === 'success') prefix = '[OK]';
+      else if (log.level === 'error') prefix = '[ERR]';
+      else if (log.level === 'warning') prefix = '[WARN]';
+      else prefix = '[INFO]';
+
+      buildLogsText.value += `${timestamp} ${prefix} ${log.message}\n`;
+      scrollBuildLogsToBottom();
+    }
+
+    if (log.level === 'success' && (log.message.includes('created successfully') || log.message.includes('updated successfully'))) {
+      buildLogsEventSource.value?.close();
+    }
+    if (log.level === 'error' && (log.message.includes('failed') || log.message.includes('Failed'))) {
+      buildLogsEventSource.value?.close();
+    }
+  };
+
+  buildLogsEventSource.value.onerror = (err) => {
+    console.error('Build logs SSE connection error:', err);
+    buildLogsEventSource.value?.close();
+  };
+}
+
+watch(activeTab, (newTab) => {
+  if (newTab === 'build-logs' && environment.value) {
+    const status = environment.value.status;
+    if (status === 'creating' || status === 'updating') {
+      connectToBuildLogsSSE(environment.value.id);
+    }
+  } else {
+    if (buildLogsEventSource.value) {
+      buildLogsEventSource.value.close();
+      buildLogsEventSource.value = null;
+    }
+  }
+});
+onBeforeUnmount(() => {
+  if (buildLogsEventSource.value) {
+    buildLogsEventSource.value.close();
+  }
+  if (updateEventSource.value) {
+    updateEventSource.value.close();
+  }
+});
 </script>

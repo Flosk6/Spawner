@@ -2,7 +2,7 @@
 export type ResourceType = 'laravel-api' | 'nextjs-front' | 'mysql-db';
 
 // Environment Status
-export type EnvironmentStatus = 'creating' | 'running' | 'failed' | 'deleting' | 'stopped';
+export type EnvironmentStatus = 'creating' | 'running' | 'failed' | 'deleting' | 'paused' | 'updating';
 
 // User Role
 export type UserRole = 'user' | 'admin';
@@ -107,9 +107,31 @@ export interface CreateEnvironmentDto {
   projectId?: number;
 }
 
+export interface UpdateEnvironmentDto {
+  branches?: Record<string, string>;
+}
+
 export interface EnvironmentLogsQuery {
   since?: string;
   tail?: number;
+}
+
+// Environment Actions
+export type EnvironmentActionType = 'pause' | 'resume' | 'restart' | 'update' | 'restart_resource';
+export type EnvironmentActionStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface EnvironmentAction {
+  id: string;
+  environmentId: string;
+  action: EnvironmentActionType;
+  status: EnvironmentActionStatus;
+  metadata?: {
+    resourceName?: string;
+    branches?: Record<string, string>;
+    error?: string;
+  };
+  startedAt: Date | string;
+  completedAt?: Date | string;
 }
 
 // Spawner Repository Configuration

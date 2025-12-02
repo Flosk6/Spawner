@@ -152,3 +152,17 @@ model EnvironmentStats {
   @@index([environmentId, time(sort: Desc)])
   @@index([time])
 }
+
+model EnvironmentAction {
+  id            String    @id @db.VarChar
+  environmentId String    @map("environment_id") @db.VarChar
+  action        String    @db.VarChar(50)
+  status        String    @default("pending") @db.VarChar(50)
+  metadata      Json?     @db.Json
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
+  completedAt   DateTime? @map("completed_at") @db.Timestamp(6)
+
+  @@index([environmentId])
+  @@index([status])
+  @@map("environment_actions")
+}

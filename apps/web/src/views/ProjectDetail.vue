@@ -233,8 +233,13 @@
               v-for="environment in environments"
               :key="environment.id"
               :environment="environment"
+              :loading="loadingActions.has(environment.id)"
               @view="$router.push(`/environments/${environment.id}`)"
               @delete="confirmDeleteEnvironment(environment)"
+              @pause="pauseEnvironment"
+              @resume="resumeEnvironment"
+              @restart="restartEnvironment"
+              @update="updateEnvironment"
             />
           </div>
         </div>
@@ -366,6 +371,7 @@ import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import EnvironmentCard from '../components/EnvironmentCard.vue';
 import { useNotification } from '../composables/useNotification';
+import { environmentApi } from '../services/api';
 import type { Environment } from '../types';
 
 interface Resource {
@@ -415,6 +421,7 @@ const resourceToDelete = ref<Resource | null>(null);
 const showDeleteResourceDialog = ref(false);
 const environmentToDelete = ref<Environment | null>(null);
 const showDeleteEnvDialog = ref(false);
+const loadingActions = ref<Set<string>>(new Set());
 
 const runningEnvironments = computed(() => {
   return environments.value.filter(e => e.status === 'running').length;
@@ -550,6 +557,58 @@ async function confirmDeleteProject() {
   } catch (err) {
     console.error('Error deleting project:', err);
     showError('Failed to delete project');
+  }
+}
+
+async function pauseEnvironment(env: Environment) {
+  try {
+    loadingActions.value.add(env.id);
+    await environmentApi.pause(env.id);
+    showSuccess(`Environment "${env.name}" paused successfully`);
+    await loadEnvironments();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to pause environment');
+  } finally {
+    loadingActions.value.delete(env.id);
+  }
+}
+
+async function resumeEnvironment(env: Environment) {
+  try {
+    loadingActions.value.add(env.id);
+    await environmentApi.resume(env.id);
+    showSuccess(`Environment "${env.name}" resumed successfully`);
+    await loadEnvironments();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to resume environment');
+  } finally {
+    loadingActions.value.delete(env.id);
+  }
+}
+
+async function restartEnvironment(env: Environment) {
+  try {
+    loadingActions.value.add(env.id);
+    await environmentApi.restart(env.id);
+    showSuccess(`Environment "${env.name}" restarted successfully`);
+    await loadEnvironments();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to restart environment');
+  } finally {
+    loadingActions.value.delete(env.id);
+  }
+}
+
+async function updateEnvironment(env: Environment) {
+  try {
+    loadingActions.value.add(env.id);
+    await environmentApi.update(env.id);
+    showSuccess(`Environment "${env.name}" updated successfully`);
+    await loadEnvironments();
+  } catch (err: any) {
+    showError(err.response?.data?.message || 'Failed to update environment');
+  } finally {
+    loadingActions.value.delete(env.id);
   }
 }
 
