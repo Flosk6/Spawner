@@ -114,7 +114,7 @@
                     <div class="text-sm text-slate-600 dark:text-slate-400">Resources</div>
                   </div>
                   <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
-                    <i class="pi pi-server text-3xl text-green-500 mb-2"></i>
+                    <i class="pi pi-sitemap text-3xl text-green-500 mb-2"></i>
                     <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ environments.length }}</div>
                     <div class="text-sm text-slate-600 dark:text-slate-400">Environments</div>
                   </div>
@@ -219,7 +219,7 @@
           </div>
 
           <div v-else-if="environments.length === 0" class="text-center py-20">
-            <i class="pi pi-server text-6xl mb-6 block opacity-30"></i>
+            <i class="pi pi-sitemap text-6xl mb-6 block opacity-30"></i>
             <p class="text-xl mb-6 opacity-60">No environments yet</p>
             <Button
               label="Create your first environment"
@@ -407,7 +407,7 @@ const activeTab = ref('overview');
 const tabs = [
   { value: 'overview', label: 'Overview', icon: 'pi pi-home' },
   { value: 'resources', label: 'Resources', icon: 'pi pi-box' },
-  { value: 'environments', label: 'Environments', icon: 'pi pi-server' },
+  { value: 'environments', label: 'Environments', icon: 'pi pi-sitemap' },
   { value: 'settings', label: 'Settings', icon: 'pi pi-cog' },
   { value: 'danger', label: 'Danger Zone', icon: 'pi pi-exclamation-triangle' },
 ];

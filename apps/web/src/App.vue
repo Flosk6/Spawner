@@ -14,27 +14,71 @@
 
           <!-- Navigation -->
           <nav class="flex items-center gap-1">
-            <router-link
-              v-for="item in menuItems"
-              :key="item.label"
-              :to="item.path"
-              class="group relative px-4 py-2 rounded-lg font-medium transition-all duration-200"
-              :class="[
-                isActive(item.path)
-                  ? 'text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
-              ]"
-            >
-              <div class="flex items-center gap-2">
-                <i :class="item.icon" class="text-sm"></i>
-                <span>{{ item.label }}</span>
+            <template v-for="item in menuItems" :key="item.label">
+              <!-- Item with submenu -->
+              <div v-if="item.submenu" class="relative group">
+                <div
+                  class="px-4 py-2 rounded-lg font-medium transition-all duration-200 cursor-pointer"
+                  :class="[
+                    isActive(item.path)
+                      ? 'text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <i :class="item.icon" class="text-sm"></i>
+                    <span>{{ item.label }}</span>
+                    <i class="pi pi-angle-down text-xs"></i>
+                  </div>
+                  <!-- Active indicator -->
+                  <div
+                    v-if="isActive(item.path)"
+                    class="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-purple-600 to-violet-600 rounded-full"
+                  ></div>
+                </div>
+
+                <!-- Dropdown submenu -->
+                <div class="absolute top-full left-0 mt-1 min-w-[160px] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                  <div class="bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-slate-200 dark:border-purple-800/30 py-1">
+                    <router-link
+                      v-for="subitem in item.submenu"
+                      :key="subitem.label"
+                      :to="subitem.path"
+                      class="block px-4 py-2 text-sm transition-colors"
+                      :class="[
+                        route.path === subitem.path
+                          ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-300'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-purple-500/10'
+                      ]"
+                    >
+                      {{ subitem.label }}
+                    </router-link>
+                  </div>
+                </div>
               </div>
-              <!-- Active indicator -->
-              <div
-                v-if="isActive(item.path)"
-                class="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-purple-600 to-violet-600 rounded-full"
-              ></div>
-            </router-link>
+
+              <!-- Regular item without submenu -->
+              <router-link
+                v-else
+                :to="item.path"
+                class="group relative px-4 py-2 rounded-lg font-medium transition-all duration-200"
+                :class="[
+                  isActive(item.path)
+                    ? 'text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
+                ]"
+              >
+                <div class="flex items-center gap-2">
+                  <i :class="item.icon" class="text-sm"></i>
+                  <span>{{ item.label }}</span>
+                </div>
+                <!-- Active indicator -->
+                <div
+                  v-if="isActive(item.path)"
+                  class="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-purple-600 to-violet-600 rounded-full"
+                ></div>
+              </router-link>
+            </template>
           </nav>
 
           <!-- Theme Toggle & User Menu -->
@@ -74,9 +118,9 @@ const isDark = ref(true);
 
 const menuItems = computed(() => [
   {
-    label: 'Environments',
-    icon: 'pi pi-server',
-    path: '/environments'
+    label: 'Home',
+    icon: 'pi pi-home',
+    path: '/home'
   },
   {
     label: 'Projects',
@@ -84,23 +128,27 @@ const menuItems = computed(() => [
     path: '/projects'
   },
   {
-    label: 'Git Settings',
-    icon: 'pi pi-key',
-    path: '/settings/git'
-  },
-  {
-    label: 'Docker',
-    icon: 'pi pi-box',
-    path: '/docker'
+    label: 'Environments',
+    icon: 'pi pi-sitemap',
+    path: '/environments'
   },
   {
     label: 'System',
     icon: 'pi pi-cog',
-    path: '/settings/system'
+    path: '/system',
+    submenu: [
+      { label: 'Overview', path: '/system/overview' },
+      { label: 'Docker', path: '/system/docker' },
+      { label: 'Git Keys', path: '/system/settings/git' },
+      { label: 'Settings', path: '/system/settings' },
+    ]
   }
 ]);
 
 function isActive(path: string): boolean {
+  if (path === '/system') {
+    return route.path.startsWith('/system');
+  }
   return route.path.startsWith(path);
 }
 

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
-import Dashboard from '../views/Dashboard.vue';
+import Home from '../views/Home.vue';
 import ProjectList from '../views/ProjectList.vue';
 import ProjectDetail from '../views/ProjectDetail.vue';
 import ProjectForm from '../views/ProjectForm.vue';
@@ -9,9 +9,10 @@ import EnvironmentList from '../views/EnvironmentList.vue';
 import ProjectEnvironments from '../views/ProjectEnvironments.vue';
 import EnvironmentNew from '../views/EnvironmentNew.vue';
 import EnvironmentDetail from '../views/EnvironmentDetail.vue';
+import SystemOverview from '../views/SystemOverview.vue';
+import SystemDocker from '../views/SystemDocker.vue';
 import GitSettings from '../views/GitSettings.vue';
 import SystemSettings from '../views/SystemSettings.vue';
-import DockerResources from '../views/DockerResources.vue';
 import Login from '../views/Login.vue';
 import TypographyTest from '../views/TypographyTest.vue';
 
@@ -26,30 +27,36 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/environments',
+      redirect: '/home',
     },
     {
-      path: '/dashboard',
-      name: 'Dashboard',
-      component: Dashboard,
+      path: '/home',
+      name: 'Home',
+      component: Home,
       meta: { requiresAuth: true },
     },
     {
-      path: '/settings/git',
-      name: 'GitSettings',
-      component: GitSettings,
+      path: '/system/overview',
+      name: 'SystemOverview',
+      component: SystemOverview,
       meta: { requiresAuth: true },
     },
     {
-      path: '/settings/system',
+      path: '/system/docker',
+      name: 'SystemDocker',
+      component: SystemDocker,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/system/settings',
       name: 'SystemSettings',
       component: SystemSettings,
       meta: { requiresAuth: true },
     },
     {
-      path: '/docker',
-      name: 'DockerResources',
-      component: DockerResources,
+      path: '/system/settings/git',
+      name: 'GitSettings',
+      component: GitSettings,
       meta: { requiresAuth: true },
     },
     {

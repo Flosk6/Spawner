@@ -23,7 +23,7 @@
     </div>
 
     <div v-else-if="environments.length === 0" class="text-center py-20">
-      <i class="pi pi-server text-6xl mb-6 block opacity-30"></i>
+      <i class="pi pi-sitemap text-6xl mb-6 block opacity-30"></i>
       <p class="text-xl mb-6 opacity-60">No environments yet</p>
       <button
         @click="$router.push('/environments/new')"

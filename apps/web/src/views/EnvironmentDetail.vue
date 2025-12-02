@@ -15,7 +15,7 @@
         <div class="mb-6 p-4 rounded-xl bg-gradient-to-br from-green-500/10 to-blue-500/10 border border-green-500/20 dark:border-green-400/20">
           <div class="flex items-center gap-3 mb-3">
             <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center">
-              <i class="pi pi-server text-white text-xl"></i>
+              <i class="pi pi-sitemap text-white text-xl"></i>
             </div>
             <div class="flex-1 min-w-0">
               <h2 class="font-bold text-lg text-slate-900 dark:text-white truncate">{{ environment.name }}</h2>

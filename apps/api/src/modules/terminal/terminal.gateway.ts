@@ -189,12 +189,10 @@ export class TerminalGateway
       }
 
       // Container naming convention (using dockerode):
-      // - Container: {resourceName}-{environmentName} (e.g., "api-iris-test")
+      // - Container: {resourceName}-{environmentName} (e.g., "api-test")
       const containerName = `${data.resourceName}-${environment.name}`;
 
-      this.logger.log(
-        `Starting docker exec for container: ${containerName}`
-      );
+      this.logger.log(`Starting docker exec for container: ${containerName}`);
 
       // Determine working directory and user based on resource type
       let workingDir = "/var/www"; // Default for Laravel
