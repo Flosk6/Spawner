@@ -22,7 +22,7 @@ import {
   sanitizeGitBranch,
   validateResourceName,
 } from "@spawner/utils";
-import type { EnvironmentStatus, ResourceType } from "@spawner/types";
+import type { EnvironmentStatus, ResourceType, SpawnerConfig } from "@spawner/types";
 import { isGitResource, DEFAULT_EXPOSED_PORTS } from "@spawner/config";
 import { EnvironmentLogsEmitter } from "../../common/environment-logs.emitter";
 import { EnvVarsGenerator } from "../../common/env-vars.generator";
@@ -617,6 +617,36 @@ export class EnvironmentService {
     });
   }
 
+  private async readSpawnerConfig(
+    repoPath: string,
+    log?: (level: "info" | "success" | "warning" | "error", message: string) => void
+  ): Promise<SpawnerConfig | null> {
+    const configPath = path.join(repoPath, ".spawner", "config.json");
+
+    try {
+      const configContent = await fs.readFile(configPath, "utf8");
+      const config = JSON.parse(configContent) as SpawnerConfig;
+
+      if (log) {
+        log("success", `Loaded .spawner/config.json for ${path.basename(repoPath)}`);
+      }
+
+      return config;
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        if (log) {
+          log("info", `No .spawner/config.json found for ${path.basename(repoPath)}, using defaults`);
+        }
+        return null;
+      }
+
+      if (log) {
+        log("warning", `Failed to parse .spawner/config.json: ${error.message}, using defaults`);
+      }
+      return null;
+    }
+  }
+
   private async createContainersWithDockerode(
     project: ProjectWithResources,
     envName: string,
@@ -690,6 +720,17 @@ export class EnvironmentService {
     const serviceName = `${resource.name}-${envName}`;
     const volumeName = `${serviceName}-data`;
 
+    const baseImages = (resource.baseImages as string[]) || ["mysql:8"];
+
+    if (baseImages.length > 0) {
+      log("info", `Pre-pulling ${baseImages.length} base image(s) for MySQL...`);
+      for (const baseImage of baseImages) {
+        await this.dockerService.ensureImage(baseImage, (message) => {
+          log("info", `[${baseImage}] ${message}`);
+        });
+      }
+    }
+
     log("info", `Creating MySQL volume ${volumeName}...`);
     await this.dockerService.createVolume(volumeName);
 
@@ -734,35 +775,51 @@ export class EnvironmentService {
     const buildContext = path.join(reposPath, resource.name);
     const hostname = `${resource.name}.${envName}.${baseDomain}`;
 
-    const spawnerDockerfilePath = path.join(buildContext, ".spawner", "Dockerfile");
-    const spawnerDockerfileExists = await fs
-      .access(spawnerDockerfilePath)
+    const spawnerConfig = await this.readSpawnerConfig(buildContext, log);
+
+    const baseImages = (resource.baseImages as string[]) || spawnerConfig?.baseImages || [];
+
+    if (baseImages.length > 0) {
+      log("info", `Pre-pulling ${baseImages.length} base image(s)...`);
+      for (const baseImage of baseImages) {
+        await this.dockerService.ensureImage(baseImage, (message) => {
+          log("info", `[${baseImage}] ${message}`);
+        });
+      }
+    }
+
+    const dockerfilePath = spawnerConfig?.dockerfile || ".spawner/Dockerfile";
+    const dockerfileFullPath = path.join(buildContext, dockerfilePath);
+    const dockerfileExists = await fs
+      .access(dockerfileFullPath)
       .then(() => true)
       .catch(() => false);
 
-    const dockerfilePath = spawnerDockerfileExists ? ".spawner/Dockerfile" : undefined;
+    const finalDockerfilePath = dockerfileExists ? dockerfilePath : undefined;
 
-    if (spawnerDockerfileExists) {
-      log("info", `Using Dockerfile from .spawner/ directory`);
+    if (dockerfileExists) {
+      log("info", `Using Dockerfile: ${dockerfilePath}`);
     }
 
     log("info", `Building Laravel image for ${serviceName}...`);
     const imageTag = `spawner-${resource.name}:${envName}`;
     await this.dockerService.buildImage(buildContext, imageTag, (message) => {
       log("info", message);
-    }, dockerfilePath);
+    }, finalDockerfilePath);
 
     log("success", `Build completed for ${serviceName}`);
     log("info", `Creating Laravel container ${serviceName}...`);
 
     const exposedPort =
-      resource.exposedPort || DEFAULT_EXPOSED_PORTS["laravel-api"];
+      spawnerConfig?.exposedPort ||
+      resource.exposedPort ||
+      DEFAULT_EXPOSED_PORTS["laravel-api"];
     const ports =
       localMode && resourcePorts[resource.name]
         ? [`${resourcePorts[resource.name]}:${exposedPort}`]
         : [];
 
-    const limits = resource.resourceLimits as ResourceLimits | null;
+    const limits = (spawnerConfig?.resourceLimits || resource.resourceLimits) as ResourceLimits | null;
 
     const containerNetworks = localMode
       ? [networkName]
@@ -836,29 +893,45 @@ export class EnvironmentService {
       mode: 0o600,
     });
 
-    const spawnerDockerfilePath = path.join(buildContext, ".spawner", "Dockerfile");
-    const spawnerDockerfileExists = await fs
-      .access(spawnerDockerfilePath)
+    const spawnerConfig = await this.readSpawnerConfig(buildContext, log);
+
+    const baseImages = (resource.baseImages as string[]) || spawnerConfig?.baseImages || [];
+
+    if (baseImages.length > 0) {
+      log("info", `Pre-pulling ${baseImages.length} base image(s)...`);
+      for (const baseImage of baseImages) {
+        await this.dockerService.ensureImage(baseImage, (message) => {
+          log("info", `[${baseImage}] ${message}`);
+        });
+      }
+    }
+
+    const dockerfilePath = spawnerConfig?.dockerfile || ".spawner/Dockerfile";
+    const dockerfileFullPath = path.join(buildContext, dockerfilePath);
+    const dockerfileExists = await fs
+      .access(dockerfileFullPath)
       .then(() => true)
       .catch(() => false);
 
-    const dockerfilePath = spawnerDockerfileExists ? ".spawner/Dockerfile" : undefined;
+    const finalDockerfilePath = dockerfileExists ? dockerfilePath : undefined;
 
-    if (spawnerDockerfileExists) {
-      log("info", `Using Dockerfile from .spawner/ directory`);
+    if (dockerfileExists) {
+      log("info", `Using Dockerfile: ${dockerfilePath}`);
     }
 
     log("info", `Building Next.js image for ${serviceName}...`);
     const imageTag = `spawner-${resource.name}:${envName}`;
     await this.dockerService.buildImage(buildContext, imageTag, (message) => {
       log("info", message);
-    }, dockerfilePath);
+    }, finalDockerfilePath);
 
     log("success", `Build completed for ${serviceName}`);
     log("info", `Creating Next.js container ${serviceName}...`);
 
     const exposedPort =
-      resource.exposedPort || DEFAULT_EXPOSED_PORTS["nextjs-front"];
+      spawnerConfig?.exposedPort ||
+      resource.exposedPort ||
+      DEFAULT_EXPOSED_PORTS["nextjs-front"];
     const ports =
       localMode && resourcePorts[resource.name]
         ? [`${resourcePorts[resource.name]}:${exposedPort}`]
@@ -866,7 +939,7 @@ export class EnvironmentService {
 
     const extraHosts = localMode ? ["host.docker.internal:host-gateway"] : [];
 
-    const limits = resource.resourceLimits as ResourceLimits | null;
+    const limits = (spawnerConfig?.resourceLimits || resource.resourceLimits) as ResourceLimits | null;
 
     const containerNetworks = localMode
       ? [networkName]

@@ -40,6 +40,7 @@ export class ProjectResourcesService {
       type: 'laravel-api' | 'nextjs-front' | 'mysql-db';
       gitRepo?: string;
       defaultBranch?: string;
+      baseImages?: string[];
       staticEnvVars?: string;
       postBuildCommands?: string[];
       resourceLimits?: {
@@ -72,6 +73,7 @@ export class ProjectResourcesService {
         type: data.type,
         gitRepo: data.gitRepo || null,
         defaultBranch: data.defaultBranch || null,
+        baseImages: data.baseImages || [],
         staticEnvVars,
         postBuildCommands: data.postBuildCommands || [],
         resourceLimits: data.resourceLimits || null,
@@ -88,6 +90,7 @@ export class ProjectResourcesService {
       type?: 'laravel-api' | 'nextjs-front' | 'mysql-db';
       gitRepo?: string;
       defaultBranch?: string;
+      baseImages?: string[];
       staticEnvVars?: string;
       postBuildCommands?: string[];
       resourceLimits?: {
@@ -115,6 +118,7 @@ export class ProjectResourcesService {
     if (data.type !== undefined) updateData.type = data.type;
     if (data.gitRepo !== undefined) updateData.gitRepo = data.gitRepo || null;
     if (data.defaultBranch !== undefined) updateData.defaultBranch = data.defaultBranch || null;
+    if (data.baseImages !== undefined) updateData.baseImages = data.baseImages || [];
     if (data.postBuildCommands !== undefined) updateData.postBuildCommands = data.postBuildCommands || [];
     if (data.exposedPort !== undefined) updateData.exposedPort = data.exposedPort || null;
     if (data.resourceLimits !== undefined) updateData.resourceLimits = data.resourceLimits || null;

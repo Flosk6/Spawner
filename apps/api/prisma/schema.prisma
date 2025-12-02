@@ -54,6 +54,7 @@ model ProjectResource {
   type              String   @db.VarChar
   gitRepo           String?  @map("git_repo") @db.VarChar
   defaultBranch     String?  @map("default_branch") @db.VarChar
+  baseImages        Json     @default("[]") @map("base_images") @db.Json
   staticEnvVars     Json     @default("{}") @map("static_env_vars") @db.Json
   postBuildCommands Json     @default("[]") @map("post_build_commands") @db.Json
   resourceLimits    Json?    @map("resource_limits") @db.Json

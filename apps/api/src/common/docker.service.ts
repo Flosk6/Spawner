@@ -188,6 +188,50 @@ export class DockerService implements OnModuleInit {
     }
   }
 
+  async pullImage(
+    imageName: string,
+    onProgress?: (message: string) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.docker.pull(imageName, (err, stream) => {
+        if (err) {
+          reject(new Error(`Failed to pull image ${imageName}: ${err.message}`));
+          return;
+        }
+
+        this.docker.modem.followProgress(
+          stream,
+          (err) => {
+            if (err) {
+              reject(new Error(`Pull failed for ${imageName}: ${err.message}`));
+            } else {
+              resolve();
+            }
+          },
+          (event) => {
+            if (event.status && onProgress) {
+              const message = event.status + (event.progress || "");
+              onProgress(message);
+            }
+          }
+        );
+      });
+    });
+  }
+
+  async ensureImage(
+    imageName: string,
+    onProgress?: (message: string) => void
+  ): Promise<void> {
+    const exists = await this.imageExists(imageName);
+    if (!exists) {
+      if (onProgress) {
+        onProgress(`Image ${imageName} not found, pulling...`);
+      }
+      await this.pullImage(imageName, onProgress);
+    }
+  }
+
   async createContainer(config: ContainerConfig): Promise<Docker.Container> {
     try {
       const cpuLimit = this.parseCpuLimit(config.resourceLimits?.cpus || "2");
