@@ -171,4 +171,158 @@ export class GitService {
     const reposPath = process.env.REPOS_PATH || '/opt/spawner/repos';
     return path.join(reposPath, resourceName);
   }
+
+  /**
+   * Forces a fresh fetch from remote and lists all branches.
+   *
+   * This method always performs a git fetch to get the latest branches,
+   * unlike listRemoteBranches which uses cached data when available.
+   *
+   * @param gitRepo - Repository URL (SSH or HTTPS format)
+   * @param resourceName - Resource name for local cache lookup
+   * @returns Array of branch names (sorted alphabetically)
+   *
+   * @throws Error if git operations fail
+   */
+  async refreshRemoteBranches(gitRepo: string, resourceName: string): Promise<string[]> {
+    const reposPath = process.env.REPOS_PATH || '/opt/spawner/repos';
+    const localRepoPath = path.join(reposPath, resourceName);
+
+    if (!fs.existsSync(localRepoPath)) {
+      throw new Error(`Repository not found locally. Please create an environment first to clone the repository.`);
+    }
+
+    const sanitizedRepo = sanitizeGitRepo(gitRepo);
+    const sanitizedRepoPath = sanitizeShellArg(localRepoPath);
+    const isHttps = sanitizedRepo.startsWith('http://') || sanitizedRepo.startsWith('https://');
+
+    const repoKeyPath = this.gitKeysService.getKeyPathForRepo(sanitizedRepo);
+    const sanitizedKeyPath = sanitizeShellArg(repoKeyPath);
+    const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+
+    if (!isHttps && !fs.existsSync(repoKeyPath)) {
+      throw new Error(`SSH key not configured. Please add the deploy key to your repository.`);
+    }
+
+    try {
+      const fetchCmd = isHttps
+        ? `cd ${sanitizedRepoPath} && git fetch origin --prune`
+        : `cd ${sanitizedRepoPath} && GIT_SSH_COMMAND="${sshCommand}" git fetch origin --prune`;
+
+      await execAsync(fetchCmd, { timeout: 30000 });
+
+      const { stdout } = await execAsync(
+        `cd ${sanitizedRepoPath} && git branch -r`,
+        { timeout: 5000 }
+      );
+
+      const branches = stdout
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => {
+          const trimmed = line.trim();
+          const match = trimmed.match(/^origin\/(.+)$/);
+          if (!match) return null;
+          const branch = match[1];
+          if (branch.startsWith('HEAD ')) return null;
+          return branch;
+        })
+        .filter((branch): branch is string => branch !== null)
+        .sort();
+
+      return branches;
+    } catch (error) {
+      const message = error.message || '';
+      if (message.includes('Repository not found') || message.includes('Could not read from remote')) {
+        throw new Error('Repository access denied. Please verify the SSH deploy key is added to the repository with read permissions.');
+      }
+      throw new Error(`Failed to refresh branches: ${message}`);
+    }
+  }
+
+  /**
+   * Lists all remote branches for a Git repository.
+   *
+   * First attempts to use local clone if available (fast, no auth needed).
+   * Falls back to remote query if local clone doesn't exist.
+   *
+   * @param gitRepo - Repository URL (SSH or HTTPS format)
+   * @param resourceName - Optional resource name for local cache lookup
+   * @returns Array of branch names (sorted alphabetically)
+   *
+   * @throws Error if SSH key is missing for non-HTTPS repositories
+   * @throws Error if git operations fail (network issues, invalid repo, etc.)
+   */
+  async listRemoteBranches(gitRepo: string, resourceName?: string): Promise<string[]> {
+    const reposPath = process.env.REPOS_PATH || '/opt/spawner/repos';
+
+    if (resourceName) {
+      const localRepoPath = path.join(reposPath, resourceName);
+
+      if (fs.existsSync(localRepoPath)) {
+        try {
+          const sanitizedRepoPath = sanitizeShellArg(localRepoPath);
+          const { stdout } = await execAsync(
+            `cd ${sanitizedRepoPath} && git branch -r`,
+            { timeout: 10000 }
+          );
+
+          const branches = stdout
+            .split('\n')
+            .filter(line => line.trim())
+            .map(line => {
+              const trimmed = line.trim();
+              const match = trimmed.match(/^origin\/(.+)$/);
+              if (!match) return null;
+              const branch = match[1];
+              if (branch.startsWith('HEAD ')) return null;
+              return branch;
+            })
+            .filter((branch): branch is string => branch !== null)
+            .sort();
+
+          return branches;
+        } catch (error) {
+          console.warn(`Failed to list branches from local repo: ${error.message}`);
+        }
+      }
+    }
+
+    const sanitizedRepo = sanitizeGitRepo(gitRepo);
+    const isHttps = sanitizedRepo.startsWith('http://') || sanitizedRepo.startsWith('https://');
+
+    const repoKeyPath = this.gitKeysService.getKeyPathForRepo(sanitizedRepo);
+    const sanitizedKeyPath = sanitizeShellArg(repoKeyPath);
+    const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+
+    if (!isHttps && !fs.existsSync(repoKeyPath)) {
+      throw new Error(`SSH key not configured. Please add the deploy key to your repository in GitHub Settings > Deploy Keys.`);
+    }
+
+    try {
+      const command = isHttps
+        ? `git ls-remote --heads ${sanitizedRepo}`
+        : `GIT_SSH_COMMAND="${sshCommand}" git ls-remote --heads ${sanitizedRepo}`;
+
+      const { stdout } = await execAsync(command, { timeout: 30000 });
+
+      const branches = stdout
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => {
+          const match = line.match(/refs\/heads\/(.+)$/);
+          return match ? match[1] : null;
+        })
+        .filter((branch): branch is string => branch !== null)
+        .sort();
+
+      return branches;
+    } catch (error) {
+      const message = error.message || '';
+      if (message.includes('Repository not found') || message.includes('Could not read from remote')) {
+        throw new Error('Repository access denied. Please verify the SSH deploy key is added to the repository with read permissions.');
+      }
+      throw new Error(`Unable to fetch branches. You can still enter the branch name manually.`);
+    }
+  }
 }
