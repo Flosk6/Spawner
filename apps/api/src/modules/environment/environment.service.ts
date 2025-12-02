@@ -22,7 +22,11 @@ import {
   sanitizeGitBranch,
   validateResourceName,
 } from "@spawner/utils";
-import type { EnvironmentStatus, ResourceType, SpawnerConfig } from "@spawner/types";
+import type {
+  EnvironmentStatus,
+  ResourceType,
+  SpawnerConfig,
+} from "@spawner/types";
 import { isGitResource, DEFAULT_EXPOSED_PORTS } from "@spawner/config";
 import { EnvironmentLogsEmitter } from "../../common/environment-logs.emitter";
 import { EnvVarsGenerator } from "../../common/env-vars.generator";
@@ -357,6 +361,7 @@ export class EnvironmentService {
               resourcePorts
             ),
             branch: branches[resource.name] || null,
+            isEntryPoint: resource.isEntryPoint || false,
           },
         });
       }
@@ -631,7 +636,10 @@ export class EnvironmentService {
 
   private async readSpawnerConfig(
     repoPath: string,
-    log?: (level: "info" | "success" | "warning" | "error", message: string) => void
+    log?: (
+      level: "info" | "success" | "warning" | "error",
+      message: string
+    ) => void
   ): Promise<SpawnerConfig | null> {
     const configPath = path.join(repoPath, ".spawner", "config.json");
 
@@ -640,20 +648,29 @@ export class EnvironmentService {
       const config = JSON.parse(configContent) as SpawnerConfig;
 
       if (log) {
-        log("success", `Loaded .spawner/config.json for ${path.basename(repoPath)}`);
+        log(
+          "success",
+          `Loaded .spawner/config.json for ${path.basename(repoPath)}`
+        );
       }
 
       return config;
     } catch (error) {
       if (error.code === "ENOENT") {
         if (log) {
-          log("info", `No .spawner/config.json found for ${path.basename(repoPath)}, using defaults`);
+          log(
+            "info",
+            `No .spawner/config.json found for ${path.basename(repoPath)}, using defaults`
+          );
         }
         return null;
       }
 
       if (log) {
-        log("warning", `Failed to parse .spawner/config.json: ${error.message}, using defaults`);
+        log(
+          "warning",
+          `Failed to parse .spawner/config.json: ${error.message}, using defaults`
+        );
       }
       return null;
     }
@@ -735,7 +752,10 @@ export class EnvironmentService {
     const baseImages = (resource.baseImages as string[]) || ["mysql:8"];
 
     if (baseImages.length > 0) {
-      log("info", `Pre-pulling ${baseImages.length} base image(s) for MySQL...`);
+      log(
+        "info",
+        `Pre-pulling ${baseImages.length} base image(s) for MySQL...`
+      );
       for (const baseImage of baseImages) {
         await this.dockerService.ensureImage(baseImage, (message) => {
           log("info", `[${baseImage}] ${message}`);
@@ -789,7 +809,8 @@ export class EnvironmentService {
 
     const spawnerConfig = await this.readSpawnerConfig(buildContext, log);
 
-    const baseImages = (resource.baseImages as string[]) || spawnerConfig?.baseImages || [];
+    const baseImages =
+      (resource.baseImages as string[]) || spawnerConfig?.baseImages || [];
 
     if (baseImages.length > 0) {
       log("info", `Pre-pulling ${baseImages.length} base image(s)...`);
@@ -815,9 +836,14 @@ export class EnvironmentService {
 
     log("info", `Building Laravel image for ${serviceName}...`);
     const imageTag = `spawner-${resource.name}:${envName}`;
-    await this.dockerService.buildImage(buildContext, imageTag, (message) => {
-      log("info", message);
-    }, finalDockerfilePath);
+    await this.dockerService.buildImage(
+      buildContext,
+      imageTag,
+      (message) => {
+        log("info", message);
+      },
+      finalDockerfilePath
+    );
 
     log("success", `Build completed for ${serviceName}`);
     log("info", `Creating Laravel container ${serviceName}...`);
@@ -831,7 +857,8 @@ export class EnvironmentService {
         ? [`${resourcePorts[resource.name]}:${exposedPort}`]
         : [];
 
-    const limits = (spawnerConfig?.resourceLimits || resource.resourceLimits) as ResourceLimits | null;
+    const limits = (spawnerConfig?.resourceLimits ||
+      resource.resourceLimits) as ResourceLimits | null;
 
     const containerNetworks = localMode
       ? [networkName]
@@ -907,7 +934,8 @@ export class EnvironmentService {
 
     const spawnerConfig = await this.readSpawnerConfig(buildContext, log);
 
-    const baseImages = (resource.baseImages as string[]) || spawnerConfig?.baseImages || [];
+    const baseImages =
+      (resource.baseImages as string[]) || spawnerConfig?.baseImages || [];
 
     if (baseImages.length > 0) {
       log("info", `Pre-pulling ${baseImages.length} base image(s)...`);
@@ -933,9 +961,14 @@ export class EnvironmentService {
 
     log("info", `Building Next.js image for ${serviceName}...`);
     const imageTag = `spawner-${resource.name}:${envName}`;
-    await this.dockerService.buildImage(buildContext, imageTag, (message) => {
-      log("info", message);
-    }, finalDockerfilePath);
+    await this.dockerService.buildImage(
+      buildContext,
+      imageTag,
+      (message) => {
+        log("info", message);
+      },
+      finalDockerfilePath
+    );
 
     log("success", `Build completed for ${serviceName}`);
     log("info", `Creating Next.js container ${serviceName}...`);
@@ -951,7 +984,8 @@ export class EnvironmentService {
 
     const extraHosts = localMode ? ["host.docker.internal:host-gateway"] : [];
 
-    const limits = (spawnerConfig?.resourceLimits || resource.resourceLimits) as ResourceLimits | null;
+    const limits = (spawnerConfig?.resourceLimits ||
+      resource.resourceLimits) as ResourceLimits | null;
 
     const containerNetworks = localMode
       ? [networkName]
@@ -1467,17 +1501,25 @@ export class EnvironmentService {
           (pr) => pr.name === resourceName
         );
         if (!projectResource?.gitRepo) {
-          log("warning", `No git repo found for ${resourceName}, skipping update`);
+          log(
+            "warning",
+            `No git repo found for ${resourceName}, skipping update`
+          );
           continue;
         }
 
         // Get SSH key path for this specific repository
-        const privateKeyPath = this.gitKeysService.getKeyPathForRepo(projectResource.gitRepo);
+        const privateKeyPath = this.gitKeysService.getKeyPathForRepo(
+          projectResource.gitRepo
+        );
         const sanitizedKeyPath = sanitizeShellArg(privateKeyPath);
         const sshCommand = `ssh -i ${sanitizedKeyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
 
         if (!targetBranch) {
-          log("warning", `No branch specified for ${resourceName}, skipping update`);
+          log(
+            "warning",
+            `No branch specified for ${resourceName}, skipping update`
+          );
           continue;
         }
 
@@ -1503,8 +1545,13 @@ export class EnvironmentService {
 
           log("success", `Git update successful for ${resourceName}`);
         } catch (gitError) {
-          log("error", `Git update failed for ${resourceName}: ${gitError.message}`);
-          errors.push(`Git update failed for ${resourceName}: ${gitError.message}`);
+          log(
+            "error",
+            `Git update failed for ${resourceName}: ${gitError.message}`
+          );
+          errors.push(
+            `Git update failed for ${resourceName}: ${gitError.message}`
+          );
 
           if (commitSHAs[resourceName]) {
             try {
@@ -1513,7 +1560,10 @@ export class EnvironmentService {
               );
               log("info", `Rolled back ${resourceName} to previous commit`);
             } catch (rollbackError) {
-              log("error", `Failed to rollback ${resourceName}: ${rollbackError.message}`);
+              log(
+                "error",
+                `Failed to rollback ${resourceName}: ${rollbackError.message}`
+              );
             }
           }
           throw gitError;
@@ -1532,13 +1582,13 @@ export class EnvironmentService {
         try {
           // Check for .spawner.yml config
           let dockerfilePath: string | undefined;
-          const spawnerConfigPath = path.join(repoPath, '.spawner.yml');
+          const spawnerConfigPath = path.join(repoPath, ".spawner.yml");
           try {
-            const configContent = await fs.readFile(spawnerConfigPath, 'utf-8');
+            const configContent = await fs.readFile(spawnerConfigPath, "utf-8");
             const spawnerConfig = yaml.load(configContent) as SpawnerConfig;
-            dockerfilePath = spawnerConfig?.dockerfile || '.spawner/Dockerfile';
+            dockerfilePath = spawnerConfig?.dockerfile || ".spawner/Dockerfile";
           } catch {
-            dockerfilePath = '.spawner/Dockerfile';
+            dockerfilePath = ".spawner/Dockerfile";
           }
 
           // Check if custom Dockerfile exists
@@ -1548,7 +1598,9 @@ export class EnvironmentService {
             .then(() => true)
             .catch(() => false);
 
-          const finalDockerfilePath = dockerfileExists ? dockerfilePath : undefined;
+          const finalDockerfilePath = dockerfileExists
+            ? dockerfilePath
+            : undefined;
 
           if (dockerfileExists) {
             log("info", `Using Dockerfile: ${dockerfilePath}`);
@@ -1556,12 +1608,20 @@ export class EnvironmentService {
             log("info", `No custom Dockerfile found, using default build`);
           }
 
-          await this.dockerService.buildImage(repoPath, imageTag, (msg) => {
-            log("info", `Build progress [${resourceName}]: ${msg}`);
-          }, finalDockerfilePath);
+          await this.dockerService.buildImage(
+            repoPath,
+            imageTag,
+            (msg) => {
+              log("info", `Build progress [${resourceName}]: ${msg}`);
+            },
+            finalDockerfilePath
+          );
           log("success", `Image rebuild successful for ${resourceName}`);
         } catch (buildError) {
-          log("error", `Image rebuild failed for ${resourceName}: ${buildError.message}`);
+          log(
+            "error",
+            `Image rebuild failed for ${resourceName}: ${buildError.message}`
+          );
           errors.push(
             `Image rebuild failed for ${resourceName}: ${buildError.message}`
           );
@@ -1577,9 +1637,15 @@ export class EnvironmentService {
 
         try {
           await this.dockerService.restartContainer(containerName, 15);
-          log("success", `Container restart successful for ${resource.resourceName}`);
+          log(
+            "success",
+            `Container restart successful for ${resource.resourceName}`
+          );
         } catch (restartError) {
-          log("error", `Container restart failed for ${resource.resourceName}: ${restartError.message}`);
+          log(
+            "error",
+            `Container restart failed for ${resource.resourceName}: ${restartError.message}`
+          );
           errors.push(
             `Container restart failed for ${resource.resourceName}: ${restartError.message}`
           );
@@ -1646,7 +1712,10 @@ export class EnvironmentService {
         },
       });
 
-      log("error", `Environment ${environment.name} update failed: ${error.message}`);
+      log(
+        "error",
+        `Environment ${environment.name} update failed: ${error.message}`
+      );
       throw new InternalServerErrorException(
         `Failed to update environment: ${error.message}${errors.length > 0 ? `. Errors: ${errors.join(", ")}` : ""}`
       );

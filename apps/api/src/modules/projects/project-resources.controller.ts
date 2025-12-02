@@ -40,6 +40,7 @@ export class ProjectResourcesController {
         memoryReservation?: string;
       };
       exposedPort?: number;
+      isEntryPoint?: boolean;
     },
   ) {
     return this.resourcesService.create(projectId, data);
@@ -64,6 +65,7 @@ export class ProjectResourcesController {
         memoryReservation?: string;
       };
       exposedPort?: number;
+      isEntryPoint?: boolean;
     },
   ) {
     return this.resourcesService.update(projectId, id, data);

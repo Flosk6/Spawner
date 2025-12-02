@@ -92,6 +92,24 @@
                 The type of service this resource provides
               </small>
             </div>
+
+            <!-- Entry Point -->
+            <div v-if="form.type !== 'mysql-db'" class="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+              <Checkbox
+                inputId="isEntryPoint"
+                v-model="form.isEntryPoint"
+                :binary="true"
+              />
+              <label for="isEntryPoint" class="cursor-pointer">
+                <div class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                  <i class="pi pi-home text-blue-500"></i>
+                  <span>Set as Entry Point</span>
+                </div>
+                <small class="text-slate-600 dark:text-slate-400 block mt-1">
+                  This will be the main URL displayed for environments
+                </small>
+              </label>
+            </div>
           </div>
         </template>
       </Card>
@@ -357,6 +375,7 @@ import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
 import Select from 'primevue/select';
 import Chip from 'primevue/chip';
+import Checkbox from 'primevue/checkbox';
 import ProgressSpinner from 'primevue/progressspinner';
 import { useNotification } from '../composables/useNotification';
 import TemplateAutocomplete from '../components/TemplateAutocomplete.vue';
@@ -379,6 +398,7 @@ interface Resource {
   postBuildCommands?: string[];
   resourceLimits?: ResourceLimits;
   exposedPort?: number;
+  isEntryPoint?: boolean;
 }
 
 const route = useRoute();
@@ -441,6 +461,7 @@ const form = ref({
   defaultBranch: 'main',
   staticEnvVars: '',
   exposedPort: '',
+  isEntryPoint: false,
   resourceLimits: {
     cpu: '',
     memory: '',
@@ -504,6 +525,7 @@ async function loadData() {
           defaultBranch: resource.defaultBranch || 'main',
           staticEnvVars: stringifyEnvVars(resource.staticEnvVars || {}),
           exposedPort: resource.exposedPort?.toString() || '',
+          isEntryPoint: resource.isEntryPoint || false,
           resourceLimits: {
             cpu: resource.resourceLimits?.cpu || '',
             memory: resource.resourceLimits?.memory || '',
@@ -567,6 +589,7 @@ async function save() {
       postBuildCommands: postBuildCommands,
       resourceLimits: Object.keys(resourceLimits).length > 0 ? resourceLimits : null,
       exposedPort: form.value.exposedPort ? parseInt(form.value.exposedPort) : null,
+      isEntryPoint: form.value.isEntryPoint,
     };
 
     if (isEdit.value && resourceId.value) {

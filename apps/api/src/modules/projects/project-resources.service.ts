@@ -50,6 +50,7 @@ export class ProjectResourcesService {
         memoryReservation?: string;
       };
       exposedPort?: number;
+      isEntryPoint?: boolean;
     },
   ) {
     await this.projectsService.findOne(projectId);
@@ -59,6 +60,19 @@ export class ProjectResourcesService {
         validateResourceLimits(data.resourceLimits, MAX_RESOURCE_LIMITS);
       } catch (error) {
         throw new BadRequestException(error.message);
+      }
+    }
+
+    if (data.isEntryPoint) {
+      const existingEntryPoint = await this.prisma.projectResource.findFirst({
+        where: { projectId, isEntryPoint: true },
+      });
+
+      if (existingEntryPoint) {
+        await this.prisma.projectResource.update({
+          where: { id: existingEntryPoint.id },
+          data: { isEntryPoint: false },
+        });
       }
     }
 
@@ -78,6 +92,7 @@ export class ProjectResourcesService {
         postBuildCommands: data.postBuildCommands || [],
         resourceLimits: data.resourceLimits || null,
         exposedPort: data.exposedPort || null,
+        isEntryPoint: data.isEntryPoint || false,
       },
     });
   }
@@ -100,6 +115,7 @@ export class ProjectResourcesService {
         memoryReservation?: string;
       };
       exposedPort?: number;
+      isEntryPoint?: boolean;
     },
   ) {
     await this.findOne(projectId, id);
@@ -109,6 +125,19 @@ export class ProjectResourcesService {
         validateResourceLimits(data.resourceLimits, MAX_RESOURCE_LIMITS);
       } catch (error) {
         throw new BadRequestException(error.message);
+      }
+    }
+
+    if (data.isEntryPoint !== undefined && data.isEntryPoint) {
+      const existingEntryPoint = await this.prisma.projectResource.findFirst({
+        where: { projectId, isEntryPoint: true, id: { not: id } },
+      });
+
+      if (existingEntryPoint) {
+        await this.prisma.projectResource.update({
+          where: { id: existingEntryPoint.id },
+          data: { isEntryPoint: false },
+        });
       }
     }
 
@@ -122,6 +151,7 @@ export class ProjectResourcesService {
     if (data.postBuildCommands !== undefined) updateData.postBuildCommands = data.postBuildCommands || [];
     if (data.exposedPort !== undefined) updateData.exposedPort = data.exposedPort || null;
     if (data.resourceLimits !== undefined) updateData.resourceLimits = data.resourceLimits || null;
+    if (data.isEntryPoint !== undefined) updateData.isEntryPoint = data.isEntryPoint;
 
     if (data.staticEnvVars !== undefined) {
       updateData.staticEnvVars = data.staticEnvVars

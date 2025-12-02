@@ -163,13 +163,25 @@
                   </p>
                 </div>
               </div>
-              <router-link
-                :to="`/environments/${env.id}`"
-                class="px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-white hover:bg-purple-600 dark:hover:bg-purple-500 border border-purple-600 dark:border-purple-400 rounded-lg transition-all duration-200 flex items-center gap-1.5 flex-shrink-0"
-              >
-                <span>Open</span>
-                <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
-              </router-link>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <a
+                  v-if="getEntryPointUrl(env)"
+                  :href="getEntryPointUrl(env) || ''"
+                  target="_blank"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-xs font-medium"
+                  @click.stop
+                >
+                  <i class="pi pi-external-link text-xs"></i>
+                  <span>Open Environment</span>
+                </a>
+                <router-link
+                  :to="`/environments/${env.id}`"
+                  class="px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-white hover:bg-purple-600 dark:hover:bg-purple-500 border border-purple-600 dark:border-purple-400 rounded-lg transition-all duration-200 flex items-center gap-1.5"
+                >
+                  <span>Details</span>
+                  <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
+                </router-link>
+              </div>
             </div>
 
             <!-- Resources info -->
@@ -324,5 +336,13 @@ function formatDate(dateString: string) {
   if (diffDays < 7) return `${diffDays}d ago`;
 
   return date.toLocaleDateString();
+}
+
+function getEntryPointUrl(env: any): string | null {
+  if (!env.resources || env.resources.length === 0) {
+    return null;
+  }
+  const entryPoint = env.resources.find((r: any) => r.isEntryPoint);
+  return entryPoint?.url || null;
 }
 </script>

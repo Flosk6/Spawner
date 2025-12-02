@@ -38,6 +38,17 @@
         </div>
       </div>
 
+      <!-- Entry Point URL -->
+      <div v-if="entryPointUrl" class="mb-4" @click.stop>
+        <a
+          :href="entryPointUrl"
+          target="_blank"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+        >
+          <i class="pi pi-external-link text-xs"></i>
+          <span class="text-sm font-medium">Open Environment</span>
+        </a>
+      </div>
 
       <!-- Resources grid -->
       <div class="grid grid-cols-3 gap-3 mb-6">
@@ -266,5 +277,15 @@ const timeAgo = computed(() => {
   } else {
     return `${diffDays}d ago`;
   }
+});
+
+const entryPointUrl = computed(() => {
+  const resources = (props.environment as any).resources;
+  if (!resources || resources.length === 0) {
+    return null;
+  }
+
+  const entryPoint = resources.find((r: any) => r.isEntryPoint);
+  return entryPoint?.url || null;
 });
 </script>

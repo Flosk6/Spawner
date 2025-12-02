@@ -29,6 +29,7 @@ export interface ProjectResource {
     memoryReservation?: string;
   };
   exposedPort?: number;
+  isEntryPoint?: boolean;
 }
 
 // Environment
@@ -59,6 +60,7 @@ export interface EnvironmentResource {
   resourceType: ResourceType;
   branch: string | null;
   url: string | null;
+  isEntryPoint?: boolean;
   createdAt: string | Date;
 }
 
