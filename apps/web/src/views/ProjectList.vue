@@ -45,7 +45,7 @@
         class="group relative rounded-xl p-[1px] bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 hover:shadow-2xl hover:shadow-blue-500/20 transition-all duration-300 cursor-pointer"
         @click="$router.push(`/projects/${project.id}`)"
       >
-        <div class="relative rounded-xl bg-white dark:bg-slate-900 p-6 h-full overflow-hidden">
+        <div class="relative rounded-xl bg-white dark:bg-dark-800 p-6 h-full overflow-hidden">
           <div class="absolute top-0 left-0 h-px w-full bg-gradient-to-r from-transparent via-slate-400/40 dark:via-white/30 to-transparent"></div>
 
           <div class="mb-6">
@@ -57,7 +57,7 @@
           </div>
 
           <div class="grid grid-cols-2 gap-3 mb-6">
-            <div class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
+            <div class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-purple-800/30">
               <div class="flex items-center justify-center gap-2 mb-2">
                 <i class="pi pi-box text-blue-600 dark:text-blue-400 text-xl"></i>
                 <span class="text-3xl font-bold text-slate-900 dark:text-white">{{ project.resources?.length || 0 }}</span>
@@ -65,7 +65,7 @@
               <div class="text-sm text-slate-600 dark:text-slate-400 text-center">Resources</div>
             </div>
 
-            <div class="bg-slate-200/60 dark:bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-slate-700/50">
+            <div class="bg-slate-200/60 dark:bg-dark-700/50 backdrop-blur-sm rounded-lg p-4 border border-slate-300/50 dark:border-purple-800/30">
               <div class="flex items-center justify-center gap-2 mb-2">
                 <i class="pi pi-server text-green-600 dark:text-green-400 text-xl"></i>
                 <span class="text-3xl font-bold text-slate-900 dark:text-white">{{ project.environments?.length || 0 }}</span>
@@ -77,13 +77,13 @@
           <!-- Action buttons -->
           <div class="flex gap-2">
             <button
-              class="flex-1 px-4 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-slate-700/50 hover:border-slate-400 dark:hover:border-slate-600 text-sm font-medium text-slate-900 dark:text-white rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group/btn"
+              class="flex-1 px-4 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-purple-800/30 hover:border-slate-400 dark:hover:border-slate-600 text-sm font-medium text-slate-900 dark:text-white rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group/btn"
             >
               <i class="pi pi-cog text-sm group-hover/btn:scale-110 transition-transform"></i>
               Edit
             </button>
             <button
-              class="px-4 py-2.5 bg-slate-200/70 dark:bg-slate-800/70 hover:bg-red-100 dark:hover:bg-red-900/30 border border-slate-300/50 dark:border-slate-700/50 hover:border-red-400 dark:hover:border-red-500/50 rounded-lg transition-all duration-200"
+              class="px-4 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-red-100 dark:hover:bg-red-900/30 border border-slate-300/50 dark:border-purple-800/30 hover:border-red-400 dark:hover:border-red-500/50 rounded-lg transition-all duration-200"
               @click.stop="confirmDelete(project)"
               v-tooltip.top="'Delete'"
             >

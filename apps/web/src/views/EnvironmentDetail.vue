@@ -26,11 +26,11 @@
           </div>
 
           <div class="grid grid-cols-2 gap-2">
-            <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg p-2 text-center">
+            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
               <div class="text-lg font-bold text-slate-900 dark:text-white">{{ environment.resources?.length || 0 }}</div>
               <div class="text-xs text-slate-600 dark:text-slate-400">Resources</div>
             </div>
-            <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg p-2 text-center">
+            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
               <div class="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Created</div>
               <div class="text-xs text-slate-900 dark:text-white">{{ formatDateShort(environment.createdAt) }}</div>
             </div>
@@ -128,7 +128,7 @@
                   <div
                     v-for="resource in environment.resources"
                     :key="resource.id"
-                    class="p-4 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
+                    class="p-4 rounded-lg bg-slate-100 dark:bg-dark-700 border border-slate-300 dark:border-purple-800/30"
                   >
                     <div class="flex items-center gap-2 mb-2">
                       <i class="pi pi-box text-blue-500"></i>

@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col h-[calc(100vh-5rem)]">
     <!-- Sticky Header -->
-    <div class="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 px-6 py-4">
+    <div class="sticky top-0 z-10 bg-slate-50 dark:bg-dark-900/95 border-b border-slate-200 dark:border-purple-900/30 px-6 py-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-4">
           <Button

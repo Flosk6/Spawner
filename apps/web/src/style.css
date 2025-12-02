@@ -41,5 +41,74 @@ body {
 
 #app {
   min-height: 100vh;
-  /* Background will be set by theme */
+}
+
+/* Custom Dark Mode - Purple Theme */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background: linear-gradient(135deg, #1a1625 0%, #0f0d19 100%);
+}
+
+.dark #app {
+  background: transparent;
+}
+
+/* PrimeVue Components Dark Mode Override */
+.dark .p-dialog,
+.dark .p-card,
+.dark .p-panel,
+.dark .p-accordion-header,
+.dark .p-tabview-nav,
+.dark .p-datatable,
+.dark .p-paginator {
+  background: #2a1f3d !important;
+  border-color: rgba(147, 51, 234, 0.3) !important;
+  color: #e5e7eb !important;
+}
+
+.dark .p-dialog-header,
+.dark .p-dialog-content,
+.dark .p-dialog-footer {
+  background: transparent !important;
+  border-color: rgba(147, 51, 234, 0.3) !important;
+  color: #e5e7eb !important;
+}
+
+.dark .p-card-body,
+.dark .p-card-content {
+  color: #e5e7eb !important;
+}
+
+.dark .p-component {
+  color: #e5e7eb;
+}
+
+.dark .p-inputtext,
+.dark .p-dropdown,
+.dark .p-multiselect {
+  background: #3d2f55 !important;
+  border-color: rgba(147, 51, 234, 0.3) !important;
+  color: #e5e7eb !important;
+}
+
+.dark .p-button {
+  border-color: rgba(147, 51, 234, 0.3);
+}
+
+.dark .p-datatable .p-datatable-thead > tr > th {
+  background: #3d2f55 !important;
+  border-color: rgba(147, 51, 234, 0.3) !important;
+  color: #e5e7eb !important;
+}
+
+.dark .p-datatable .p-datatable-tbody > tr {
+  background: #2a1f3d !important;
+  color: #e5e7eb !important;
+}
+
+.dark .p-datatable .p-datatable-tbody > tr:hover {
+  background: rgba(147, 51, 234, 0.1) !important;
 }

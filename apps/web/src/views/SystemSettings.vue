@@ -6,40 +6,40 @@
     <!-- Intelligent Cleanup Preview Dialog -->
     <Dialog v-model:visible="showCleanupPreview" modal header="Aperçu du nettoyage intelligent" :style="{ width: '50rem' }">
       <div v-if="cleanupPreview" class="space-y-4">
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="bg-blue-50 dark:bg-purple-900/20 border border-blue-200 dark:border-purple-700/40 rounded-lg p-4">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-sm font-semibold text-blue-900">Résumé</h3>
-              <p class="text-xs text-blue-700 mt-1">Ressources qui seront supprimées</p>
+              <h3 class="text-sm font-semibold text-blue-900 dark:text-purple-200">Résumé</h3>
+              <p class="text-xs text-blue-700 dark:text-purple-400 mt-1">Ressources qui seront supprimées</p>
             </div>
             <div class="text-right">
-              <p class="text-2xl font-bold text-blue-900">{{ cleanupPreview.count }}</p>
-              <p class="text-xs text-blue-700">~{{ formatBytes(cleanupPreview.size) }}</p>
+              <p class="text-2xl font-bold text-blue-900 dark:text-purple-200">{{ cleanupPreview.count }}</p>
+              <p class="text-xs text-blue-700 dark:text-purple-400">~{{ formatBytes(cleanupPreview.size) }}</p>
             </div>
           </div>
         </div>
 
-        <div v-if="cleanupPreview.images.length > 0" class="border border-gray-200 rounded-lg p-3">
+        <div v-if="cleanupPreview.images.length > 0" class="border border-gray-200 dark:border-purple-800/30 rounded-lg p-3">
           <h4 class="font-semibold text-sm mb-2">Images ({{ cleanupPreview.images.length }})</h4>
           <div class="max-h-40 overflow-y-auto space-y-1">
-            <div v-for="img in cleanupPreview.images" :key="img.id" class="text-xs text-gray-700 flex justify-between">
+            <div v-for="img in cleanupPreview.images" :key="img.id" class="text-xs text-gray-700 dark:text-slate-300 flex justify-between">
               <span class="truncate mr-2">{{ img.name }}</span>
-              <span class="text-gray-500">{{ formatBytes(img.size) }}</span>
+              <span class="text-gray-500 dark:text-slate-500">{{ formatBytes(img.size) }}</span>
             </div>
           </div>
         </div>
 
-        <div v-if="cleanupPreview.containers.length > 0" class="border border-gray-200 rounded-lg p-3">
+        <div v-if="cleanupPreview.containers.length > 0" class="border border-gray-200 dark:border-purple-800/30 rounded-lg p-3">
           <h4 class="font-semibold text-sm mb-2">Containers ({{ cleanupPreview.containers.length }})</h4>
           <div class="max-h-40 overflow-y-auto space-y-1">
-            <div v-for="container in cleanupPreview.containers" :key="container.id" class="text-xs text-gray-700">
+            <div v-for="container in cleanupPreview.containers" :key="container.id" class="text-xs text-gray-700 dark:text-slate-300">
               {{ container.name }}
             </div>
           </div>
         </div>
 
-        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <p class="text-xs text-yellow-800">
+        <div class="bg-yellow-50 dark:bg-orange-900/20 border border-yellow-200 dark:border-orange-700/40 rounded-lg p-3">
+          <p class="text-xs text-yellow-800 dark:text-orange-200">
             <strong>Critères:</strong> Images dangling, images >30 jours inutilisées, containers stopped >7 jours, build cache
           </p>
         </div>
@@ -52,35 +52,35 @@
     </Dialog>
 
     <div class="mb-8">
-      <h1 class="text-3xl font-bold text-gray-900">System Settings</h1>
-      <p class="mt-2 text-sm text-gray-600">
+      <h1 class="text-3xl font-bold text-gray-900 dark:text-white">System Settings</h1>
+      <p class="mt-2 text-sm text-gray-600 dark:text-slate-400">
         Manage Spawner updates, Docker resources, and system patches
       </p>
     </div>
 
     <!-- Version Information -->
-    <div class="bg-white shadow rounded-lg p-6 mb-6">
+    <div class="bg-white dark:bg-dark-800 shadow rounded-lg p-6 mb-6">
       <h2 class="text-xl font-semibold mb-4">Version Information</h2>
 
       <div class="grid grid-cols-2 gap-4 mb-4">
         <div>
-          <p class="text-sm text-gray-600">Current Version</p>
+          <p class="text-sm text-gray-600 dark:text-slate-400">Current Version</p>
           <p class="text-lg font-semibold">{{ versionInfo.current || 'Loading...' }}</p>
         </div>
         <div>
-          <p class="text-sm text-gray-600">Latest Version</p>
+          <p class="text-sm text-gray-600 dark:text-slate-400">Latest Version</p>
           <p class="text-lg font-semibold">{{ versionInfo.latest || 'Loading...' }}</p>
         </div>
       </div>
 
-      <div v-if="updateAvailable" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+      <div v-if="updateAvailable" class="bg-blue-50 dark:bg-purple-900/20 border border-blue-200 dark:border-purple-700/40 rounded-lg p-4 mb-4">
         <div class="flex items-start">
           <svg class="h-5 w-5 text-blue-400 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
           </svg>
           <div>
-            <h3 class="text-sm font-medium text-blue-800">Update Available</h3>
-            <p class="text-sm text-blue-700 mt-1">
+            <h3 class="text-sm font-medium text-blue-800 dark:text-purple-300">Update Available</h3>
+            <p class="text-sm text-blue-700 dark:text-purple-400 mt-1">
               A new version of Spawner is available: {{ updateInfo.latestVersion }}
             </p>
             <div v-if="updateInfo.changelog" class="mt-2 text-xs text-blue-600 max-h-32 overflow-y-auto">
@@ -95,7 +95,7 @@
         <button
           @click="checkForUpdates"
           :disabled="checking"
-          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-purple-500/10 dark:bg-dark-700 disabled:opacity-50"
         >
           {{ checking ? 'Checking...' : 'Check for Updates' }}
         </button>
@@ -112,14 +112,14 @@
     </div>
 
     <!-- Auto-Update Settings -->
-    <div class="bg-white shadow rounded-lg p-6 mb-6">
+    <div class="bg-white dark:bg-dark-800 shadow rounded-lg p-6 mb-6">
       <h2 class="text-xl font-semibold mb-4">Auto-Update Configuration</h2>
 
       <div class="space-y-4">
         <div class="flex items-center justify-between">
           <div>
-            <label class="text-sm font-medium text-gray-700">Enable Auto-Update</label>
-            <p class="text-xs text-gray-500">Automatically apply updates when available</p>
+            <label class="text-sm font-medium text-gray-700 dark:text-slate-300">Enable Auto-Update</label>
+            <p class="text-xs text-gray-500 dark:text-slate-500">Automatically apply updates when available</p>
           </div>
           <button
             @click="toggleAutoUpdate"
@@ -138,7 +138,7 @@
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
             Update Check Schedule
           </label>
           <input
@@ -147,11 +147,11 @@
             placeholder="0 * * * * (hourly)"
             class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <p class="text-xs text-gray-500 mt-1">Cron expression for update checks</p>
+          <p class="text-xs text-gray-500 dark:text-slate-500 mt-1">Cron expression for update checks</p>
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
             Auto-Update Schedule
           </label>
           <input
@@ -160,7 +160,7 @@
             placeholder="0 0 * * * (daily at midnight)"
             class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <p class="text-xs text-gray-500 mt-1">Cron expression for automatic updates</p>
+          <p class="text-xs text-gray-500 dark:text-slate-500 mt-1">Cron expression for automatic updates</p>
         </div>
 
         <button
@@ -174,19 +174,19 @@
     </div>
 
     <!-- System Patches -->
-    <div class="bg-white shadow rounded-lg p-6">
+    <div class="bg-white dark:bg-dark-800 shadow rounded-lg p-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-semibold">System Patches</h2>
         <button
           @click="checkPatches"
           :disabled="checkingPatches"
-          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-purple-500/10 dark:bg-dark-700 disabled:opacity-50"
         >
           {{ checkingPatches ? 'Checking...' : 'Check for Patches' }}
         </button>
       </div>
 
-      <div v-if="patches.length === 0" class="text-center py-8 text-gray-500">
+      <div v-if="patches.length === 0" class="text-center py-8 text-gray-500 dark:text-slate-500">
         <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
@@ -197,7 +197,7 @@
         <div
           v-for="patch in patches"
           :key="patch.id"
-          class="border border-gray-200 rounded-lg p-4"
+          class="border border-gray-200 dark:border-purple-800/30 rounded-lg p-4"
         >
           <div class="flex items-start justify-between">
             <div class="flex-1">
@@ -207,17 +207,17 @@
                   :class="[
                     'px-2 py-0.5 text-xs rounded-full',
                     patch.type === 'security' ? 'bg-red-100 text-red-800' :
-                    patch.type === 'bugfix' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-blue-100 text-blue-800'
+                    patch.type === 'bugfix' ? 'bg-yellow-100 text-yellow-800 dark:text-orange-200' :
+                    'bg-blue-100 text-blue-800 dark:text-purple-300'
                   ]"
                 >
                   {{ patch.type }}
                 </span>
               </div>
-              <p class="text-sm text-gray-600 mt-1">
+              <p class="text-sm text-gray-600 dark:text-slate-400 mt-1">
                 {{ patch.currentVersion }} → {{ patch.latestVersion }}
               </p>
-              <p v-if="patch.changelog" class="text-xs text-gray-500 mt-1">
+              <p v-if="patch.changelog" class="text-xs text-gray-500 dark:text-slate-500 mt-1">
                 {{ patch.changelog }}
               </p>
             </div>
