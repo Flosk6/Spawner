@@ -5,12 +5,14 @@
         <h1 class="text-4xl font-bold mb-2">Environments</h1>
         <p class="text-lg opacity-70">Manage all your preview environments</p>
       </div>
-      <button
-        @click="$router.push('/environments/new')"
-        class="group relative px-6 py-3 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30"
-      >
-        <div class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105"></div>
-        <div class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300"></div>
+      <button @click="$router.push('/environments/new')"
+        class="group relative px-4 py-2 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30">
+        <div
+          class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105">
+        </div>
+        <div
+          class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300">
+        </div>
         <div class="relative flex items-center gap-2">
           <i class="pi pi-plus text-lg"></i>
           <span class="text-lg">New Environment</span>
@@ -25,12 +27,14 @@
     <div v-else-if="environments.length === 0" class="text-center py-20">
       <i class="pi pi-sitemap text-6xl mb-6 block opacity-30"></i>
       <p class="text-xl mb-6 opacity-60">No environments yet</p>
-      <button
-        @click="$router.push('/environments/new')"
-        class="group relative px-8 py-4 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30"
-      >
-        <div class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105"></div>
-        <div class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300"></div>
+      <button @click="$router.push('/environments/new')"
+        class="group relative px-8 py-4 rounded-lg font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30">
+        <div
+          class="absolute inset-0 bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 group-hover:scale-105">
+        </div>
+        <div
+          class="absolute inset-0 bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400 opacity-0 group-hover:opacity-50 transition-opacity duration-300">
+        </div>
         <div class="relative flex items-center gap-2">
           <i class="pi pi-plus text-xl"></i>
           <span class="text-xl">Create your first environment</span>
@@ -40,17 +44,12 @@
 
     <div v-else>
       <div class="flex items-center gap-6 mb-8 pb-6 border-b border-slate-300 dark:border-purple-800/30">
-        <button
-          v-for="status in statusFilters"
-          :key="status.value"
-          @click="activeFilter = status.value"
-          :class="[
-            'flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200',
-            activeFilter === status.value
-              ? 'bg-slate-200 dark:bg-dark-700 text-slate-900 dark:text-white'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
-          ]"
-        >
+        <button v-for="status in statusFilters" :key="status.value" @click="activeFilter = status.value" :class="[
+          'flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200',
+          activeFilter === status.value
+            ? 'bg-slate-200 dark:bg-dark-700 text-slate-900 dark:text-white'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
+        ]">
           <span :class="['h-2 w-2 rounded-full', status.dotColor]"></span>
           <span class="font-medium">{{ status.label }}</span>
           <span class="text-sm opacity-70">({{ status.count }})</span>
@@ -58,28 +57,15 @@
       </div>
 
       <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <EnvironmentCard
-          v-for="env in filteredEnvironments"
-          :key="env.id"
-          :environment="env"
-          :loading="loadingActions.has(env.id)"
-          @delete="confirmDelete"
-          @view="$router.push(`/environments/${env.id}`)"
-          @pause="pauseEnvironment"
-          @resume="resumeEnvironment"
-          @restart="restartEnvironment"
-          @update="updateEnvironment"
-        />
+        <EnvironmentCard v-for="env in filteredEnvironments" :key="env.id" :environment="env"
+          :loading="loadingActions.has(env.id)" @delete="confirmDelete" @view="$router.push(`/environments/${env.id}`)"
+          @pause="pauseEnvironment" @resume="resumeEnvironment" @restart="restartEnvironment"
+          @update="updateEnvironment" />
       </div>
     </div>
 
-    <Dialog
-      v-model:visible="deleting"
-      header="Deleting Environment"
-      :modal="true"
-      :closable="false"
-      :style="{ width: '450px' }"
-    >
+    <Dialog v-model:visible="deleting" header="Deleting Environment" :modal="true" :closable="false"
+      :style="{ width: '450px' }">
       <div class="text-center py-4">
         <ProgressSpinner class="mb-4" />
         <p class="mb-4 text-lg font-semibold">{{ deletionStep }}</p>
@@ -91,14 +77,8 @@
     </Dialog>
 
     <!-- Update Logs Dialog -->
-    <Dialog
-      v-model:visible="showUpdateLogsModal"
-      :header="`Updating Environment: ${updatingEnvironmentName}`"
-      :modal="true"
-      :closable="updateComplete"
-      :style="{ width: '90vw', maxWidth: '1200px' }"
-      :maximizable="true"
-    >
+    <Dialog v-model:visible="showUpdateLogsModal" :header="`Updating Environment: ${updatingEnvironmentName}`"
+      :modal="true" :closable="updateComplete" :style="{ width: '90vw', maxWidth: '1200px' }" :maximizable="true">
       <div v-if="!updateComplete" class="flex items-center gap-2 mb-4">
         <ProgressSpinner style="width: 20px; height: 20px" />
         <span class="font-semibold">Updating environment...</span>
@@ -124,12 +104,7 @@
       </ScrollPanel>
 
       <template #footer>
-        <Button
-          label="Close"
-          severity="secondary"
-          outlined
-          @click="closeUpdateLogsModal"
-        />
+        <Button label="Close" severity="secondary" outlined @click="closeUpdateLogsModal" />
       </template>
     </Dialog>
   </div>
