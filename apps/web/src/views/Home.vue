@@ -1,10 +1,8 @@
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div>
     <div class="mb-8">
-      <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-      <p class="mt-2 text-sm text-gray-600 dark:text-slate-400">
-        System overview and quick access
-      </p>
+      <h1 class="text-4xl font-bold mb-2">Dashboard</h1>
+      <p class="text-lg opacity-70">System overview and quick access</p>
     </div>
 
     <div class="space-y-6">
