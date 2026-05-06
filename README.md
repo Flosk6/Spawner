@@ -149,4 +149,4 @@ docker-compose logs -f         # All services
 
 **AGPL-3.0** - Free to use, modify, and distribute. If you run Spawner as a SaaS, you must share your source code with users.
 
-**Copyright © 2025 Florian-mfr** - See [LICENSE](LICENSE) | Commercial license available for proprietary use.
+**Copyright © 2025 Flosk6** - See [LICENSE](LICENSE) | Commercial license available for proprietary use.
