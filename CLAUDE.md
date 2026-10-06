@@ -15,7 +15,10 @@ A project is a git repository holding a `.spawner/` directory: a manifest (`spaw
 - Job queue in Postgres: create, update, stop, start and delete run as jobs with streamed logs
 - API (`/api/v1`) for the dashboard, scripts and the CLI: logs, exec in a service, resource usage
 - Browser terminal into any service, CPU and memory graphs, memory guard before builds
-- GitHub OAuth for the dashboard (invitations, passkeys and personal tokens come in milestone M2)
+- Accounts without passwords: invitation links, then passkeys; GitHub login optional
+- Personal API tokens with scopes, and a device flow to log the CLI in
+- Protected previews: Traefik asks Spawner before each request (forwardAuth); share links for guests
+- Audit trail of logins, tokens, environments, commands and terminals
 
 ## Monorepo Architecture
 
@@ -46,7 +49,8 @@ The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens
 
 - M0 (done): cleanup, CI, single image, test harness
 - M1 (done): environment engine, `/api/v1`, interface on the new API
-- Next: M2 access (invitations, passkeys, tokens, forwardAuth on previews), M3 CLI and MCP, M4 interface and supervision, M5 lifecycle and density, M6 installer and release
+- M2 (done): accounts (invitations, passkeys, optional GitHub), roles, tokens, device flow, protected previews, share links, CSRF, audit
+- Next: M3 CLI and MCP, M4 interface and supervision, M5 lifecycle and density, M6 installer and release
 
 ## Code Style
 
@@ -133,9 +137,10 @@ pnpm --filter @spawner/core add <package>   # Shared package
 - Vitest, tests named `*.spec.ts` next to the code they cover (`apps/api/src`, `packages/*/src`).
 - `packages/core/test/fixtures/compose/`: compose files the policy must refuse (`forbidden/`, each starting with `# expect: <code> <path>`) or accept (`allowed/`). Add a fixture with every policy change.
 - Engine services are tested against real programs where it matters: `git-mirror.service.spec.ts` uses local `file://` repositories, `upload.service.spec.ts` builds hostile archives by hand.
+- Passkeys are tested for real: `src/testing/soft-authenticator.ts` is a software authenticator (P-256, attestation "none") whose answers go through the actual WebAuthn verification. `src/testing/` is not built.
 - Specs are excluded from builds through `tsconfig.build.json`.
 - API specs load `reflect-metadata` (see `apps/api/vitest.config.mts`); instantiate services directly rather than through the Nest container when possible.
-- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik, runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). With `scripts/e2e-fixtures/bind-mount`, it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
+- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard. With `scripts/e2e-fixtures/bind-mount`, it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build and the end-to-end test on every pull request and on pushes to `master` and `v1`.
 
 ## Backend Architecture (apps/api)
@@ -149,25 +154,34 @@ NestJS application with feature modules:
   - `job-queue.service.ts`: the queue in the `jobs` table, concurrency, recovery after a restart
   - `git-mirror.service.ts`: partial bare mirrors and one detached worktree per environment source
   - `upload.service.ts`: checks and extracts uploaded worktrees
-  - `compose-runner.service.ts`: `docker compose` up, stop, start, down
-  - `router.service.ts`: Traefik `file` provider routes and network attachment
+  - `compose-runner.service.ts`: `docker compose` up, recreate, stop, start, down
+  - `router.service.ts`: Traefik `file` provider routes, preview protection middlewares, network attachment
   - `job-logs.service.ts`: one log file per job, followed live over SSE
   - `git-keys.service.ts`: SSH deploy keys, per repository or global
-  - `storage.service.ts`: layout of the data directory; `spawner.config.ts`: settings from the environment
+  - `storage.service.ts`: layout of the data directory
+- **auth**: who makes each request (`actor.middleware.ts`), dashboard sessions, passkey login (WebAuthn), optional GitHub login, the CLI device flow, terminal tickets
+- **team**: invitations, users and roles, each user's account (passkeys, linked GitHub), the first admin
+- **tokens**: personal API tokens
+- **previews**: forwardAuth decisions for Traefik, the preview cookie, preview tokens for agents, share links
+- **settings**: settings changed from the interface (GitHub login), secrets encrypted
+- **audit**: the audit trail (global), 90 days
 - **projects**: `/api/v1/projects`
 - **environments**: `/api/v1/envs` and `/api/v1/jobs`
-- **git**: deploy keys, repository access test, branch listing (dashboard session only)
-- **auth**: GitHub OAuth, sessions, audit log, WebSocket tickets
+- **git**: deploy keys and repository access test (admins)
 - **terminal**: WebSocket gateway, a TTY exec session in a service through the Docker API
 - **system**: host stats (CPU, RAM, disk) and the memory guard used before builds
 - **stats**: per-environment CPU and memory sampling (cron, every minute)
+- **health**: `/api/v1/healthz` and `/api/v1/readyz`
 
 ### Key Files
 
 - **app.module.ts**: Root module (config, throttling, schedule, feature modules)
 - **main.ts**: Bootstrap, CORS, session middleware, Passport
 - **web-app.ts**: Serves the built web interface from `WEB_DIST_PATH` (production image)
-- **common/api-auth.guard.ts**: Guard of `/api/v1`: dashboard session or bootstrap token
+- **common/actor.ts**: the actor of a request, roles, scopes, and who may act on an environment
+- **common/auth.guard.ts**: global guard; routes are authenticated unless marked `@Public()`, and need the scopes of `@Scopes()`
+- **common/secrets.service.ts**: the master secret and the keys derived from it (signed tokens, encrypted settings, session)
+- **common/spawner.config.ts**: settings from the environment
 - **common/docker.service.ts**: Dockerode: containers by environment label, exec, logs, stats, networks
 - **prisma/schema.prisma**: Database schema; migrations in `prisma/migrations/`
 
@@ -176,11 +190,17 @@ NestJS application with feature modules:
 Connection configured via `DATABASE_URL` environment variable.
 
 **Tables:**
-- `users`: GitHub OAuth accounts (githubId, username, email, role, lastLoginAt)
-- `audit_logs`: Action tracking
+- `users`: name, role (`admin` or `member`), active flag, WebAuthn user handle
+- `identities`: external logins of a user (GitHub)
+- `passkeys`: WebAuthn credentials (public key, counter)
+- `invites`: one-time links, by SHA-256; with `user_id`, a new passkey for an existing user
+- `api_tokens`: personal tokens (prefix, SHA-256, scopes, project, expiry, revocation)
+- `device_codes`: CLI logins waiting for approval
+- `share_links`: guest links to an environment's previews, by SHA-256
+- `audit_events`: the audit trail
 - `sessions`: Express session storage (managed by connect-pg-simple)
 - `projects`: slug, name, repository, default branch, `rootDir` (where `.spawner/` is, for monorepos)
-- `environments`: slug, status, phase and error of the last failure, manifest, expiry; a deleted environment keeps its row (`deleted_at`), and its slug is unique among live environments through a partial index
+- `environments`: slug, status, phase and error of the last failure, owner and token name, manifest, expiry, last activity; a deleted environment keeps its row (`deleted_at`), and its slug is unique among live environments through a partial index
 - `environment_sources`: what each source runs (git ref and commit, or upload digest and size)
 - `exposures`: name, service, port, host and entrypoint of each URL
 - `jobs`: the queue and its history (type, status, phase, error, payload)
@@ -189,11 +209,12 @@ Connection configured via `DATABASE_URL` environment variable.
 
 ### Environment Variables
 
-**OAuth & Session:**
-- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`, `GITHUB_ORG`, `GITHUB_TEAM`: GitHub OAuth and access control
-- `SESSION_SECRET`: Session signing secret (`openssl rand -base64 32`)
+**Access:**
+- `FRONTEND_URL`: Dashboard URL (default: `<scheme>://spawner.<preview domain>`). It must be a host of the preview domain: the dashboard sets the preview cookie on that domain
+- `SPAWNER_SECRET`: master secret, from which signing and encryption keys derive; generated into `<data dir>/secret.key` when not set
+- `SESSION_SECRET`: Session signing secret (default: derived from the master secret)
 - `SESSION_MAX_AGE`: Session duration in ms (default: 86400000 = 24h)
-- `FRONTEND_URL`: Dashboard URL, for redirects and CORS
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_ORG`, `GITHUB_TEAM`: GitHub login until it is configured from the settings page; `GITHUB_CALLBACK_URL` overrides `<dashboard>/api/v1/auth/github/callback`
 
 **Application:**
 - `PORT`: API server port (default: 3000)
@@ -209,7 +230,7 @@ Connection configured via `DATABASE_URL` environment variable.
 - `SPAWNER_TRAEFIK_ENTRYPOINT`: Traefik entrypoint of the routes (default: `web`, or `websecure` with TLS)
 - `SPAWNER_TRAEFIK_CONTAINER`: Traefik container, attached to each environment network (default: spawner-traefik)
 - `SPAWNER_DASHBOARD_HOST`, `SPAWNER_DASHBOARD_UPSTREAM`: dashboard route (default: `spawner.<preview domain>` to `http://spawner:3000`)
-- `SPAWNER_BOOTSTRAP_TOKEN`: Bearer token accepted by `/api/v1` until personal tokens exist
+- `SPAWNER_BOOTSTRAP_TOKEN`: Bearer token of the installation, with every scope and no user, for scripts and CI
 - `SPAWNER_BUILD_CONCURRENCY`: Builds at once (default: 1 below 8 GiB of RAM, 2 above)
 - `SPAWNER_ENV_TTL`, `SPAWNER_ENV_TTL_MAX`: Lifetime of an environment (default: 72h, at most 14d)
 - `SPAWNER_ENV_MEMORY`, `SPAWNER_ENV_MEMORY_MAX`: Memory of an environment (default: 2g, at most 4g)
@@ -228,18 +249,24 @@ Vue 3 with Composition API, Vue Router 4, Tailwind CSS and PrimeVue.
 ### Key Views
 
 - **Home.vue**: counts, host usage and recent environments
-- **ProjectList.vue**: projects, created and edited in `ProjectDialog.vue`
-- **EnvironmentList.vue**: environments by project and status, created in `EnvironmentDialog.vue`
-- **EnvironmentDetail.vue**: URLs, sources, live job log (`JobLog.vue`), services with their logs and terminal, resource graphs, redeploy, stop, start, delete
-- **GitSettings.vue**: deploy keys per repository
+- **ProjectList.vue**: projects, created and edited by admins in `ProjectDialog.vue`
+- **EnvironmentList.vue**: environments by owner, project and status, created in `EnvironmentDialog.vue`
+- **EnvironmentDetail.vue**: URLs, sources, share links, live job log (`JobLog.vue`), services with their logs and terminal, resource graphs, redeploy, stop, start, delete
+- **Login.vue**: passkey login, GitHub when configured
+- **InviteAccept.vue**: an invitation link: name, then a passkey
+- **DeviceApproval.vue**: approves a CLI login (`/device?code=`)
+- **Account.vue**: name, passkeys, linked GitHub, API tokens
+- **Team.vue** (admin): members, roles, deactivation, links for a new passkey, invitations
+- **Settings.vue**, **Audit.vue**, **GitSettings.vue** (admin): GitHub login, audit trail, deploy keys
 - **SystemOverview.vue**: host and environment resource usage
-- **Login.vue**: GitHub OAuth login
 
 ### Architecture Patterns
 
 - **Composition API**: All components use `<script setup>`
-- **API**: `services/api.ts`, typed with `@spawner/types`; it adds the `X-Spawner-Client` header the API requires on changes made with a session
-- **State**: Pinia store for authentication (`stores/auth.ts`); pages poll while a job runs
+- **API**: `services/api.ts`, typed with `@spawner/types`; it adds the `X-Spawner-Client` header the API requires on changes made without a bearer token
+- **State**: Pinia store for the session (`stores/auth.ts`); pages poll while a job runs
+- **Passkeys**: `@simplewebauthn/browser` (`startRegistration`, `startAuthentication`)
+- **Permissions**: the interface hides what the API would refuse (`canManage` in `utils/environment.ts`); the API decides
 - **Routing**: Navigation guards for authentication
 - **WebSocket**: Socket.IO client in `components/XtermTerminal.vue`, on the dashboard origin
 
@@ -301,19 +328,30 @@ The environment ends `ready` (with an expiry) or `failed` (with the phase and th
 
 ## Authentication & Security
 
-### Access
+### Accounts and roles
 
-- Dashboard: GitHub OAuth (org and team membership), sessions in Postgres, HttpOnly cookies
-- `/api/v1` (`ApiAuthGuard`): a dashboard session, or `Authorization: Bearer <SPAWNER_BOOTSTRAP_TOKEN>`. Changes made with a session must carry `X-Spawner-Client`: a page on another origin, such as a preview, cannot add it without a CORS preflight, so the session cookie alone cannot act
-- Terminal: one-time WebSocket ticket from `GET /api/auth/ws-token` (session), valid 30 seconds
+- No passwords. The first access goes through an invitation link (one use, 24 hours by default), which creates the account with a passkey; then the user logs in with a passkey. An admin can send a user who lost their passkeys a link for a new one. Without TLS (local install), browsers refuse passkeys on any host but localhost, so an invitation logs in without one.
+- GitHub login is optional, configured from the settings page (the client secret is stored encrypted). With an organization set, its members (of the team, when one is set) can log in and get a member account; membership is checked at every login.
+- The first admin: while no active admin exists, each start of Spawner prints an invitation valid one hour in its logs. `node dist/admin.js invite --role admin` prints one on demand (in the container: `docker exec -u node spawner node dist/admin.js invite --role admin`).
+- Roles: `admin` does everything; `member` creates environments, manages, shares, runs commands and opens terminals in their own, and reads everyone's environments, logs and resources. Projects, team, settings, deploy keys and audit are for admins.
 
-**Endpoints:**
-- `GET /api/auth/github` - Initiate OAuth
-- `GET /api/auth/github/callback` - OAuth callback
-- `GET /api/auth/logout` - Destroy session
-- `GET /api/auth/me` - Current user
-- `GET /api/auth/status` - Auth status
-- `GET /api/auth/ws-token` - WebSocket ticket
+### Requests
+
+- Each request has an actor (`ActorMiddleware`): a bearer token (personal token, or the bootstrap token of the installation) or the dashboard session. The global `AuthGuard` requires one unless the route is `@Public()`, plus the scopes listed with `@Scopes()`.
+- Scopes: `envs:read`, `envs:write`, `envs:exec`, `preview`, `admin`. A session has all the scopes of its role; a token has those it was given, never more than its user's role allows (a demoted admin's tokens lose `admin` at once), and may be restricted to one project.
+- Personal tokens: `spn_<prefix>_<secret>`, shown once; only their SHA-256 is stored. 90 days by default, revocable, last use recorded. A token creates tokens of at most its own scopes.
+- CLI login (device flow, RFC 8628): the CLI gets a code, its user approves it at `/device` from a dashboard session, and the CLI receives a token named after the machine.
+- CSRF: every request that changes something without a bearer token must carry `X-Spawner-Client`, which a page on another origin cannot add without a CORS preflight that only the dashboard origin passes. The session cookie is `__Host-spawner_session` over HTTPS, so previews can neither receive nor overwrite it.
+- Rate limits apply per user (per IP without one), tighter on the login routes.
+- Terminal: the WebSocket checks the Origin header and needs a one-time ticket (`POST /api/v1/auth/ws-ticket`, 30 seconds); it opens only where the user may run commands, and is audited.
+
+### Previews
+
+Before each request to an exposure with `auth: team` (the default), Traefik asks `GET /api/v1/auth/verify` (forwardAuth, with only the Accept, Cookie and X-Spawner-Preview headers). It lets through, in this order: CORS preflights; the `X-Spawner-Preview` header (a one-hour token for one environment, from `POST /api/v1/envs/:id/preview-token`, removed before the request reaches the application); a share link (`?__spawner_share=`), answered by a redirect without the parameter and a cookie valid for that environment only; the team cookie `spawner_preview` (12 hours, for active users); a share cookie. Otherwise a browser goes to `<dashboard>/api/v1/auth/preview?next=`, which sets the team cookie on the preview domain for a logged-in user (or sends them to log in first), and other clients get a 401. Each request let through records the environment's last activity (at most once a minute). Exposures with `auth: none` are public.
+
+### Audit
+
+Logins, invitations, users, tokens, device approvals, passkeys, projects, environment actions, commands (truncated), terminals, refused compose files and settings changes go to `audit_events`, kept 90 days and listed for admins.
 
 ### Isolation
 
@@ -326,20 +364,44 @@ The environment ends `ready` (with an expiry) or `failed` (with the phase and th
 
 ## API Endpoints
 
-Base: `/api`
+Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` header.
+
+### Access (`/api/v1/auth`)
+
+- `GET /session` - The logged-in user and the login methods available (public)
+- `POST /logout`
+- `POST /passkey/options`, `POST /passkey` - Passkey login (public)
+- `GET /github`, `GET /github/callback` - GitHub login, or `?link=true` to link GitHub to the account (`/api/auth/github/callback`, the route before v1, forwards to it)
+- `POST /device` (public) - Starts a CLI login: `{ "clientName": "claude-laptop" }` gives `{ deviceCode, userCode, verificationUri, interval }`
+- `POST /device/token` (public) - Polled by the CLI: `{ "deviceCode": "..." }`, a 400 `{ error: "authorization_pending" | "slow_down" | "access_denied" | "expired_token" }` until it gives the token
+- `GET /device/:userCode`, `POST /device/approve` - Approval from the dashboard: `{ "userCode": "BCDF-GHJK", "approve": true }`
+- `POST /ws-ticket` - One-time ticket for the terminal WebSocket
+- `GET /verify` - forwardAuth of Traefik (public, internal)
+- `GET /preview?next=<preview URL>` - Sets the preview cookie for a logged-in user (public)
+
+### Team and account
+
+- `POST /api/v1/invites` (admin) - `{ "role": "member", "note": "Grace", "ttlHours": 24 }`, or `{ "userId": 3 }` for a new passkey; answers the link once
+- `GET /api/v1/invites`, `DELETE /api/v1/invites/:id` (admin) - Pending invitations
+- `GET /api/v1/invites/open/:token`, `POST .../passkey-options`, `POST .../accept` (public) - Using an invitation: `{ "name": "Grace", "credential": <registration>, "passkeyName": "MacBook" }`
+- `GET /api/v1/users`, `PATCH /api/v1/users/:id` (admin) - `{ "role": "admin" }`, `{ "isActive": false }`
+- `GET /api/v1/me`, `PATCH /api/v1/me` - The account; `POST /me/passkeys/options`, `POST /me/passkeys`, `DELETE /me/passkeys/:id`, `DELETE /me/identities/:id`
+- `GET /api/v1/tokens` (`?all=true` for admins), `POST /api/v1/tokens`, `DELETE /api/v1/tokens/:id` - `{ "name": "ci", "scopes": ["envs:read"], "expiresInDays": 30, "project": "blog" }`; the token is answered once
+- `GET /api/v1/settings/github`, `PUT /api/v1/settings/github` (admin)
+- `GET /api/v1/audit?before=<id>&action=env.` (admin)
 
 ### Projects (`/api/v1/projects`)
 
 - `GET /` - List, with the count of live environments
 - `GET /:slug` - Get
-- `POST /` - Create: `{ "slug": "blog", "name": "Blog", "repoUrl": "git@github.com:acme/blog.git", "defaultRef": "main", "rootDir": "." }`
-- `PATCH /:slug` - Update
-- `DELETE /:slug` - Delete (refused while it has live environments)
+- `GET /:slug/branches` - Branches of the project repository
+- `POST /` (admin) - Create: `{ "slug": "blog", "name": "Blog", "repoUrl": "git@github.com:acme/blog.git", "defaultRef": "main", "rootDir": "." }`
+- `PATCH /:slug`, `DELETE /:slug` (admin) - Update, delete (refused while it has live environments)
 
 ### Environments (`/api/v1/envs`)
 
-- `GET /` - List (`?project=blog`, `?project=blog&slug=feat-login`)
-- `GET /:id` - Get: status, URLs, exposures, sources, last job
+- `GET /` - List (`?project=blog`, `?project=blog&slug=feat-login`, `?mine=true`)
+- `GET /:id` - Get: status, owner and token, URLs, exposures, sources, last job
 - `POST /` - Create (multipart, answers 202 with `{ environment, job }`):
   - fields `project`, `env`, `createdVia` (`ui`, `cli`, `mcp`, `api`)
   - `primary`: JSON `{ "ref": "feat/login" }` to deploy the project repository from git (default branch when absent)
@@ -351,6 +413,10 @@ Base: `/api`
 - `GET /:id/services` - Containers and their state
 - `GET /:id/logs/:service?tail=200` - Service output (text)
 - `GET /:id/stats?minutes=60` - CPU and memory samples
+- `POST /:id/preview-token` - `{ header: "X-Spawner-Preview", token, expiresAt }`, for agents calling a protected preview
+- `POST /:id/share` (`{ "ttlHours": 24 }`), `GET /:id/shares`, `DELETE /:id/shares/:shareId` - Share links
+
+Changing an environment, sharing it, running commands in it and opening its terminal need its owner or an admin.
 
 ### Jobs (`/api/v1/jobs`)
 
@@ -358,17 +424,21 @@ Base: `/api`
 - `GET /:id/logs` - Log (text)
 - `GET /:id/logs/stream` - Log as server-sent events, one line per event, until the job ends
 
-### Git (`/api/git`, dashboard session)
+### Git (`/api/v1/git`, admins)
 
 - `GET /key`, `POST /key/generate` - Global deploy key
 - `GET /keys/repos`, `POST /keys/generate` - Keys per repository (`{ "gitRepo": "..." }`)
 - `POST /test` - Test access to a repository (`{ "gitRepo": "..." }`)
-- `POST /branches` - List branches (`{ "gitRepo": "..." }`)
+
+### System and health
+
+- `GET /api/v1/system/host/stats`, `GET /api/v1/system/spawner/environments-stats`
+- `GET /api/v1/healthz`, `GET /api/v1/readyz` (public)
 
 ### Terminal (WebSocket)
 
 **Namespace:** `/terminal`
-**Auth:** WebSocket ticket in the `token` query parameter
+**Auth:** the dashboard origin, and a ticket from `POST /api/v1/auth/ws-ticket` in the `token` query parameter
 
 **Events:**
 - Client → `start-terminal`: `{ environmentId, resourceName }` (`resourceName` is the compose service)
@@ -399,11 +469,11 @@ cat <data dir>/traefik/<id>.yaml
 docker logs spawner
 ```
 
-### Setting Up GitHub OAuth (Development)
+### First login (development)
 
-1. Create an OAuth App (organization, Settings, Developer settings, OAuth Apps) with the callback `http://spawner.localtest.me/api/auth/github/callback`
-2. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_ORG`, `GITHUB_TEAM` and `SESSION_SECRET` in `.env`
-3. Add the members to the team
+1. `docker compose up -d --build`, then `docker logs spawner` shows a link to create the first admin (or run `docker exec -u node spawner node dist/admin.js invite --role admin`)
+2. Over plain HTTP, browsers allow passkeys on localhost only: open the link on `http://spawner.localtest.me` to log in without a passkey (local install), or on `http://localhost:8080` to create one
+3. GitHub login, if wanted: create an OAuth App with the callback `http://spawner.localtest.me/api/v1/auth/github/callback`, then fill the settings page (System, Settings)
 
 ## Infrastructure
 
@@ -421,11 +491,11 @@ One image built from the root `Dockerfile` runs the API and serves the web inter
 ### Stacks
 
 - `docker-compose.yml`: local stack over HTTP (Postgres, Traefik, Spawner)
-- `docker-compose.production.yml`: HTTPS with a certificate per host (Let's Encrypt TLS challenge), configured by `configure.sh` into `.env.production`. The wildcard certificate (DNS-01) and the new installer come in M6
+- `docker-compose.production.yml`: HTTPS with a certificate per host (Let's Encrypt TLS challenge), configured by `configure.sh` into `.env.production`, which also prints the link of the first admin. The wildcard certificate (DNS-01) and the new installer come in M6
 
 ### Reverse Proxy
 
-Traefik v3 reads routes from `<data dir>/traefik/` (file provider, watched). Spawner writes `_spawner.yaml` for the dashboard and one file per environment, and attaches Traefik to each environment network.
+Traefik v3 reads routes from `<data dir>/traefik/` (file provider, watched). Spawner writes `_spawner.yaml` for the dashboard and the preview protection middlewares, and one file per environment; it attaches Traefik to each environment network, and an environment is ready once Traefik serves its hosts.
 
 ### Turborepo Caching
 

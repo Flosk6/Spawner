@@ -6,7 +6,9 @@
 
 Spawner runs a copy of your application for each branch on a VPS, with its own URL, database and logs, so the whole team can test any branch in real time. Developers and coding agents create, update and delete environments from the dashboard or the API, run commands in them and read their logs, while the code keeps living in their local worktrees.
 
-**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine and its API are done (milestone M1); team access, the CLI and the installer come next.
+Previews are protected: teammates open them once logged in, agents with a short token, and anyone else through a temporary share link.
+
+**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine and its API (milestone M1) and team access (M2: invitations, passkeys, tokens, protected previews) are done; the CLI and the installer come next.
 
 ## How it works
 
@@ -52,9 +54,12 @@ Requirements: Docker with Compose v2, Node.js 22 and pnpm 8.
 ```bash
 cp .env.example .env    # set SPAWNER_DATA_DIR to an absolute path, and a SPAWNER_BOOTSTRAP_TOKEN
 docker compose up -d --build
+docker logs spawner     # shows the link that creates the first admin account
 ```
 
-The dashboard is at `http://spawner.localtest.me` (every subdomain of localtest.me resolves to 127.0.0.1). With the API:
+The dashboard is at `http://spawner.localtest.me` (every subdomain of localtest.me resolves to 127.0.0.1). Open the first admin link there; accounts have no password, they log in with passkeys (over plain HTTP, browsers allow passkeys on `localhost` only, so a local install lets invitations log in without one). Invite the team from the Team page.
+
+With the API, using the bootstrap token of the installation (personal tokens are created from your account page):
 
 ```bash
 TOKEN=<your SPAWNER_BOOTSTRAP_TOKEN>
@@ -72,7 +77,14 @@ tar -czf /tmp/worktree.tar.gz --exclude node_modules examples/node-postgres
 curl -H "Authorization: Bearer $TOKEN" $API/envs -F project=example -F env=local -F primary=@/tmp/worktree.tar.gz
 ```
 
-Each change answers with a job: follow it with `GET /api/v1/jobs/<id>/logs/stream`. Then `GET /api/v1/envs/<id>` gives the URLs, `POST /api/v1/envs/<id>/exec` runs a command in a service, `GET /api/v1/envs/<id>/logs/<service>` reads its output. The full API is described in [CLAUDE.md](CLAUDE.md#api-endpoints).
+Each change answers with a job: follow it with `GET /api/v1/jobs/<id>/logs/stream`. Then `GET /api/v1/envs/<id>` gives the URLs, `POST /api/v1/envs/<id>/exec` runs a command in a service, `GET /api/v1/envs/<id>/logs/<service>` reads its output, and `POST /api/v1/envs/<id>/preview-token` gives the header an agent sends to call the protected URLs:
+
+```bash
+HEADER=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" $API/envs/<id>/preview-token | jq -r .token)
+curl -H "X-Spawner-Preview: $HEADER" http://demo--example.localtest.me/
+```
+
+The full API is described in [CLAUDE.md](CLAUDE.md#api-endpoints).
 
 ## Production
 
@@ -83,7 +95,7 @@ git clone -b v1 https://github.com/Flosk6/Spawner.git spawner && cd spawner
 ./configure.sh          # writes .env.production and starts docker-compose.production.yml
 ```
 
-The dashboard is then at `https://spawner.preview.yourdomain.com`. Certificates are obtained per host for now; a one-command installer with a wildcard certificate comes with milestone M6.
+The script prints the dashboard URL, `https://spawner.preview.yourdomain.com`, and a link valid one hour to create the admin account. Certificates are obtained per host for now; a one-command installer with a wildcard certificate comes with milestone M6.
 
 ## Security
 
@@ -91,7 +103,10 @@ The dashboard is then at `https://spawner.preview.yourdomain.com`. Certificates 
 - **Isolation**: one network per environment; Traefik routes through files and never gets the Docker socket
 - **No shell**: git and Docker Compose run with argument arrays and a minimal environment; the host environment never reaches the compose files
 - **Uploads**: archives are checked entry by entry (no absolute paths, `..`, escaping links, devices)
-- **Access**: GitHub OAuth (team based) for the dashboard, a bootstrap token for the API until personal tokens arrive; changes made with a browser session need a header that other origins cannot send
+- **Accounts**: no passwords. Invitation links create accounts with a passkey; GitHub login (by organization and team) is optional. Members manage their own environments, admins everything; everything is in an audit trail
+- **Tokens**: personal API tokens with scopes (`envs:read`, `envs:write`, `envs:exec`, `preview`, `admin`), an expiry and an optional project; only their hash is stored. The CLI logs in through a device code approved in the browser
+- **Previews**: Traefik asks Spawner before each request to a protected URL; teammates pass with a cookie set by the dashboard, agents with a one-hour header token, guests with a share link that expires
+- **CSRF**: the dashboard session is a `__Host-` cookie, and every change made without a token needs a header that other origins, previews included, cannot send
 - **Deploy keys**: read-only SSH keys per repository
 
 Run Spawner on a server dedicated to previews: environments run code from branches that have not been reviewed yet.
