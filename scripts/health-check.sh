@@ -44,8 +44,7 @@ check_container() {
 
 # Check containers
 check_container "spawner-postgres" "PostgreSQL Database"
-check_container "spawner-api" "API Server"
-check_container "spawner-web" "Web Interface"
+check_container "spawner" "Spawner (API + web interface)"
 
 # Check if Traefik is running (production only)
 if docker ps --format '{{.Names}}' | grep -q "^spawner-traefik$"; then
@@ -94,8 +93,8 @@ docker volume ls --filter name=spawner | tail -n +2
 
 echo ""
 echo -e "${BLUE}--- Recent Logs (last 10 lines) ---${NC}"
-echo -e "${YELLOW}API Logs:${NC}"
-docker logs spawner-api --tail 10 2>&1 | tail -10
+echo -e "${YELLOW}Spawner Logs:${NC}"
+docker logs spawner --tail 10 2>&1 | tail -10
 
 echo ""
 echo -e "${BLUE}======================================${NC}"

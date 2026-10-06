@@ -140,8 +140,7 @@ All resources get automatic HTTPS, environment variables, and Traefik routing.
 
 **Logs:**
 ```bash
-docker logs spawner-api        # API logs
-docker logs spawner-web        # Web logs
+docker logs spawner            # API and web interface logs
 docker-compose logs -f         # All services
 ```
 

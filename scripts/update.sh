@@ -133,7 +133,7 @@ ELAPSED=0
 HEALTHY=false
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
-    if docker ps --filter "name=spawner-api" --filter "health=healthy" | grep -q spawner-api; then
+    if docker ps --filter "name=^spawner$" --filter "health=healthy" | grep -q spawner; then
         HEALTHY=true
         break
     fi
@@ -145,7 +145,7 @@ done
 if [ "$HEALTHY" = true ]; then
     echo -e "${GREEN}Services are healthy${NC}"
 else
-    echo -e "${YELLOW}Warning: Service health check timed out. Check logs with: docker logs spawner-api${NC}"
+    echo -e "${YELLOW}Warning: Service health check timed out. Check logs with: docker logs spawner${NC}"
 fi
 
 echo ""
@@ -159,7 +159,7 @@ echo -e "Log file: ${LOGFILE}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
 echo -e "  1. Verify services: ${YELLOW}docker ps${NC}"
-echo -e "  2. Check logs: ${YELLOW}docker logs spawner-api${NC}"
+echo -e "  2. Check logs: ${YELLOW}docker logs spawner${NC}"
 echo -e "  3. Access dashboard: ${YELLOW}https://your-domain.com${NC}"
 echo ""
 

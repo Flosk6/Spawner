@@ -46,8 +46,8 @@ fi
 echo -e "${GREEN}Starting database restore...${NC}"
 
 # Stop the API to prevent connections during restore
-echo -e "${YELLOW}Stopping spawner-api...${NC}"
-docker stop spawner-api
+echo -e "${YELLOW}Stopping spawner...${NC}"
+docker stop spawner
 
 # Drop and recreate database
 echo -e "${YELLOW}Dropping and recreating database...${NC}"
@@ -62,13 +62,13 @@ if [ $? -eq 0 ]; then
     echo -e "${GREEN}Restore completed successfully!${NC}"
 
     # Restart the API
-    echo -e "${YELLOW}Starting spawner-api...${NC}"
-    docker start spawner-api
+    echo -e "${YELLOW}Starting spawner...${NC}"
+    docker start spawner
 
     echo -e "${GREEN}Database restored and API restarted.${NC}"
 else
     echo -e "${RED}Restore failed!${NC}"
-    echo -e "${YELLOW}Attempting to restart spawner-api...${NC}"
-    docker start spawner-api
+    echo -e "${YELLOW}Attempting to restart spawner...${NC}"
+    docker start spawner
     exit 1
 fi

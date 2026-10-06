@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   traefik:
     image: traefik:v2.11
@@ -51,11 +49,11 @@ services:
       timeout: 5s
       retries: 5
 
-  spawner-api:
+  spawner:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: spawner-api
+      dockerfile: Dockerfile
+    container_name: spawner
     restart: unless-stopped
     environment:
       - NODE_ENV=production
@@ -90,38 +88,14 @@ services:
         condition: service_healthy
     networks:
       - spawner-network
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/auth/status', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
-
-  spawner-web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    container_name: spawner-web
-    restart: unless-stopped
-    depends_on:
-      - spawner-api
-    networks:
-      - spawner-network
       - traefik-public
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
-      # HTTP router
-      - "traefik.http.routers.spawner-web.rule=Host(`spawner.${DOMAIN}`)"
-      - "traefik.http.routers.spawner-web.entrypoints=websecure"
-      - "traefik.http.routers.spawner-web.tls.certresolver=letsencrypt"
-      - "traefik.http.services.spawner-web.loadbalancer.server.port=80"
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+      - "traefik.http.routers.spawner.rule=Host(`spawner.${DOMAIN}`)"
+      - "traefik.http.routers.spawner.entrypoints=websecure"
+      - "traefik.http.routers.spawner.tls.certresolver=letsencrypt"
+      - "traefik.http.services.spawner.loadbalancer.server.port=3000"
 
 networks:
   spawner-network:

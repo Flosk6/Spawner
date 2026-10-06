@@ -40,10 +40,10 @@ crontab -e
 - L'API est automatiquement arrêtée puis redémarrée
 
 **Workflow:**
-1. Arrêt de spawner-api
+1. Arrêt de spawner
 2. Drop + recreate database
 3. Import du backup
-4. Redémarrage de spawner-api
+4. Redémarrage de spawner
 
 **Usage recommandé:**
 - Tester sur un backup récent d'abord
@@ -190,7 +190,7 @@ gunzip -t /opt/spawner/backups/spawner_backup_XXX.sql.gz
 docker-compose restart
 
 # Vérifier les logs spécifiques
-docker logs spawner-api
+docker logs spawner
 docker logs spawner-postgres
 ```
 
