@@ -1,5 +1,5 @@
 import type { GitDeploy } from '../services/api';
-import type { Environment, EnvironmentStatus } from '../types';
+import type { Environment, EnvironmentStatus, User } from '../types';
 
 export type StatusTone = 'ready' | 'busy' | 'stopped' | 'failed';
 
@@ -81,4 +81,20 @@ export function redeployRequest(environment: Environment): GitDeploy | null {
     }
   }
   return deploy;
+}
+
+/**
+ * Members act on their own environments; admins on all of them. The API has
+ * the last word; the interface only hides what would be refused.
+ */
+export function canManage(user: User | null, environment: Environment): boolean {
+  return user !== null && (user.role === 'admin' || environment.owner?.id === user.id);
+}
+
+/** Who created an environment and through what: "Ada via claude-laptop". */
+export function ownerLabel(environment: Environment): string {
+  if (!environment.owner) {
+    return 'installation token';
+  }
+  return environment.tokenName ? `${environment.owner.name} via ${environment.tokenName}` : environment.owner.name;
 }

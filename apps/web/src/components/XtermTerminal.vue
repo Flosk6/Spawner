@@ -11,6 +11,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { io, Socket } from 'socket.io-client';
 import 'xterm/css/xterm.css';
+import { authApi } from '../services/api';
 
 interface Props {
   environmentId: string;
@@ -70,18 +71,12 @@ onMounted(() => {
 
 async function connectWebSocket() {
   try {
-    // One-time ticket for the websocket, fetched with the session cookie.
-    // The interface and the API share the same origin.
-    const response = await fetch('/api/auth/ws-token', { credentials: 'include' });
-
-    if (!response.ok) {
-      throw new Error('Failed to get WebSocket token');
-    }
-
-    const { token } = await response.json();
+    // One-time ticket for the websocket, from a request only the dashboard
+    // can make. The interface and the API share the same origin.
+    const { ticket } = await authApi.wsTicket();
 
     socket = io('/terminal', {
-      query: { token },
+      query: { token: ticket },
       transports: ['polling', 'websocket'],
     });
   } catch (error) {

@@ -1,72 +1,46 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { User, AuthStatus } from '@spawner/types';
+import { computed, ref } from 'vue';
+import { authApi } from '../services/api';
+import type { User } from '../types';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
+  const methods = ref({ passkey: true, github: false });
   const loading = ref(false);
-  const error = ref<string | null>(null);
 
   const isAuthenticated = computed(() => user.value !== null);
+  const isAdmin = computed(() => user.value?.role === 'admin');
 
   // The router guard and the app shell both ask on startup: they share one request.
   let pending: Promise<void> | null = null;
 
   function checkAuth(): Promise<void> {
-    pending ??= fetchStatus().finally(() => (pending = null));
+    pending ??= fetchSession().finally(() => (pending = null));
     return pending;
   }
 
-  async function fetchStatus() {
+  async function fetchSession() {
     loading.value = true;
-    error.value = null;
     try {
-      const response = await fetch('/api/auth/status', {
-        credentials: 'include',
-      });
-      const data: AuthStatus = await response.json();
-      if (data.authenticated && data.user) {
-        user.value = data.user;
-      } else {
-        user.value = null;
-      }
-    } catch (e) {
-      console.error('Auth check failed:', e);
-      error.value = 'Failed to check authentication status';
+      const session = await authApi.session();
+      user.value = session.user;
+      methods.value = session.methods;
+    } catch {
       user.value = null;
     } finally {
       loading.value = false;
     }
+  }
+
+  function setUser(value: User) {
+    user.value = value;
   }
 
   async function logout() {
-    loading.value = true;
-    error.value = null;
-    try {
-      await fetch('/api/auth/logout', {
-        credentials: 'include',
-      });
-      user.value = null;
-      window.location.href = '/login';
-    } catch (e) {
-      console.error('Logout failed:', e);
-      error.value = 'Failed to logout';
-    } finally {
-      loading.value = false;
-    }
+    await authApi.logout().catch(() => undefined);
+    user.value = null;
+    window.location.href = '/login';
   }
 
-  function loginWithGithub() {
-    window.location.href = '/api/auth/github';
-  }
-
-  return {
-    user,
-    loading,
-    error,
-    isAuthenticated,
-    checkAuth,
-    logout,
-    loginWithGithub,
-  };
+  return { user, methods, loading, isAuthenticated, isAdmin, checkAuth, setUser, logout };
 });

@@ -23,6 +23,7 @@
 
     <div v-else>
       <div class="flex flex-wrap items-center gap-3 mb-8 pb-6 border-b border-slate-300 dark:border-purple-800/30">
+        <SelectButton v-model="scope" :options="scopeOptions" option-label="label" option-value="value" :allow-empty="false" />
         <Select
           v-model="projectFilter"
           :options="projects"
@@ -78,10 +79,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Select from 'primevue/select';
+import SelectButton from 'primevue/selectbutton';
 import ProgressSpinner from 'primevue/progressspinner';
 import EnvironmentCard from '../components/EnvironmentCard.vue';
 import EnvironmentDialog from '../components/EnvironmentDialog.vue';
 import { useNotification } from '../composables/useNotification';
+import { useAuthStore } from '../stores/auth';
 import { environmentsApi, errorMessage, projectsApi } from '../services/api';
 import type { Environment, JobAccepted, ProjectSummary } from '../types';
 import { TONE_CLASSES, redeployRequest, statusTone, type StatusTone } from '../utils/environment';
@@ -98,9 +101,20 @@ const loading = ref(true);
 const creating = ref(false);
 const projectFilter = ref((route.query.project as string) ?? '');
 const statusFilter = ref<StatusTone | 'all'>('all');
+const authStore = useAuthStore();
+const scopeOptions = [
+  { label: 'All', value: 'all' },
+  { label: 'Mine', value: 'mine' },
+];
+const scope = ref<'all' | 'mine'>('all');
 let timer: ReturnType<typeof setInterval> | null = null;
 
-const ofProject = computed(() => environments.value.filter((environment) => !projectFilter.value || environment.project === projectFilter.value));
+const ofProject = computed(() =>
+  environments.value.filter(
+    (environment) =>
+      (!projectFilter.value || environment.project === projectFilter.value) && (scope.value === 'all' || environment.owner?.id === authStore.user?.id),
+  ),
+);
 
 const statusFilters = computed(() => {
   const count = (tone: StatusTone) => ofProject.value.filter((environment) => statusTone(environment.status) === tone).length;

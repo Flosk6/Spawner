@@ -5,7 +5,7 @@
         <h1 class="text-4xl font-bold mb-2">Projects</h1>
         <p class="text-lg opacity-70">Repositories holding a <code class="text-base">.spawner/spawner.yaml</code></p>
       </div>
-      <button class="primary-action" @click="edit(null)">
+      <button v-if="authStore.isAdmin" class="primary-action" @click="edit(null)">
         <i class="pi pi-plus text-lg"></i>
         <span class="text-lg">New project</span>
       </button>
@@ -21,7 +21,8 @@
       <p class="mb-6 opacity-60">
         A project is a repository with a <code>.spawner/</code> directory, see <code>examples/node-postgres</code>.
       </p>
-      <button class="primary-action" @click="edit(null)">
+      <p v-if="!authStore.isAdmin" class="opacity-60">An admin adds the projects.</p>
+      <button v-else class="primary-action" @click="edit(null)">
         <i class="pi pi-plus"></i>
         <span>Add your first project</span>
       </button>
@@ -63,7 +64,7 @@
             </div>
           </dl>
 
-          <div class="mt-auto flex gap-2" @click.stop>
+          <div v-if="authStore.isAdmin" class="mt-auto flex gap-2" @click.stop>
             <button
               class="flex-1 px-4 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-purple-800/30 text-sm font-medium text-slate-900 dark:text-white rounded-lg transition-all flex items-center justify-center gap-2"
               @click="edit(project)"
@@ -92,10 +93,12 @@ import { useRouter } from 'vue-router';
 import ProgressSpinner from 'primevue/progressspinner';
 import ProjectDialog from '../components/ProjectDialog.vue';
 import { useNotification } from '../composables/useNotification';
+import { useAuthStore } from '../stores/auth';
 import { errorMessage, projectsApi } from '../services/api';
 import type { Project, ProjectSummary } from '../types';
 
 const router = useRouter();
+const authStore = useAuthStore();
 const { showError, showSuccess, confirmDelete } = useNotification();
 
 const projects = ref<ProjectSummary[]>([]);

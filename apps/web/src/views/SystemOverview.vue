@@ -165,7 +165,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import api from '../services/api';
+import { systemApi } from '../services/api';
 
 const hostStats = ref<any>(null);
 const spawnerStats = ref<any>(null);
@@ -187,8 +187,7 @@ onMounted(async () => {
 async function loadSystemStats() {
   loadingSystemStats.value = true;
   try {
-    const response = await api.get('/system/host/stats');
-    hostStats.value = response.data.data;
+    hostStats.value = await systemApi.hostStats();
   } catch (error) {
     console.error('Failed to load system stats:', error);
   } finally {
@@ -203,8 +202,7 @@ async function refreshSystemStats() {
 async function loadSpawnerStats() {
   loadingSpawnerStats.value = true;
   try {
-    const response = await api.get('/system/spawner/environments-stats');
-    spawnerStats.value = response.data.data;
+    spawnerStats.value = await systemApi.environmentsStats();
   } catch (error) {
     console.error('Failed to load Spawner stats:', error);
   } finally {

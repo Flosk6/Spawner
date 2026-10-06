@@ -23,6 +23,10 @@
       </div>
 
       <div class="space-y-1.5 mb-4 text-sm text-slate-600 dark:text-slate-400">
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="pi pi-user text-xs"></i>
+          <span class="truncate">{{ ownerLabel(environment) }}</span>
+        </div>
         <div v-if="primary" class="flex items-center gap-2 min-w-0">
           <i :class="primary.origin === 'upload' ? 'pi pi-upload' : 'pi pi-code-branch'" class="text-xs"></i>
           <span class="truncate">{{ sourceLabel(primary) }}</span>
@@ -54,14 +58,14 @@
           <button :class="actionClass" :disabled="busy" @click="$emit('view', environment)" v-tooltip.top="'Details'">
             <i class="pi pi-eye"></i>
           </button>
-          <button v-if="environment.status === 'ready'" :class="actionClass" :disabled="busy" @click="$emit('stop', environment)" v-tooltip.top="'Stop'">
+          <button v-if="manageable && environment.status === 'ready'" :class="actionClass" :disabled="busy" @click="$emit('stop', environment)" v-tooltip.top="'Stop'">
             <i class="pi pi-pause"></i>
           </button>
-          <button v-if="environment.status === 'stopped'" :class="actionClass" :disabled="busy" @click="$emit('start', environment)" v-tooltip.top="'Start'">
+          <button v-if="manageable && environment.status === 'stopped'" :class="actionClass" :disabled="busy" @click="$emit('start', environment)" v-tooltip.top="'Start'">
             <i class="pi pi-play"></i>
           </button>
           <button
-            v-if="redeployable"
+            v-if="manageable && redeployable"
             :class="actionClass"
             :disabled="busy"
             @click="$emit('redeploy', environment)"
@@ -69,7 +73,13 @@
           >
             <i class="pi pi-refresh"></i>
           </button>
-          <button :class="[actionClass, 'hover:!border-red-400 hover:text-red-600']" :disabled="busy" @click="$emit('delete', environment)" v-tooltip.top="'Delete'">
+          <button
+            v-if="manageable"
+            :class="[actionClass, 'hover:!border-red-400 hover:text-red-600']"
+            :disabled="busy"
+            @click="$emit('delete', environment)"
+            v-tooltip.top="'Delete'"
+          >
             <i class="pi pi-trash"></i>
           </button>
         </div>
@@ -82,7 +92,8 @@
 import { computed } from 'vue';
 import EnvironmentStatus from './EnvironmentStatus.vue';
 import type { Environment, EnvironmentSource } from '../types';
-import { TONE_CLASSES, isBusy, redeployRequest, statusTone } from '../utils/environment';
+import { useAuthStore } from '../stores/auth';
+import { TONE_CLASSES, canManage, isBusy, ownerLabel, redeployRequest, statusTone } from '../utils/environment';
 import { timeAgo, timeLeft } from '../utils/format';
 
 const props = defineProps<{ environment: Environment }>();
@@ -95,7 +106,9 @@ defineEmits<{
   delete: [environment: Environment];
 }>();
 
+const authStore = useAuthStore();
 const busy = computed(() => isBusy(props.environment.status));
+const manageable = computed(() => canManage(authStore.user, props.environment));
 const redeployable = computed(() => redeployRequest(props.environment) !== null);
 const borderClass = computed(() => TONE_CLASSES[statusTone(props.environment.status)].border);
 

@@ -185,7 +185,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
+import { gitApi } from '../services/api';
 
 const loading = ref(true);
 const repos = ref([]);
@@ -197,8 +197,7 @@ const copied = ref(false);
 async function loadRepos() {
   try {
     loading.value = true;
-    const response = await axios.get('/api/git/keys/repos');
-    repos.value = response.data;
+    repos.value = await gitApi.repos();
   } catch (error) {
     console.error('Error loading repos:', error);
     alert('Failed to load repositories');
@@ -210,9 +209,7 @@ async function loadRepos() {
 async function generateKeyForRepo(repo) {
   try {
     generatingRepoUrl.value = repo.gitRepo;
-    const response = await axios.post('/api/git/keys/generate', {
-      gitRepo: repo.gitRepo,
-    });
+    const { publicKey } = await gitApi.generateRepoKey(repo.gitRepo);
 
     // Update the repo in the list
     const index = repos.value.findIndex(r => r.gitRepo === repo.gitRepo);
@@ -220,7 +217,7 @@ async function generateKeyForRepo(repo) {
       repos.value[index] = {
         ...repos.value[index],
         keyExists: true,
-        publicKey: response.data.publicKey,
+        publicKey,
       };
     }
 

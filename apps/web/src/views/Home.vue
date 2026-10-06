@@ -205,7 +205,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import api, { environmentsApi, projectsApi } from '../services/api';
+import { environmentsApi, projectsApi, systemApi } from '../services/api';
 import EnvironmentStatus from '../components/EnvironmentStatus.vue';
 import type { Environment } from '../types';
 import { timeAgo } from '../utils/format';
@@ -240,8 +240,7 @@ async function loadEnvironments() {
 
 async function loadHostStats() {
   try {
-    const response = await api.get<{ data: HostStats }>('/system/host/stats');
-    hostStats.value = response.data.data;
+    hostStats.value = await systemApi.hostStats<HostStats>();
   } catch (error) {
     console.error('Failed to load host stats:', error);
   }

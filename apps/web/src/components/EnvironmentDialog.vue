@@ -57,7 +57,7 @@ import Select from 'primevue/select';
 import InputText from 'primevue/inputtext';
 import Button from 'primevue/button';
 import Message from 'primevue/message';
-import { environmentsApi, errorMessage, gitApi } from '../services/api';
+import { environmentsApi, errorMessage, projectsApi } from '../services/api';
 import type { JobAccepted, ProjectSummary } from '../types';
 import { ENV_SLUG_MAX_LENGTH, ENV_SLUG_PATTERN, suggestEnvSlug } from '../utils/environment';
 
@@ -89,13 +89,13 @@ watch(
   () => form.project,
   async () => {
     branches.value = [];
-    const repo = selectedProject.value?.repoUrl;
-    if (!repo) {
+    const project = selectedProject.value?.slug;
+    if (!project) {
       return;
     }
     loadingBranches.value = true;
     try {
-      branches.value = await gitApi.branches(repo);
+      branches.value = await projectsApi.branches(project);
     } catch {
       // The field stays free text: an unreachable repository fails later, with its reason.
     } finally {

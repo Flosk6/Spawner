@@ -6,10 +6,11 @@
     <!-- Modern Header -->
     <header v-if="authStore.isAuthenticated" class="sticky top-0 z-50 bg-white/90 dark:bg-dark-900/90 border-b border-slate-200 dark:border-purple-900/30 backdrop-blur-md">
       <div class="px-6 py-3">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between gap-4">
           <!-- Logo -->
-          <router-link to="/" class="flex items-center gap-1 hover:opacity-80 transition-opacity">
-            <Logo size="md" :show-text="true" />
+          <router-link to="/" class="flex items-center gap-1 hover:opacity-80 transition-opacity shrink-0">
+            <span class="hidden xl:block"><Logo size="md" :show-text="true" /></span>
+            <span class="xl:hidden"><Logo size="md" :show-text="false" /></span>
           </router-link>
 
           <!-- Navigation -->
@@ -27,7 +28,7 @@
                 >
                   <div class="flex items-center gap-2">
                     <i :class="item.icon" class="text-sm"></i>
-                    <span>{{ item.label }}</span>
+                    <span class="hidden lg:inline">{{ item.label }}</span>
                     <i class="pi pi-angle-down text-xs"></i>
                   </div>
                   <!-- Active indicator -->
@@ -68,9 +69,9 @@
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
                 ]"
               >
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2" :title="item.label">
                   <i :class="item.icon" class="text-sm"></i>
-                  <span>{{ item.label }}</span>
+                  <span class="hidden lg:inline">{{ item.label }}</span>
                 </div>
                 <!-- Active indicator -->
                 <div
@@ -117,30 +118,25 @@ const route = useRoute();
 const isDark = ref(true);
 
 const menuItems = computed(() => [
-  {
-    label: 'Home',
-    icon: 'pi pi-home',
-    path: '/home'
-  },
-  {
-    label: 'Projects',
-    icon: 'pi pi-folder',
-    path: '/projects'
-  },
-  {
-    label: 'Environments',
-    icon: 'pi pi-sitemap',
-    path: '/environments'
-  },
+  { label: 'Home', icon: 'pi pi-home', path: '/home' },
+  { label: 'Projects', icon: 'pi pi-folder', path: '/projects' },
+  { label: 'Environments', icon: 'pi pi-sitemap', path: '/environments' },
+  ...(authStore.isAdmin ? [{ label: 'Team', icon: 'pi pi-users', path: '/team' }] : []),
   {
     label: 'System',
     icon: 'pi pi-cog',
     path: '/system',
     submenu: [
       { label: 'Overview', path: '/system/overview' },
-      { label: 'Git Keys', path: '/system/settings/git' },
-    ]
-  }
+      ...(authStore.isAdmin
+        ? [
+            { label: 'Git keys', path: '/system/settings/git' },
+            { label: 'Settings', path: '/system/settings' },
+            { label: 'Audit', path: '/system/audit' },
+          ]
+        : []),
+    ],
+  },
 ]);
 
 function isActive(path: string): boolean {

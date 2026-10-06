@@ -25,7 +25,7 @@
             <EnvironmentStatus :status="environment.status" />
           </div>
           <p class="text-sm text-slate-500">
-            Created {{ timeAgo(environment.createdAt) }} from the {{ environment.createdVia }}
+            Created {{ timeAgo(environment.createdAt) }} by {{ ownerLabel(environment) }}, from the {{ environment.createdVia }}
             <template v-if="environment.expiresAt && environment.status !== 'failed'"> · expires {{ timeLeft(environment.expiresAt) }}</template>
           </p>
         </div>
@@ -34,7 +34,7 @@
           <a v-if="environment.url && environment.status === 'ready'" :href="environment.url" target="_blank" rel="noopener">
             <Button label="Open" icon="pi pi-external-link" />
           </a>
-          <span v-tooltip.bottom="redeployBlocked ?? ''">
+          <span v-if="manageable" v-tooltip.bottom="redeployBlocked ?? ''">
             <SplitButton
               label="Redeploy"
               icon="pi pi-refresh"
@@ -46,7 +46,7 @@
             />
           </span>
           <Button
-            v-if="environment.status === 'ready'"
+            v-if="manageable && environment.status === 'ready'"
             label="Stop"
             icon="pi pi-pause"
             severity="secondary"
@@ -55,7 +55,7 @@
             @click="act('stop')"
           />
           <Button
-            v-if="environment.status === 'stopped'"
+            v-if="manageable && environment.status === 'stopped'"
             label="Start"
             icon="pi pi-play"
             severity="secondary"
@@ -63,7 +63,15 @@
             :disabled="busy || acting"
             @click="act('start')"
           />
-          <Button label="Delete" icon="pi pi-trash" severity="danger" outlined :disabled="environment.status === 'deleting' || acting" @click="confirmRemove" />
+          <Button
+            v-if="manageable"
+            label="Delete"
+            icon="pi pi-trash"
+            severity="danger"
+            outlined
+            :disabled="environment.status === 'deleting' || acting"
+            @click="confirmRemove"
+          />
         </div>
       </div>
 
@@ -116,6 +124,31 @@
         </section>
       </div>
 
+      <!-- Sharing -->
+      <section v-if="manageable && environment.exposures.length > 0" class="panel mb-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+          <h2 class="panel-title !mb-0"><i class="pi pi-share-alt text-sm"></i>Share</h2>
+          <div class="flex items-center gap-2">
+            <Select v-model="shareHours" :options="shareDurations" option-label="label" option-value="value" size="small" class="w-36" />
+            <Button label="Create a link" icon="pi pi-link" size="small" :loading="sharing" @click="share" />
+          </div>
+        </div>
+        <p class="field-hint mb-3">The team opens the URLs once logged in. A link lets someone without an account in, until it expires.</p>
+        <Message v-if="sharedLink" severity="success" :closable="true" class="mb-3" @close="sharedLink = null">
+          <p class="mb-2">Copy this link now: it will not be shown again. It works until {{ new Date(sharedLink.expiresAt).toLocaleString() }}.</p>
+          <div class="flex items-center gap-2">
+            <code class="flex-1 break-all text-xs bg-white/60 dark:bg-black/20 rounded px-2 py-1">{{ sharedLink.url }}</code>
+            <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(sharedLink.url)" />
+          </div>
+        </Message>
+        <ul v-if="shares.length > 0" class="divide-y divide-slate-200 dark:divide-purple-800/30">
+          <li v-for="link in shares" :key="link.id" class="flex items-center justify-between gap-3 py-2 text-sm">
+            <span>Link by {{ link.createdBy ?? 'the installation token' }}, {{ timeAgo(link.createdAt) }}, expires {{ timeLeft(link.expiresAt) }}</span>
+            <Button icon="pi pi-times" severity="danger" text rounded size="small" v-tooltip.top="'Revoke'" @click="revokeShare(link.id)" />
+          </li>
+        </ul>
+      </section>
+
       <!-- Last job -->
       <section v-if="environment.lastJob" class="panel mb-6">
         <h2 class="panel-title"><i class="pi pi-list text-sm"></i>Last job</h2>
@@ -129,6 +162,7 @@
           <div v-if="selectedService" class="flex gap-1">
             <Button label="Logs" size="small" :outlined="serviceView !== 'logs'" @click="serviceView = 'logs'" />
             <Button
+              v-if="manageable"
               label="Terminal"
               size="small"
               :outlined="serviceView !== 'terminal'"
@@ -187,6 +221,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
+import Select from 'primevue/select';
 import SplitButton from 'primevue/splitbutton';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
@@ -195,9 +230,10 @@ import JobLog from '../components/JobLog.vue';
 import StatsChart from '../components/StatsChart.vue';
 import XtermTerminal from '../components/XtermTerminal.vue';
 import { useNotification } from '../composables/useNotification';
+import { useAuthStore } from '../stores/auth';
 import { environmentsApi, errorMessage } from '../services/api';
-import type { Environment, JobAccepted, ServiceState } from '../types';
-import { isBusy, redeployRequest } from '../utils/environment';
+import type { CreatedShareLink, Environment, JobAccepted, ServiceState, ShareLink } from '../types';
+import { canManage, isBusy, ownerLabel, redeployRequest } from '../utils/environment';
 import { formatBytes, timeAgo, timeLeft } from '../utils/format';
 
 const POLL_MS = 3000;
@@ -221,6 +257,51 @@ let poll: ReturnType<typeof setInterval> | null = null;
 const id = computed(() => route.params.id as string);
 const busy = computed(() => (environment.value ? isBusy(environment.value.status) : false));
 const selectedService = computed(() => services.value.find((service) => service.name === selected.value));
+
+const authStore = useAuthStore();
+const manageable = computed(() => (environment.value ? canManage(authStore.user, environment.value) : false));
+
+const shareDurations = [
+  { label: '1 hour', value: 1 },
+  { label: '1 day', value: 24 },
+  { label: '1 week', value: 168 },
+];
+const shareHours = ref(24);
+const shares = ref<ShareLink[]>([]);
+const sharedLink = ref<CreatedShareLink | null>(null);
+const sharing = ref(false);
+
+async function loadShares() {
+  shares.value = manageable.value ? await environmentsApi.shares(id.value).catch(() => []) : [];
+}
+
+async function share() {
+  sharing.value = true;
+  try {
+    sharedLink.value = await environmentsApi.share(id.value, shareHours.value);
+    await loadShares();
+  } catch (err) {
+    showError(errorMessage(err, 'The link could not be created'));
+  } finally {
+    sharing.value = false;
+  }
+}
+
+function revokeShare(shareId: string) {
+  confirmAction('Revoke this link? Whoever uses it loses access at once.', async () => {
+    try {
+      await environmentsApi.revokeShare(id.value, shareId);
+      await loadShares();
+    } catch (err) {
+      showError(errorMessage(err, 'The link could not be revoked'));
+    }
+  });
+}
+
+async function copy(value: string) {
+  await navigator.clipboard.writeText(value);
+  showSuccess('Copied');
+}
 
 const redeployBlocked = computed(() =>
   environment.value && !redeployRequest(environment.value) ? 'Deployed from a local worktree: redeploy it with the CLI' : null,
@@ -250,7 +331,7 @@ async function refresh() {
   } finally {
     loading.value = false;
   }
-  await loadServices();
+  await Promise.all([loadServices(), loadShares()]);
 }
 
 async function loadServices() {

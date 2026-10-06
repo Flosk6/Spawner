@@ -1,26 +1,133 @@
 // Shapes returned by the Spawner API, shared by the web UI and the CLI.
 // Dates are ISO 8601 strings once they went through JSON.
 
-// Authentication
+// Accounts and access
 
-export type UserRole = 'user' | 'admin';
+export type Role = 'admin' | 'member';
+
+/**
+ * What a session or a token may do: envs:read (list, logs, resources),
+ * envs:write (create, update, share, delete), envs:exec (commands and
+ * terminals), preview (open previews), admin (projects, team, settings).
+ */
+export type Scope = 'envs:read' | 'envs:write' | 'envs:exec' | 'preview' | 'admin';
 
 export interface User {
   id: number;
-  githubId: string;
-  username: string;
-  email?: string;
-  avatarUrl?: string;
-  role: UserRole;
-  isActive: boolean;
-  lastLoginAt: string;
-  createdAt: string;
-  updatedAt: string;
+  name: string;
+  role: Role;
+  avatarUrl: string | null;
+  email: string | null;
 }
 
-export interface AuthStatus {
-  authenticated: boolean;
+export interface AuthSession {
   user: User | null;
+  methods: { passkey: boolean; github: boolean };
+}
+
+export interface TeamMember extends User {
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  passkeys: number;
+  environments: number;
+  /** Linked GitHub login. */
+  github: string | null;
+}
+
+export interface PasskeyInfo {
+  id: string;
+  name: string;
+  deviceType: string;
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface Account {
+  user: User;
+  passkeys: PasskeyInfo[];
+  identities: { id: string; provider: string; username: string | null }[];
+  githubAvailable: boolean;
+}
+
+export interface Invite {
+  id: string;
+  role: Role;
+  note: string | null;
+  /** Set for a link that gives an existing user a new passkey. */
+  user: { id: number; name: string } | null;
+  createdBy: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+/** Answer to the creation of an invitation: its link is shown once. */
+export interface CreatedInvite {
+  id: string;
+  url: string;
+  role: Role;
+  note: string | null;
+  expiresAt: string;
+}
+
+/** What an invitation link shows before it is used. */
+export interface InviteInfo {
+  role: Role;
+  note: string | null;
+  user: { name: string } | null;
+  expiresAt: string;
+  /** False on an install without TLS, where browsers refuse passkeys. */
+  passkeyRequired: boolean;
+}
+
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  /** spn_<prefix>_... */
+  hint: string;
+  scopes: Scope[];
+  project: string | null;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  user?: { id: number; name: string };
+}
+
+/** Answer to the creation of a token: the token itself is shown once. */
+export interface CreatedToken {
+  token: string;
+  info: ApiTokenInfo;
+}
+
+/** A CLI login waiting for approval (device flow). */
+export interface DeviceRequest {
+  userCode: string;
+  clientName: string;
+  expiresAt: string;
+  scopes: Scope[];
+}
+
+export interface GithubSettings {
+  enabled: boolean;
+  source: 'settings' | 'environment' | 'none';
+  clientId: string;
+  hasSecret: boolean;
+  org: string;
+  team: string;
+  callbackUrl: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  createdAt: string;
+  userId: number | null;
+  /** "Ada", "Ada via claude-laptop", "bootstrap token". */
+  actor: string;
+  action: string;
+  target: string | null;
+  details: Record<string, unknown> | null;
+  ip: string | null;
 }
 
 // Projects
@@ -102,7 +209,9 @@ export interface Environment {
   phase: JobPhase | null;
   error: string | null;
   createdVia: CreatedVia;
-  ownerId: number | null;
+  owner: { id: number; name: string } | null;
+  /** Token the environment was created with ("claude-laptop"). */
+  tokenName: string | null;
   /** URL of the entrypoint exposure. */
   url: string | null;
   /** URL of each exposure, by name. */
@@ -111,6 +220,8 @@ export interface Environment {
   sources: EnvironmentSource[];
   lastJob: Job | null;
   expiresAt: string | null;
+  /** Last request let through to one of its URLs. */
+  lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -161,6 +272,27 @@ export interface ServiceState {
   state: string;
   /** As Docker words it, such as "Up 5 minutes (healthy)". */
   status: string;
+}
+
+export interface ShareLink {
+  id: string;
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** Answer to the creation of a share link: its URL is shown once. */
+export interface CreatedShareLink {
+  id: string;
+  url: string;
+  expiresAt: string;
+}
+
+/** A token for the X-Spawner-Preview header, how agents open protected previews. */
+export interface PreviewToken {
+  header: string;
+  token: string;
+  expiresAt: string;
 }
 
 export interface UsagePoint {
