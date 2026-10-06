@@ -45,3 +45,15 @@ jobs:
           tags: spawner:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  e2e:
+    name: Engine end to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Create, call, update and delete examples/node-postgres
+        run: scripts/e2e-engine.sh
