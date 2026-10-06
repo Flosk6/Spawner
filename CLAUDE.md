@@ -13,6 +13,7 @@ Spawner is a self-hosted environment management system for creating and managing
 - Dockerode library for secure Docker operations (no shell command injection)
 - Audit logging for all user actions
 - Real-time build progress and container logs
+- Memory safety guard to prevent system crashes during Docker builds
 
 ## Monorepo Architecture
 
@@ -164,6 +165,10 @@ Connection configured via `DATABASE_URL` environment variable.
 - `REPOS_PATH`: Git clones (default: /opt/spawner/repos)
 - `ENVS_PATH`: Environment files (default: /opt/spawner/envs)
 - `DOCKER_SOCKET`: Docker socket (default: /var/run/docker.sock)
+
+**Memory Safety:**
+- `MIN_REQUIRED_FREE_MEMORY_GB`: Minimum free RAM required before Docker builds (default: 2)
+- `ENABLE_MEMORY_CHECK`: Enable memory safety checks (default: true)
 
 ## Frontend Architecture (apps/web)
 

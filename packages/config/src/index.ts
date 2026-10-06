@@ -77,6 +77,36 @@ export const MAX_RESOURCE_LIMITS = {
   memoryReservation: '8G',
 } as const;
 
+// Memory unit conversions
+export const MEMORY_UNITS = {
+  BYTES_PER_KB: 1024,
+  BYTES_PER_MB: 1024 * 1024,
+  BYTES_PER_GB: 1024 * 1024 * 1024,
+} as const;
+
+// Memory safety configuration for Docker builds
+export const MEMORY_SAFETY = {
+  DEFAULT_MIN_REQUIRED_FREE_GB: 2,
+  DEFAULT_MIN_REQUIRED_FREE_BYTES: 2 * MEMORY_UNITS.BYTES_PER_GB,
+} as const;
+
+// Helper functions for memory conversions
+export function bytesToGB(bytes: number): number {
+  return bytes / MEMORY_UNITS.BYTES_PER_GB;
+}
+
+export function gbToBytes(gb: number): number {
+  return gb * MEMORY_UNITS.BYTES_PER_GB;
+}
+
+export function bytesToMB(bytes: number): number {
+  return bytes / MEMORY_UNITS.BYTES_PER_MB;
+}
+
+export function mbToBytes(mb: number): number {
+  return mb * MEMORY_UNITS.BYTES_PER_MB;
+}
+
 // Resource type configurations
 export const RESOURCE_CONFIGS: Record<ResourceType, {
   requiresGit: boolean;

@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { UpdateService } from './update.service';
 import { SchedulerService } from './scheduler.service';
+import { SystemStatsService } from './system-stats.service';
 import { AuthGuard } from '@nestjs/passport';
 import { DockerService } from '../../common/docker.service';
 import { PrismaService } from '../../common/prisma.service';
 import { StatsService } from '../stats/stats.service';
+import { execSync } from 'child_process';
 
 @Controller('system')
 @UseGuards(AuthGuard('session'))
@@ -12,6 +14,7 @@ export class SystemController {
   constructor(
     private readonly updateService: UpdateService,
     private readonly schedulerService: SchedulerService,
+    private readonly systemStatsService: SystemStatsService,
     private readonly dockerService: DockerService,
     private readonly prisma: PrismaService,
     private readonly statsService: StatsService,
@@ -505,27 +508,13 @@ export class SystemController {
   @Get('host/stats')
   async getHostStats() {
     try {
-      const os = require('os');
-      const { execSync } = require('child_process');
-
-      const totalMemory = os.totalmem();
-      const freeMemory = os.freemem();
-      const usedMemory = totalMemory - freeMemory;
-
-      const cpus = os.cpus();
-      const cpuCount = cpus.length;
-
-      let cpuUsage = 0;
-      try {
-        const loadAvg = os.loadavg();
-        cpuUsage = (loadAvg[0] / cpuCount) * 100;
-      } catch (error) {
-        console.error('Failed to get CPU usage:', error.message);
-      }
+      const memoryStats = this.systemStatsService.getMemoryStats();
+      const cpuInfo = this.systemStatsService.getCpuInfo();
+      const systemInfo = this.systemStatsService.getSystemInfo();
 
       let diskStats = { total: 0, used: 0, free: 0 };
       try {
-        const platform = os.platform();
+        const platform = systemInfo.platform;
 
         if (platform === 'darwin') {
           const dfOutput = execSync('df -k / | tail -1').toString();
@@ -557,16 +546,12 @@ export class SystemController {
       return {
         success: true,
         data: {
-          cpu: {
-            count: cpuCount,
-            usage: Math.min(100, Math.round(cpuUsage * 10) / 10),
-            model: cpus[0]?.model || 'Unknown',
-          },
+          cpu: cpuInfo,
           memory: {
-            total: totalMemory,
-            used: usedMemory,
-            free: freeMemory,
-            usagePercent: Math.round((usedMemory / totalMemory) * 100 * 10) / 10,
+            total: memoryStats.total,
+            used: memoryStats.used,
+            free: memoryStats.free,
+            usagePercent: memoryStats.usagePercent,
           },
           disk: {
             total: diskStats.total,
@@ -574,10 +559,10 @@ export class SystemController {
             free: diskStats.free,
             usagePercent: diskStats.total > 0 ? Math.round((diskStats.used / diskStats.total) * 100 * 10) / 10 : 0,
           },
-          uptime: os.uptime(),
-          hostname: os.hostname(),
-          platform: os.platform(),
-          arch: os.arch(),
+          uptime: systemInfo.uptime,
+          hostname: systemInfo.hostname,
+          platform: systemInfo.platform,
+          arch: systemInfo.arch,
         },
       };
     } catch (error) {

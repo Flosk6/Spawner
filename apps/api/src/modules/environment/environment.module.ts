@@ -4,6 +4,7 @@ import { EnvironmentService } from './environment.service';
 import { GitModule } from '../git/git.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { StatsModule } from '../stats/stats.module';
+import { SystemModule } from '../system/system.module';
 import { EnvironmentLogsEmitter } from '../../common/environment-logs.emitter';
 import { DockerService } from '../../common/docker.service';
 
@@ -12,6 +13,7 @@ import { DockerService } from '../../common/docker.service';
     GitModule,
     ProjectsModule,
     StatsModule,
+    SystemModule,
   ],
   controllers: [EnvironmentController],
   providers: [EnvironmentService, EnvironmentLogsEmitter, DockerService],

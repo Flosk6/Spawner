@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { UpdateService } from './update.service';
 import { SchedulerService } from './scheduler.service';
+import { SystemStatsService } from './system-stats.service';
 import { SystemController } from './system.controller';
 import { WebhookController } from './webhook.controller';
 import { DockerService } from '../../common/docker.service';
@@ -14,7 +15,7 @@ import { StatsModule } from '../stats/stats.module';
     StatsModule,
   ],
   controllers: [SystemController, WebhookController],
-  providers: [UpdateService, SchedulerService, DockerService, PrismaService],
-  exports: [UpdateService, SchedulerService],
+  providers: [UpdateService, SchedulerService, SystemStatsService, DockerService, PrismaService],
+  exports: [UpdateService, SchedulerService, SystemStatsService],
 })
 export class SystemModule {}

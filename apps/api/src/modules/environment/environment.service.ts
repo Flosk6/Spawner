@@ -27,12 +27,17 @@ import type {
   ResourceType,
   SpawnerConfig,
 } from "@spawner/types";
-import { isGitResource, DEFAULT_EXPOSED_PORTS } from "@spawner/config";
+import {
+  isGitResource,
+  DEFAULT_EXPOSED_PORTS,
+  gbToBytes,
+} from "@spawner/config";
 import { EnvironmentLogsEmitter } from "../../common/environment-logs.emitter";
 import { EnvVarsGenerator } from "../../common/env-vars.generator";
 import { DockerService } from "../../common/docker.service";
 import { GitKeysService } from "../git/git-keys.service";
 import { StatsService } from "../stats/stats.service";
+import { SystemStatsService } from "../system/system-stats.service";
 import * as yaml from "js-yaml";
 
 const execAsync = promisify(exec);
@@ -55,7 +60,8 @@ export class EnvironmentService {
     private logsEmitter: EnvironmentLogsEmitter,
     private dockerService: DockerService,
     private gitKeysService: GitKeysService,
-    private statsService: StatsService
+    private statsService: StatsService,
+    private systemStatsService: SystemStatsService
   ) {}
 
   async findAll() {
@@ -221,6 +227,25 @@ export class EnvironmentService {
         "init"
       );
       log("info", "Starting environment creation...");
+
+      const enableMemoryCheck = process.env.ENABLE_MEMORY_CHECK !== "false";
+
+      if (enableMemoryCheck) {
+        const minRequiredMemoryGB = parseFloat(
+          process.env.MIN_REQUIRED_FREE_MEMORY_GB || "2"
+        );
+        log("info", "Checking system memory availability...");
+        const memoryCheck = this.systemStatsService.checkMemoryAvailability(
+          gbToBytes(minRequiredMemoryGB)
+        );
+
+        if (!memoryCheck.available) {
+          log("error", memoryCheck.message);
+          throw new Error(memoryCheck.message);
+        }
+
+        log("success", memoryCheck.message);
+      }
 
       const envsPath = process.env.ENVS_PATH || "/opt/spawner/envs";
       const reposPath = process.env.REPOS_PATH || "/opt/spawner/repos";
@@ -1571,6 +1596,25 @@ export class EnvironmentService {
       }
 
       log("info", "Git updates completed, starting image rebuild...");
+
+      const minRequiredMemoryGB = parseFloat(
+        process.env.MIN_REQUIRED_FREE_MEMORY_GB || "2"
+      );
+      const enableMemoryCheck = process.env.ENABLE_MEMORY_CHECK !== "false";
+
+      if (enableMemoryCheck) {
+        log("info", "Checking system memory availability before rebuild...");
+        const memoryCheck = this.systemStatsService.checkMemoryAvailability(
+          gbToBytes(minRequiredMemoryGB)
+        );
+
+        if (!memoryCheck.available) {
+          log("error", memoryCheck.message);
+          throw new Error(memoryCheck.message);
+        }
+
+        log("success", memoryCheck.message);
+      }
 
       for (const resource of gitResources) {
         const resourceName = resource.resourceName;
