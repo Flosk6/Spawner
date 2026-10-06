@@ -3,57 +3,16 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { config } from 'dotenv';
-import { join, sep } from 'path';
-import { existsSync } from 'fs';
-import type { Request, Response, NextFunction } from 'express';
+import { join } from 'path';
 import session from 'express-session';
 import passport from 'passport';
 import connectPgSimple from 'connect-pg-simple';
 import { Pool } from 'pg';
 import { SessionIoAdapter } from './adapters/session-io.adapter';
+import { serveWebApp } from './web-app';
 
 // Load .env file from root BEFORE anything else
 config({ path: join(__dirname, '..', '..', '..', '.env') });
-
-/**
- * Serves the built web interface from WEB_DIST_PATH, so a single container
- * exposes the API (/api, /socket.io) and the single-page app on one origin.
- * Hashed assets are cached for a year; index.html is never cached, so a new
- * release is picked up on the next page load. Registered before the session
- * middleware so static files never trigger a session store lookup.
- */
-function serveWebApp(app: NestExpressApplication) {
-  const webDist = process.env.WEB_DIST_PATH;
-  if (!webDist) {
-    return;
-  }
-
-  const indexHtml = join(webDist, 'index.html');
-  if (!existsSync(indexHtml)) {
-    console.warn(`WEB_DIST_PATH is set but ${indexHtml} is missing, web interface disabled`);
-    return;
-  }
-
-  const isBackendPath = (path: string) =>
-    ['/api', '/socket.io'].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
-
-  app.useStaticAssets(webDist, {
-    index: false,
-    setHeaders: (res, filePath) => {
-      if (filePath.includes(`${sep}assets${sep}`)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      }
-    },
-  });
-
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (!['GET', 'HEAD'].includes(req.method) || isBackendPath(req.path)) {
-      return next();
-    }
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(indexHtml);
-  });
-}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);

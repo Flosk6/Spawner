@@ -141,7 +141,7 @@ export class GitKeysService {
     // git@github.com:org/repo.git -> github_com_org_repo
     // https://github.com/org/repo.git -> github_com_org_repo
 
-    let identifier = gitRepo
+    const identifier = gitRepo
       .replace(/^git@/, '')
       .replace(/^https?:\/\//, '')
       .replace(/\.git$/, '')
