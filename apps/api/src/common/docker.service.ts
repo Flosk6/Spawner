@@ -423,6 +423,44 @@ export class DockerService implements OnModuleInit {
     });
   }
 
+  /**
+   * Opens an interactive TTY session in a running container through the
+   * Docker exec API. The returned stream is raw (not multiplexed): writes go
+   * to the process stdin, data events carry its terminal output.
+   *
+   * @param containerNameOrId - Target container
+   * @param options - Shell command, user and working directory for the session
+   * @returns The bidirectional stream and a function returning the exit code
+   */
+  async execInteractive(
+    containerNameOrId: string,
+    options: { cmd: string[]; user?: string; workingDir?: string; cols?: number; rows?: number }
+  ): Promise<{ stream: stream.Duplex; exitCode: () => Promise<number> }> {
+    const container = this.docker.getContainer(containerNameOrId);
+
+    const exec = await container.exec({
+      Cmd: options.cmd,
+      User: options.user,
+      WorkingDir: options.workingDir,
+      Env: ["TERM=xterm-256color"],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: true,
+    });
+
+    const execStream = await exec.start({ hijack: true, stdin: true, Tty: true });
+
+    await exec
+      .resize({ h: options.rows ?? 30, w: options.cols ?? 80 })
+      .catch(() => undefined);
+
+    return {
+      stream: execStream,
+      exitCode: async () => (await exec.inspect()).ExitCode ?? 0,
+    };
+  }
+
   async listContainers(projectName: string): Promise<Docker.ContainerInfo[]> {
     try {
       return await this.docker.listContainers({

@@ -11,12 +11,14 @@ import { Server, Socket } from "socket.io";
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma.service";
 import { AuthTokenService } from "../auth/auth-token.service";
-import * as pty from "node-pty";
+import { StringDecoder } from "string_decoder";
+import type { Duplex } from "stream";
+import { DockerService } from "../../common/docker.service";
 
 interface TerminalSession {
   environmentId: string;
   resourceName: string;
-  process: any;
+  stream: Duplex;
   userId: number;
   createdAt: Date;
 }
@@ -80,7 +82,8 @@ export class TerminalGateway
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly authTokenService: AuthTokenService
+    private readonly authTokenService: AuthTokenService,
+    private readonly dockerService: DockerService
   ) {}
 
   async handleConnection(client: Socket) {
@@ -203,27 +206,9 @@ export class TerminalGateway
         execUser = "node"; // Next.js typically runs as node user
       }
 
-      // Start docker exec with PTY for real terminal support
-      // CRITICAL SECURITY: Execute as non-root user to prevent system modifications
-      const dockerProcess = pty.spawn(
-        "docker",
-        [
-          "exec",
-          "-it", // Interactive + TTY
-          "-u",
-          execUser, // Run as non-root user (SECURITY)
-          "-w",
-          workingDir, // Set working directory
-          containerName,
-          "/bin/sh", // Start a shell
-        ],
-        {
-          name: "xterm-256color",
-          cols: 80,
-          rows: 30,
-          cwd: process.cwd(),
-          env: process.env as Record<string, string>,
-        }
+      const { stream, exitCode } = await this.dockerService.execInteractive(
+        containerName,
+        { cmd: ["/bin/sh"], user: execUser, workingDir }
       );
 
       const sessionId = `${client.id}-${data.resourceName}`;
@@ -231,24 +216,28 @@ export class TerminalGateway
       this.sessions.set(sessionId, {
         environmentId: data.environmentId,
         resourceName: data.resourceName,
-        process: dockerProcess,
+        stream,
         userId: user.userId,
         createdAt: new Date(),
       });
 
       this.logger.log(`Terminal session created: ${sessionId}`);
 
-      // Send output to client
-      dockerProcess.onData((data: string) => {
-        this.logger.debug(`PTY output: ${data.substring(0, 50)}...`);
-        client.emit("terminal-output", data);
+      const decoder = new StringDecoder("utf8");
+      stream.on("data", (chunk: Buffer) => {
+        client.emit("terminal-output", decoder.write(chunk));
       });
 
-      dockerProcess.onExit(({ exitCode, signal }) => {
-        this.logger.log(
-          `Docker process exited with code: ${exitCode}, signal: ${signal}`
-        );
-        client.emit("terminal-exit", exitCode);
+      stream.on("end", async () => {
+        const code = await exitCode().catch(() => 0);
+        this.logger.log(`Terminal session ${sessionId} exited with code ${code}`);
+        client.emit("terminal-exit", code);
+        this.cleanupSession(sessionId);
+      });
+
+      stream.on("error", (error: Error) => {
+        this.logger.error(`Terminal stream error: ${error.message}`);
+        client.emit("terminal-error", "Terminal session lost");
         this.cleanupSession(sessionId);
       });
 
@@ -276,10 +265,6 @@ export class TerminalGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { input: string; resourceName: string }
   ) {
-    this.logger.debug(
-      `Received terminal input: ${data.input.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}`
-    );
-
     const user = (client.handshake as any).user;
     if (!user) {
       this.logger.warn("No user in handshake for terminal input");
@@ -294,8 +279,6 @@ export class TerminalGateway
       client.emit("terminal-error", "No active terminal session");
       return;
     }
-
-    this.logger.debug(`Writing to process stdin for session: ${sessionId}`);
 
     // Security: Check input length
     if (data.input.length > this.MAX_COMMAND_LENGTH) {
@@ -357,9 +340,8 @@ export class TerminalGateway
       );
     }
 
-    // Send input to PTY process
     try {
-      session.process.write(data.input);
+      session.stream.write(data.input);
     } catch (error) {
       this.logger.error(`Error writing to terminal: ${error.message}`);
       client.emit("terminal-error", "Terminal session lost");
@@ -379,12 +361,13 @@ export class TerminalGateway
   private cleanupSession(sessionId: string) {
     const session = this.sessions.get(sessionId);
     if (session) {
-      try {
-        session.process.kill();
-      } catch (error) {
-        this.logger.error(`Error killing process: ${error.message}`);
-      }
       this.sessions.delete(sessionId);
+      try {
+        session.stream.end();
+        session.stream.destroy();
+      } catch (error) {
+        this.logger.error(`Error closing terminal stream: ${error.message}`);
+      }
       this.logger.log(`Terminal session cleaned up: ${sessionId}`);
     }
   }
