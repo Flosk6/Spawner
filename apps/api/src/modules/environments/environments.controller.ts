@@ -9,16 +9,15 @@ import {
   ParseIntPipe,
   Post,
   Query,
-  Req,
   UploadedFiles,
-  UseGuards,
   UseInterceptors,
   DefaultValuePipe,
   Header,
 } from "@nestjs/common";
 import { AnyFilesInterceptor } from "@nestjs/platform-express";
 import * as fs from "fs";
-import { ApiAuthGuard, type ApiActor } from "../../common/api-auth.guard";
+import type { Actor } from "../../common/actor";
+import { CurrentActor, Scopes } from "../../common/auth.guard";
 import type { SourceRequest } from "../engine/pipeline.service";
 import { EnvironmentsService, type DeployRequest } from "./environments.service";
 
@@ -37,75 +36,78 @@ interface DeployFields {
  * - files: "primary" and "source:<name>" (gzip tar archives) for sources sent from a worktree
  */
 @Controller("v1/envs")
-@UseGuards(ApiAuthGuard)
+@Scopes("envs:read")
 export class EnvironmentsController {
   constructor(private readonly environments: EnvironmentsService) {}
 
+  /**
+   * Live environments, newest first. mine=true keeps the actor's own.
+   */
   @Get()
-  list(@Query("project") project?: string, @Query("slug") slug?: string) {
+  list(@CurrentActor() actor: Actor, @Query("project") project?: string, @Query("slug") slug?: string, @Query("mine") mine?: string) {
     if (project && slug) {
-      return this.environments.getBySlug(project, slug).then((environment) => [environment]);
+      return this.environments.getBySlug(actor, project, slug).then((environment) => [environment]);
     }
-    return this.environments.list(project);
+    return this.environments.list(actor, { project, mine: mine === "true" });
   }
 
   @Get(":id")
-  get(@Param("id") id: string) {
-    return this.environments.get(id);
+  get(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.get(actor, id);
   }
 
   @Post()
+  @Scopes("envs:write")
   @HttpCode(202)
   @UseInterceptors(AnyFilesInterceptor())
   async create(
+    @CurrentActor() actor: Actor,
     @Body() body: DeployFields & { project?: string; env?: string; createdVia?: string },
     @UploadedFiles() files: Express.Multer.File[] = [],
-    @Req() request: { actor: ApiActor },
   ) {
     return this.withUploads(files, () =>
-      this.environments.create({
+      this.environments.create(actor, {
         project: body.project ?? "",
         env: body.env ?? "",
         request: this.deployRequest(body, files),
         createdVia: body.createdVia ?? "api",
-        actorId: request.actor.userId,
       }),
     );
   }
 
   @Post(":id/update")
+  @Scopes("envs:write")
   @HttpCode(202)
   @UseInterceptors(AnyFilesInterceptor())
-  async update(
-    @Param("id") id: string,
-    @Body() body: DeployFields,
-    @UploadedFiles() files: Express.Multer.File[] = [],
-    @Req() request: { actor: ApiActor },
-  ) {
-    return this.withUploads(files, () => this.environments.update(id, this.deployRequest(body, files), request.actor.userId));
+  async update(@CurrentActor() actor: Actor, @Param("id") id: string, @Body() body: DeployFields, @UploadedFiles() files: Express.Multer.File[] = []) {
+    return this.withUploads(files, () => this.environments.update(actor, id, this.deployRequest(body, files)));
   }
 
   @Delete(":id")
+  @Scopes("envs:write")
   @HttpCode(202)
-  remove(@Param("id") id: string, @Req() request: { actor: ApiActor }) {
-    return this.environments.enqueue(id, "delete", request.actor.userId);
+  remove(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.enqueue(actor, id, "delete");
   }
 
   @Post(":id/stop")
+  @Scopes("envs:write")
   @HttpCode(202)
-  stop(@Param("id") id: string, @Req() request: { actor: ApiActor }) {
-    return this.environments.enqueue(id, "stop", request.actor.userId);
+  stop(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.enqueue(actor, id, "stop");
   }
 
   @Post(":id/start")
+  @Scopes("envs:write")
   @HttpCode(202)
-  start(@Param("id") id: string, @Req() request: { actor: ApiActor }) {
-    return this.environments.enqueue(id, "start", request.actor.userId);
+  start(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.enqueue(actor, id, "start");
   }
 
   @Post(":id/exec")
-  exec(@Param("id") id: string, @Body() body: { service?: unknown; argv?: unknown; timeoutSec?: unknown }) {
-    return this.environments.exec(id, body ?? {});
+  @Scopes("envs:exec")
+  exec(@CurrentActor() actor: Actor, @Param("id") id: string, @Body() body: { service?: unknown; argv?: unknown; timeoutSec?: unknown }) {
+    return this.environments.exec(actor, id, body ?? {});
   }
 
   /**
@@ -116,21 +118,22 @@ export class EnvironmentsController {
   @Header("Content-Type", "text/plain; charset=utf-8")
   @Header("X-Content-Type-Options", "nosniff")
   logs(
+    @CurrentActor() actor: Actor,
     @Param("id") id: string,
     @Param("service") service: string,
     @Query("tail", new DefaultValuePipe(200), ParseIntPipe) tail: number,
   ) {
-    return this.environments.logs(id, service, tail);
+    return this.environments.logs(actor, id, service, tail);
   }
 
   @Get(":id/services")
-  services(@Param("id") id: string) {
-    return this.environments.services(id);
+  services(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.services(actor, id);
   }
 
   @Get(":id/stats")
-  stats(@Param("id") id: string, @Query("minutes", new DefaultValuePipe(60), ParseIntPipe) minutes: number) {
-    return this.environments.usage(id, minutes);
+  stats(@CurrentActor() actor: Actor, @Param("id") id: string, @Query("minutes", new DefaultValuePipe(60), ParseIntPipe) minutes: number) {
+    return this.environments.usage(actor, id, minutes);
   }
 
   /**

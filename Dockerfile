@@ -36,5 +36,5 @@ ENV NODE_ENV=production \
     WEB_DIST_PATH=/app/web
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/auth/status', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+  CMD node -e "require('http').get('http://localhost:3000/api/v1/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]

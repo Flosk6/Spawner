@@ -1,6 +1,7 @@
-import { Controller, Get, Header, MessageEvent, NotFoundException, Param, Sse, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, MessageEvent, NotFoundException, Param, Sse } from "@nestjs/common";
 import { Observable, map } from "rxjs";
-import { ApiAuthGuard } from "../../common/api-auth.guard";
+import { assertInProject, type Actor } from "../../common/actor";
+import { CurrentActor, Scopes } from "../../common/auth.guard";
 import { PrismaService } from "../../common/prisma.service";
 import { JobLogsService } from "../engine/job-logs.service";
 import { EnvironmentsService } from "./environments.service";
@@ -8,7 +9,7 @@ import { EnvironmentsService } from "./environments.service";
 const FINISHED = ["succeeded", "failed", "cancelled"];
 
 @Controller("v1/jobs")
-@UseGuards(ApiAuthGuard)
+@Scopes("envs:read")
 export class JobsController {
   constructor(
     private readonly prisma: PrismaService,
@@ -17,15 +18,15 @@ export class JobsController {
   ) {}
 
   @Get(":id")
-  async get(@Param("id") id: string) {
-    return this.environments.presentJob(await this.find(id));
+  async get(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.presentJob(await this.find(actor, id));
   }
 
   @Get(":id/logs")
   @Header("Content-Type", "text/plain; charset=utf-8")
   @Header("X-Content-Type-Options", "nosniff")
-  async logsText(@Param("id") id: string) {
-    await this.find(id);
+  async logsText(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    await this.find(actor, id);
     return this.logs.read(id);
   }
 
@@ -34,8 +35,8 @@ export class JobsController {
    * each new line, until the job ends.
    */
   @Sse(":id/logs/stream")
-  async logsStream(@Param("id") id: string): Promise<Observable<MessageEvent>> {
-    await this.find(id);
+  async logsStream(@CurrentActor() actor: Actor, @Param("id") id: string): Promise<Observable<MessageEvent>> {
+    await this.find(actor, id);
     const isFinished = async () => {
       const job = await this.prisma.job.findUnique({ where: { id }, select: { status: true } });
       return !job || FINISHED.includes(job.status);
@@ -43,11 +44,12 @@ export class JobsController {
     return this.logs.follow(id, isFinished).pipe(map((data) => ({ data })));
   }
 
-  private async find(id: string) {
-    const job = await this.prisma.job.findUnique({ where: { id } });
+  private async find(actor: Actor, id: string) {
+    const job = await this.prisma.job.findUnique({ where: { id }, include: { environment: { select: { projectId: true } } } });
     if (!job) {
       throw new NotFoundException(`job "${id}" not found`);
     }
+    assertInProject(actor, job.environment.projectId);
     return job;
   }
 }

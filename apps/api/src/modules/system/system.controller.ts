@@ -1,12 +1,16 @@
-import { Controller, Get, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
+import { Scopes } from '../../common/auth.guard';
 import { SystemStatsService } from './system-stats.service';
 import { PrismaService } from '../../common/prisma.service';
 import { StatsService } from '../stats/stats.service';
 import { execSync } from 'child_process';
 
-@Controller('system')
-@UseGuards(AuthGuard('session'))
+/**
+ * Host usage and the share of each environment, readable by the whole team:
+ * it tells whether another environment fits.
+ */
+@Controller('v1/system')
+@Scopes('envs:read')
 export class SystemController {
   constructor(
     private readonly systemStatsService: SystemStatsService,

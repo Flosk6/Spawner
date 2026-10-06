@@ -3,7 +3,7 @@ import type { Job, Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/prisma.service";
 import { JobLogsService } from "./job-logs.service";
 import { PipelineError, PipelineService } from "./pipeline.service";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 
 export type JobType = "create" | "update" | "delete" | "stop" | "start";
 

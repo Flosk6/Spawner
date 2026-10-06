@@ -1,340 +1,157 @@
-import {
-  WebSocketGateway,
-  WebSocketServer,
-  SubscribeMessage,
-  ConnectedSocket,
-  MessageBody,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-} from "@nestjs/websockets";
-import { Server, Socket } from "socket.io";
-import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "../../common/prisma.service";
-import { AuthTokenService } from "../auth/auth-token.service";
+import { Logger } from "@nestjs/common";
+import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
+import type { Socket } from "socket.io";
 import { StringDecoder } from "string_decoder";
 import type { Duplex } from "stream";
+import { ROLE_SCOPES, assertCanAct, isRole, sessionActor, type Actor } from "../../common/actor";
 import { DockerService } from "../../common/docker.service";
+import { PrismaService } from "../../common/prisma.service";
+import { SpawnerConfig } from "../../common/spawner.config";
+import { AuditService } from "../audit/audit.service";
+import { WsTicketsService } from "../auth/ws-tickets.service";
+
+const MAX_TERMINALS_PER_USER = 3;
+const MAX_INPUT_LENGTH = 4096;
 
 interface TerminalSession {
   environmentId: string;
-  resourceName: string;
+  service: string;
   stream: Duplex;
   userId: number;
-  createdAt: Date;
 }
 
-@Injectable()
-@WebSocketGateway({
-  cors: {
-    origin: [
-      "http://localhost:8080",
-      "http://localhost:8081",
-      "http://localhost:5173",
-      process.env.FRONTEND_URL,
-    ].filter(Boolean),
-    credentials: true,
-  },
-  namespace: "terminal",
-})
-export class TerminalGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
-  @WebSocketServer()
-  server: Server;
-
+/**
+ * Interactive terminals in the services of an environment, over Socket.IO:
+ * a TTY exec session through the Docker API. A connection needs the
+ * dashboard origin and a one-time ticket; a terminal opens only in an
+ * environment the user may run commands in (their own, or any for an
+ * admin), and is recorded in the audit trail.
+ */
+@WebSocketGateway({ namespace: "terminal" })
+export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(TerminalGateway.name);
   private readonly sessions = new Map<string, TerminalSession>();
 
-  // Security: List of blocked commands
-  private readonly BLOCKED_COMMANDS = [
-    "rm -rf /",
-    "mkfs",
-    "dd if=",
-    ":(){ :|:& };:", // Fork bomb
-    "wget",
-    "curl",
-    "nc ",
-    "netcat",
-  ];
-
-  // Security: List of restricted directories (cannot cd into)
-  private readonly RESTRICTED_DIRECTORIES = [
-    "/root",
-    "/etc",
-    "/sys",
-    "/proc",
-    "/boot",
-    "/dev",
-    "/bin",
-    "/sbin",
-    "/usr/bin",
-    "/usr/sbin",
-  ];
-
-  // Security: Maximum command length
-  private readonly MAX_COMMAND_LENGTH = 1000;
-
-  // Security: Command execution timeout (30 seconds)
-  private readonly COMMAND_TIMEOUT = 30000;
-
-  // Security: Max concurrent sessions per user
-  private readonly MAX_SESSIONS_PER_USER = 3;
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly authTokenService: AuthTokenService,
-    private readonly dockerService: DockerService
+    private readonly tickets: WsTicketsService,
+    private readonly docker: DockerService,
+    private readonly config: SpawnerConfig,
+    private readonly audit: AuditService,
   ) {}
 
-  async handleConnection(client: Socket) {
-    this.logger.log(`Client connected: ${client.id}`);
-
-    // Security: Validate WebSocket token from query params
-    const token = client.handshake.query.token as string;
-
-    if (!token) {
-      this.logger.warn(`No token provided: ${client.id}`);
-      client.emit("terminal-error", "Unauthorized: No authentication token");
-      client.disconnect();
+  async handleConnection(client: Socket): Promise<void> {
+    const origin = client.handshake.headers.origin;
+    if (!origin || !this.config.dashboardOrigins.includes(origin)) {
+      client.emit("terminal-error", "Terminals open from the dashboard only");
+      client.disconnect(true);
       return;
     }
-
-    const user = this.authTokenService.validateWsToken(token);
-
-    if (!user) {
-      this.logger.warn(`Invalid or expired token: ${client.id}`);
-      client.emit("terminal-error", "Unauthorized: Invalid or expired token");
-      client.disconnect();
+    const userId = this.tickets.redeem(client.handshake.query.token ?? client.handshake.auth?.token);
+    const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
+    if (!user?.isActive || !isRole(user.role)) {
+      client.emit("terminal-error", "Unauthorized: invalid or expired ticket");
+      client.disconnect(true);
       return;
     }
-
-    // Attach user to handshake for easy access
-    (client.handshake as any).user = user;
-
-    this.logger.log(
-      `User ${user.username} (${user.userId}) connected via WebSocket`
-    );
+    client.data.actor = sessionActor({ id: user.id, name: user.name, role: user.role });
   }
 
-  handleDisconnect(client: Socket) {
-    this.logger.log(`Client disconnected: ${client.id}`);
-
-    // Clean up any active sessions for this client
-    for (const [sessionId] of this.sessions.entries()) {
-      if (sessionId.startsWith(client.id)) {
-        this.cleanupSession(sessionId);
+  handleDisconnect(client: Socket): void {
+    for (const sessionId of this.sessions.keys()) {
+      if (sessionId.startsWith(`${client.id}:`)) {
+        this.close(sessionId);
       }
     }
   }
 
   @SubscribeMessage("start-terminal")
-  async handleStartTerminal(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { environmentId: string; resourceName: string }
-  ) {
-    this.logger.log(
-      `Starting terminal for ${data.resourceName} in environment ${data.environmentId}`
-    );
-
-    const user = (client.handshake as any).user;
-    if (!user) {
-      this.logger.error("No user in handshake");
+  async start(@ConnectedSocket() client: Socket, @MessageBody() data: { environmentId?: string; resourceName?: string }): Promise<void> {
+    const actor = client.data.actor as Actor | undefined;
+    if (!actor?.user || typeof data?.environmentId !== "string" || typeof data.resourceName !== "string") {
       client.emit("terminal-error", "Unauthorized");
       return;
     }
+    if ([...this.sessions.values()].filter((session) => session.userId === actor.user?.id).length >= MAX_TERMINALS_PER_USER) {
+      client.emit("terminal-error", `At most ${MAX_TERMINALS_PER_USER} terminals at once`);
+      return;
+    }
 
-    this.logger.log(`User: ${user.username} (${user.userId})`);
-
-    // Security: Check max sessions per user
-    const userSessions = Array.from(this.sessions.values()).filter(
-      (s) => s.userId === user.userId
-    );
-    if (userSessions.length >= this.MAX_SESSIONS_PER_USER) {
-      client.emit(
-        "terminal-error",
-        `Maximum ${this.MAX_SESSIONS_PER_USER} concurrent terminals allowed`
-      );
+    const environment = await this.prisma.environment.findFirst({ where: { id: data.environmentId, deletedAt: null }, include: { project: true } });
+    if (!environment) {
+      client.emit("terminal-error", "Environment not found");
+      return;
+    }
+    try {
+      assertCanAct({ ...actor, scopes: ROLE_SCOPES[actor.user.role] }, "envs:exec", environment);
+    } catch (error) {
+      client.emit("terminal-error", (error as Error).message);
+      return;
+    }
+    const container = await this.docker.findServiceContainer(environment.id, data.resourceName);
+    if (!container || container.State !== "running") {
+      client.emit("terminal-error", `Service "${data.resourceName}" is not running`);
       return;
     }
 
     try {
-      const environment = await this.prisma.environment.findFirst({
-        where: { id: data.environmentId, deletedAt: null },
-      });
-
-      if (!environment) {
-        client.emit("terminal-error", "Environment not found");
-        return;
-      }
-
-      const container = await this.dockerService.findServiceContainer(environment.id, data.resourceName);
-      if (!container || container.State !== "running") {
-        client.emit("terminal-error", `Service "${data.resourceName}" is not running`);
-        return;
-      }
-
-      this.logger.log(`Starting a terminal in ${data.resourceName} of environment ${environment.id}`);
-
-      const { stream, exitCode } = await this.dockerService.execInteractive(container.Id, { cmd: ["/bin/sh"] });
-
-      const sessionId = `${client.id}-${data.resourceName}`;
-
-      this.sessions.set(sessionId, {
-        environmentId: data.environmentId,
-        resourceName: data.resourceName,
-        stream,
-        userId: user.userId,
-        createdAt: new Date(),
-      });
-
-      this.logger.log(`Terminal session created: ${sessionId}`);
+      const { stream, exitCode } = await this.docker.execInteractive(container.Id, { cmd: ["/bin/sh"] });
+      const sessionId = `${client.id}:${data.resourceName}`;
+      this.close(sessionId);
+      this.sessions.set(sessionId, { environmentId: environment.id, service: data.resourceName, stream, userId: actor.user.id });
+      await this.audit.record(actor, "terminal.open", { target: `${environment.project.slug}/${environment.slug}`, details: { service: data.resourceName } });
 
       const decoder = new StringDecoder("utf8");
-      stream.on("data", (chunk: Buffer) => {
-        client.emit("terminal-output", decoder.write(chunk));
-      });
-
+      stream.on("data", (chunk: Buffer) => client.emit("terminal-output", decoder.write(chunk)));
       stream.on("end", async () => {
-        const code = await exitCode().catch(() => 0);
-        this.logger.log(`Terminal session ${sessionId} exited with code ${code}`);
-        client.emit("terminal-exit", code);
-        this.cleanupSession(sessionId);
+        client.emit("terminal-exit", await exitCode().catch(() => 0));
+        this.close(sessionId);
       });
-
-      stream.on("error", (error: Error) => {
-        this.logger.error(`Terminal stream error: ${error.message}`);
+      stream.on("error", () => {
         client.emit("terminal-error", "Terminal session lost");
-        this.cleanupSession(sessionId);
+        this.close(sessionId);
       });
-
-      // Send welcome message
-      client.emit(
-        "terminal-output",
-        `\r\n\x1b[1;32mConnected to ${data.resourceName}\x1b[0m\r\n`
-      );
-      client.emit(
-        "terminal-output",
-        `\x1b[1;33mSecurity Notice: All commands are logged\x1b[0m\r\n\r\n`
-      );
-
-      this.logger.log(
-        `Terminal session started: ${sessionId} by user ${user.username} (${user.userId})`
-      );
+      client.emit("terminal-output", `\r\n\x1b[1;32mConnected to ${data.resourceName}\x1b[0m\r\n\r\n`);
     } catch (error) {
-      this.logger.error(`Error starting terminal: ${error.message}`);
+      this.logger.error(`Could not start a terminal: ${(error as Error).message}`);
       client.emit("terminal-error", "Failed to start terminal");
     }
   }
 
   @SubscribeMessage("terminal-input")
-  handleTerminalInput(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { input: string; resourceName: string }
-  ) {
-    const user = (client.handshake as any).user;
-    if (!user) {
-      this.logger.warn("No user in handshake for terminal input");
-      return;
-    }
-
-    const sessionId = `${client.id}-${data.resourceName}`;
-    const session = this.sessions.get(sessionId);
-
+  input(@ConnectedSocket() client: Socket, @MessageBody() data: { input?: string; resourceName?: string }): void {
+    const session = this.sessions.get(`${client.id}:${data?.resourceName}`);
     if (!session) {
-      this.logger.warn(`No session found: ${sessionId}`);
       client.emit("terminal-error", "No active terminal session");
       return;
     }
-
-    // Security: Check input length
-    if (data.input.length > this.MAX_COMMAND_LENGTH) {
-      client.emit(
-        "terminal-output",
-        `\r\n\x1b[1;31mCommand too long (max ${this.MAX_COMMAND_LENGTH} characters)\x1b[0m\r\n`
-      );
+    if (typeof data.input !== "string" || data.input.length > MAX_INPUT_LENGTH) {
       return;
     }
-
-    // Security: Check for blocked commands (only on Enter key)
-    if (data.input.includes("\r") || data.input.includes("\n")) {
-      const command = data.input.trim();
-
-      // Check for blocked commands
-      const isBlocked = this.BLOCKED_COMMANDS.some((blocked) =>
-        command.toLowerCase().includes(blocked.toLowerCase())
-      );
-
-      if (isBlocked) {
-        this.logger.warn(
-          `Blocked dangerous command from user ${user.username} (${user.userId}): ${command}`
-        );
-        client.emit(
-          "terminal-output",
-          `\r\n\x1b[1;31mCommand blocked for security reasons\x1b[0m\r\n`
-        );
-        return;
-      }
-
-      // Check for cd to restricted directories
-      const cdMatch = command.match(/^\s*cd\s+(.+)$/);
-      if (cdMatch) {
-        const targetDir = cdMatch[1].trim().replace(/['"]/g, ""); // Remove quotes
-        const isRestricted = this.RESTRICTED_DIRECTORIES.some(
-          (restricted) =>
-            targetDir === restricted || targetDir.startsWith(restricted + "/")
-        );
-
-        if (isRestricted) {
-          this.logger.warn(
-            `Blocked access to restricted directory from user ${user.username} (${user.userId}): ${targetDir}`
-          );
-          client.emit(
-            "terminal-output",
-            `\r\n\x1b[1;31mAccess denied: ${targetDir} is a restricted directory\x1b[0m\r\n`
-          );
-          client.emit(
-            "terminal-output",
-            `\x1b[1;33mAllowed directories: /var/www/html, /tmp, /var/log\x1b[0m\r\n`
-          );
-          return;
-        }
-      }
-
-      // Log all commands for audit
-      this.logger.log(
-        `Terminal command [${session.resourceName}] user ${user.username} (${user.userId}): ${command}`
-      );
-    }
-
     try {
       session.stream.write(data.input);
-    } catch (error) {
-      this.logger.error(`Error writing to terminal: ${error.message}`);
+    } catch {
       client.emit("terminal-error", "Terminal session lost");
-      this.cleanupSession(sessionId);
+      this.close(`${client.id}:${data.resourceName}`);
     }
   }
 
   @SubscribeMessage("stop-terminal")
-  handleStopTerminal(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { resourceName: string }
-  ) {
-    const sessionId = `${client.id}-${data.resourceName}`;
-    this.cleanupSession(sessionId);
+  stop(@ConnectedSocket() client: Socket, @MessageBody() data: { resourceName?: string }): void {
+    this.close(`${client.id}:${data?.resourceName}`);
   }
 
-  private cleanupSession(sessionId: string) {
+  private close(sessionId: string): void {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      this.sessions.delete(sessionId);
-      try {
-        session.stream.end();
-        session.stream.destroy();
-      } catch (error) {
-        this.logger.error(`Error closing terminal stream: ${error.message}`);
-      }
-      this.logger.log(`Terminal session cleaned up: ${sessionId}`);
+    if (!session) {
+      return;
+    }
+    this.sessions.delete(sessionId);
+    try {
+      session.stream.end();
+      session.stream.destroy();
+    } catch (error) {
+      this.logger.warn(`Error closing terminal stream: ${(error as Error).message}`);
     }
   }
 }

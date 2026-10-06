@@ -1,19 +1,28 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule as NestConfigModule } from "@nestjs/config";
-import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
-import { ScheduleModule } from "@nestjs/schedule";
 import { APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { config } from "dotenv";
 import { join } from "path";
-import { PrismaModule } from "./common/prisma.module";
+import { AuthGuard } from "./common/auth.guard";
 import { DockerModule } from "./common/docker.module";
-import { ProjectsModule } from "./modules/projects/projects.module";
-import { GitModule } from "./modules/git/git.module";
-import { EnvironmentsModule } from "./modules/environments/environments.module";
+import { PrismaModule } from "./common/prisma.module";
+import { SpawnerConfigModule } from "./common/spawner-config.module";
+import { ActorThrottlerGuard } from "./common/throttler.guard";
+import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
-import { TerminalModule } from "./modules/terminal/terminal.module";
-import { SystemModule } from "./modules/system/system.module";
+import { EnvironmentsModule } from "./modules/environments/environments.module";
+import { GitModule } from "./modules/git/git.module";
+import { HealthModule } from "./modules/health/health.module";
+import { PreviewsModule } from "./modules/previews/previews.module";
+import { ProjectsModule } from "./modules/projects/projects.module";
+import { SettingsModule } from "./modules/settings/settings.module";
 import { StatsModule } from "./modules/stats/stats.module";
+import { SystemModule } from "./modules/system/system.module";
+import { TeamModule } from "./modules/team/team.module";
+import { TerminalModule } from "./modules/terminal/terminal.module";
+import { TokensModule } from "./modules/tokens/tokens.module";
 
 // Load environment variables before module initialization
 // Load from root .env (centralized configuration)
@@ -27,38 +36,32 @@ config({ path: envPath });
       envFilePath: envPath,
     }),
     ScheduleModule.forRoot(),
+    // Per user (see ActorThrottlerGuard), on each route; login routes have tighter limits.
     ThrottlerModule.forRoot([
-      {
-        name: "short",
-        ttl: 1000,
-        limit: 3,
-      },
-      {
-        name: "medium",
-        ttl: 10000,
-        limit: 20,
-      },
-      {
-        name: "long",
-        ttl: 60000,
-        limit: 100,
-      },
+      { name: "short", ttl: 1000, limit: 10 },
+      { name: "medium", ttl: 10000, limit: 60 },
+      { name: "long", ttl: 60000, limit: 300 },
     ]),
+    SpawnerConfigModule,
     PrismaModule,
     DockerModule,
+    AuditModule,
+    TokensModule,
+    SettingsModule,
+    AuthModule,
+    TeamModule,
     ProjectsModule,
     GitModule,
     EnvironmentsModule,
-    AuthModule,
+    PreviewsModule,
     TerminalModule,
     SystemModule,
     StatsModule,
+    HealthModule,
   ],
   providers: [
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
+    { provide: APP_GUARD, useClass: ActorThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
   ],
 })
 export class AppModule {}

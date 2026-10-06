@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { gzipSync } from "zlib";
-import type { SpawnerConfig } from "./spawner.config";
+import type { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 import { UploadRejectedError, UploadService } from "./upload.service";
 

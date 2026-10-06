@@ -5,7 +5,7 @@ import { sanitizeGitBranch, sanitizeGitRepo } from "@spawner/utils";
 import { GitKeysService } from "./git-keys.service";
 import { KeyedMutex } from "./keyed-mutex";
 import { baseEnv, run } from "./process";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
 const NETWORK_TIMEOUT_MS = 10 * 60 * 1000;

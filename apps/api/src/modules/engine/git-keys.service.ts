@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { PrismaService } from "../../common/prisma.service";
 import { baseEnv, run } from "./process";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 
 export interface RepoKeyInfo {
   gitRepo: string;

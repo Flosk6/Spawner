@@ -1,18 +1,21 @@
-import { BadRequestException, Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { SessionAuthGuard } from "../auth/guards/session-auth.guard";
+import type { Actor } from "../../common/actor";
+import { CurrentActor, Scopes } from "../../common/auth.guard";
+import { AuditService } from "../audit/audit.service";
 import { GitKeysService, type RepoKeyInfo } from "../engine/git-keys.service";
 import { GitMirrorService } from "../engine/git-mirror.service";
 
 /**
- * Deploy keys and repository checks, used by the Git settings page.
+ * Deploy keys and repository checks, used by the Git settings page (admins).
  */
-@Controller("git")
-@UseGuards(SessionAuthGuard)
+@Controller("v1/git")
+@Scopes("admin")
 export class GitController {
   constructor(
     private readonly keys: GitKeysService,
     private readonly git: GitMirrorService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get("key")
@@ -23,9 +26,11 @@ export class GitController {
 
   @Post("key/generate")
   @Throttle({ short: { limit: 5, ttl: 3600000 } })
-  async generateKey() {
+  async generateKey(@CurrentActor() actor: Actor) {
     try {
-      return await this.keys.generateGlobalKey();
+      const key = await this.keys.generateGlobalKey();
+      await this.audit.record(actor, "git.key", { target: "global" });
+      return key;
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -45,24 +50,16 @@ export class GitController {
 
   @Post("keys/generate")
   @Throttle({ short: { limit: 10, ttl: 3600000 } })
-  generateKeyForRepo(@Body() body: { gitRepo?: string }) {
+  async generateKeyForRepo(@CurrentActor() actor: Actor, @Body() body: { gitRepo?: string }) {
     const repo = this.repo(body);
     try {
       this.git.validateRepoUrl(repo);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
-    return this.keys.generateKeyForRepo(repo);
-  }
-
-  @Post("branches")
-  @Throttle({ medium: { limit: 30, ttl: 60000 } })
-  async listBranches(@Body() body: { gitRepo?: string }) {
-    try {
-      return { branches: await this.git.listBranches(this.repo(body)) };
-    } catch (error) {
-      throw new BadRequestException(`Unable to list branches: ${(error as Error).message.split("\n")[0]}`);
-    }
+    const key = await this.keys.generateKeyForRepo(repo);
+    await this.audit.record(actor, "git.key", { target: repo });
+    return key;
   }
 
   private repo(body: { gitRepo?: string }): string {

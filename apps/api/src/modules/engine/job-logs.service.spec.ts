@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { JobLogsService } from "./job-logs.service";
-import type { SpawnerConfig } from "./spawner.config";
+import type { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
 /** The lines a follower receives, without their timestamps. */

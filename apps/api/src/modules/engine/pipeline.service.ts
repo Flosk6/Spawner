@@ -18,8 +18,9 @@ import { SystemStatsService } from "../system/system-stats.service";
 import { ComposeRunner } from "./compose-runner.service";
 import { GitMirrorService } from "./git-mirror.service";
 import { JobLogsService } from "./job-logs.service";
+import { AuditService } from "../audit/audit.service";
 import { RouterService } from "./router.service";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 import { UploadService } from "./upload.service";
 
@@ -98,6 +99,7 @@ export class PipelineService {
     private readonly docker: DockerService,
     private readonly logs: JobLogsService,
     private readonly systemStats: SystemStatsService,
+    private readonly audit: AuditService,
   ) {}
 
   async run(job: Job): Promise<void> {
@@ -215,6 +217,7 @@ export class PipelineService {
       } catch (error) {
         throw new PipelineError("routing", (error as Error).message);
       }
+      await this.router.waitUntilServed(exposures.map((exposure) => exposure.host), log);
 
       const ttlSeconds = Math.min(manifest.ttl ?? this.config.envTtlSeconds, this.config.envTtlMaxSeconds);
       await this.prisma.environment.update({
@@ -224,6 +227,9 @@ export class PipelineService {
       exposures.forEach((exposure) => log(`Ready: ${exposure.name} ${this.config.scheme}://${exposure.host}`));
     } catch (error) {
       await this.fail(env.id, error, "preparing");
+      if (error instanceof PipelineError && error.issues.length > 0) {
+        await this.recordViolation(job, `${env.project.slug}/${env.slug}`, error.issues);
+      }
       throw error;
     } finally {
       this.removeArchives(payload);
@@ -278,6 +284,7 @@ export class PipelineService {
       await this.setStatus(env.id, "starting");
       await this.compose.start(projectName, this.storage.renderedComposePath(env.id), log);
       await this.router.publish(env.id, projectName, env.exposures);
+      await this.router.waitUntilServed(env.exposures.map((exposure) => exposure.host), log);
       await this.prisma.environment.update({ where: { id: env.id }, data: { status: "ready", phase: null, error: null } });
     } catch (error) {
       await this.fail(env.id, error, "starting");
@@ -333,6 +340,20 @@ export class PipelineService {
       );
     }
     return manifest!;
+  }
+
+  /**
+   * Refused manifests and compose files go to the audit trail, under the
+   * user who sent them.
+   */
+  private async recordViolation(job: Job, target: string, issues: Issue[]): Promise<void> {
+    const user = job.triggeredById ? await this.prisma.user.findUnique({ where: { id: job.triggeredById } }) : null;
+    await this.audit.record(null, "env.policy_violation", {
+      userId: user?.id,
+      actorName: user?.name ?? "bootstrap token",
+      target,
+      details: { issues: issues.map((issue) => `${issue.code} ${issue.path}`.trim()) },
+    });
   }
 
   private rejectIfIssues(issues: Issue[], what: string, log: Log): void {

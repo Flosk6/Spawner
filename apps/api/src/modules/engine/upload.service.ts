@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { extract, list } from "tar";
 import type { ReadEntry } from "tar";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
 const ALLOWED_TYPES = new Set(["File", "OldFile", "ContiguousFile", "Directory", "SymbolicLink"]);

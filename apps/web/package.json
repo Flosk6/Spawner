@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@primevue/themes": "^4.4.1",
+    "@simplewebauthn/browser": "^14.0.0",
     "@spawner/types": "workspace:*",
     "axios": "^1.6.5",
     "chart.js": "^4.5.1",

@@ -7,14 +7,12 @@ import { JobLogsService } from "./job-logs.service";
 import { JobQueueService } from "./job-queue.service";
 import { PipelineService } from "./pipeline.service";
 import { RouterService } from "./router.service";
-import { SpawnerConfig } from "./spawner.config";
 import { StorageService } from "./storage.service";
 import { UploadService } from "./upload.service";
 
 @Module({
   imports: [SystemModule],
   providers: [
-    SpawnerConfig,
     StorageService,
     GitKeysService,
     GitMirrorService,
@@ -25,6 +23,6 @@ import { UploadService } from "./upload.service";
     PipelineService,
     JobQueueService,
   ],
-  exports: [SpawnerConfig, StorageService, GitKeysService, GitMirrorService, JobLogsService, JobQueueService],
+  exports: [StorageService, GitKeysService, GitMirrorService, JobLogsService, JobQueueService],
 })
 export class EngineModule {}

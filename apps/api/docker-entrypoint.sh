@@ -23,8 +23,17 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=node --regid=node --init-groups "$0" "$@"
 fi
 
+# The database may still be starting: retry for about a minute.
 echo "Running database migrations..."
-./node_modules/.bin/prisma migrate deploy
+attempt=1
+until ./node_modules/.bin/prisma migrate deploy; do
+  if [ "$attempt" -ge 20 ]; then
+    echo "The database is unreachable, giving up" >&2
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 3
+done
 
 echo "Starting Spawner..."
 exec node dist/main.js

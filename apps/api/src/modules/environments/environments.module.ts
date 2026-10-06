@@ -3,7 +3,7 @@ import { MulterModule } from "@nestjs/platform-express";
 import { randomBytes } from "crypto";
 import { diskStorage } from "multer";
 import { EngineModule } from "../engine/engine.module";
-import { SpawnerConfig } from "../engine/spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "../engine/storage.service";
 import { StatsModule } from "../stats/stats.module";
 import { EnvironmentsController } from "./environments.controller";

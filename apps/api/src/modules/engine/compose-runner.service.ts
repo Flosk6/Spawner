@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import * as fs from "fs";
 import { DockerService } from "../../common/docker.service";
 import { baseEnv, run } from "./process";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
 /**

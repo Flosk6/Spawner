@@ -1,0 +1,114 @@
+import { Body, Controller, Delete, Get, HttpCode, Module, NotFoundException, Param, Post, Query, Req, Res } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
+import type { Request, Response } from "express";
+import { assertInProject, type Actor } from "../../common/actor";
+import { CurrentActor, Public, Scopes } from "../../common/auth.guard";
+import { PrismaService } from "../../common/prisma.service";
+import { PREVIEW_HEADER, PreviewsService, parseCookies } from "./previews.service";
+import { SharesService } from "./shares.service";
+
+const header = (request: Request, name: string) => {
+  const value = request.headers[name];
+  return Array.isArray(value) ? value[0] : value;
+};
+
+@Controller("v1/auth")
+export class PreviewAuthController {
+  constructor(private readonly previews: PreviewsService) {}
+
+  /**
+   * forwardAuth of Traefik, before every request to a protected preview.
+   * Answers 200 to let the request through; any other answer goes back to
+   * the browser as is (a redirect with its cookie, or a 401).
+   */
+  @Public()
+  @SkipThrottle()
+  @Get("verify")
+  async verify(@Req() request: Request, @Res() response: Response) {
+    const decision = await this.previews.decide({
+      method: header(request, "x-forwarded-method") ?? "GET",
+      proto: header(request, "x-forwarded-proto") ?? "http",
+      host: header(request, "x-forwarded-host") ?? "",
+      uri: header(request, "x-forwarded-uri") ?? "/",
+      accept: header(request, "accept") ?? "",
+      cookies: parseCookies(header(request, "cookie")),
+      header: header(request, PREVIEW_HEADER),
+    });
+    response.setHeader("Cache-Control", "no-store");
+    if (decision.status === 302) {
+      if (decision.cookie) {
+        response.setHeader("Set-Cookie", decision.cookie);
+      }
+      response.redirect(302, decision.location);
+    } else if (decision.status === 200) {
+      response.status(200).end();
+    } else {
+      response.status(decision.status).json(decision.body);
+    }
+  }
+
+  /**
+   * Where a browser lands when it has no preview cookie: a logged-in user
+   * gets the cookie and goes back to the preview; anyone else logs in first.
+   */
+  @Public()
+  @Get("preview")
+  preview(@Req() request: Request, @Res() response: Response, @Query("next") next?: string) {
+    const target = this.previews.previewUrl(next);
+    if (request.actor?.via !== "session") {
+      const back = `/api/v1/auth/preview?next=${encodeURIComponent(target)}`;
+      response.redirect(302, `/login?next=${encodeURIComponent(back)}`);
+      return;
+    }
+    const { cookie } = this.previews.previewCookie(request.actor, target);
+    response.setHeader("Set-Cookie", cookie);
+    response.redirect(302, target);
+  }
+}
+
+@Controller("v1/envs/:id")
+export class PreviewAccessController {
+  constructor(
+    private readonly previews: PreviewsService,
+    private readonly shares: SharesService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /**
+   * A token for the X-Spawner-Preview header, valid one hour on this
+   * environment: how agents and scripts call a protected preview.
+   */
+  @Post("preview-token")
+  @Scopes("preview")
+  async previewToken(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    const environment = await this.prisma.environment.findFirst({ where: { id, deletedAt: null } });
+    if (!environment) {
+      throw new NotFoundException(`environment "${id}" not found`);
+    }
+    assertInProject(actor, environment.projectId);
+    return this.previews.headerToken(actor, environment.id);
+  }
+
+  @Post("share")
+  share(@CurrentActor() actor: Actor, @Param("id") id: string, @Body() body: { ttlHours?: unknown }) {
+    return this.shares.create(actor, id, body?.ttlHours);
+  }
+
+  @Get("shares")
+  @Scopes("envs:read")
+  listShares(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.shares.list(actor, id);
+  }
+
+  @Delete("shares/:shareId")
+  @HttpCode(204)
+  revokeShare(@CurrentActor() actor: Actor, @Param("id") id: string, @Param("shareId") shareId: string) {
+    return this.shares.revoke(actor, id, shareId);
+  }
+}
+
+@Module({
+  controllers: [PreviewAuthController, PreviewAccessController],
+  providers: [PreviewsService, SharesService],
+})
+export class PreviewsModule {}

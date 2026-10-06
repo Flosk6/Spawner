@@ -24,9 +24,21 @@ export class SpawnerConfig {
   readonly entrypoint = process.env.SPAWNER_TRAEFIK_ENTRYPOINT || (this.tls === "off" ? "web" : "websecure");
   readonly dashboardHost = process.env.SPAWNER_DASHBOARD_HOST || `spawner.${this.previewDomain}`;
   readonly dashboardUpstream = process.env.SPAWNER_DASHBOARD_UPSTREAM || "http://spawner:3000";
+  /** Public URL of the dashboard, without a trailing slash. */
+  readonly dashboardUrl = (process.env.FRONTEND_URL || `${this.scheme}://${this.dashboardHost}`).replace(/\/+$/, "");
+  /**
+   * Origins the interface may run on: the dashboard, plus localhost without
+   * TLS, where browsers allow passkeys over plain HTTP.
+   */
+  readonly dashboardOrigins = [
+    new URL(this.dashboardUrl).origin,
+    ...(this.tls === "off" ? ["http://localhost:8080", "http://localhost:5173"] : []),
+  ];
   readonly traefikContainer = process.env.SPAWNER_TRAEFIK_CONTAINER || "spawner-traefik";
   readonly dockerSocket = process.env.DOCKER_SOCKET || "/var/run/docker.sock";
   readonly bootstrapToken = process.env.SPAWNER_BOOTSTRAP_TOKEN || null;
+  /** Master secret; generated into the data directory when not set. */
+  readonly secret = process.env.SPAWNER_SECRET || null;
 
   readonly buildConcurrency = integer(process.env.SPAWNER_BUILD_CONCURRENCY, os.totalmem() < 8 * GiB ? 1 : 2);
   readonly minFreeMemoryBytes = integer(process.env.MIN_REQUIRED_FREE_MEMORY_GB, 2) * GiB;

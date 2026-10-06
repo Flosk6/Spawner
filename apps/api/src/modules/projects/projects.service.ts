@@ -3,7 +3,9 @@ import { Prisma } from "@prisma/client";
 import * as path from "path";
 import { slugIssue } from "@spawner/core";
 import { sanitizeGitBranch } from "@spawner/utils";
+import { assertInProject, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
+import { AuditService } from "../audit/audit.service";
 import { GitMirrorService } from "../engine/git-mirror.service";
 
 export interface ProjectInput {
@@ -23,32 +25,39 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly git: GitMirrorService,
+    private readonly audit: AuditService,
   ) {}
 
-  async list() {
+  async list(actor: Actor) {
     const projects = await this.prisma.project.findMany({
+      where: actor.projectId ? { id: actor.projectId } : {},
       orderBy: { slug: "asc" },
       include: { _count: { select: { environments: { where: { deletedAt: null } } } } },
     });
     return projects.map(({ _count, ...project }) => ({ ...project, environmentCount: _count.environments }));
   }
 
-  async get(slug: string) {
+  async get(slug: string, actor?: Actor) {
     const project = await this.prisma.project.findUnique({ where: { slug } });
     if (!project) {
       throw new NotFoundException(`project "${slug}" not found`);
     }
+    if (actor) {
+      assertInProject(actor, project.id);
+    }
     return project;
   }
 
-  async create(input: ProjectInput) {
+  async create(actor: Actor, input: ProjectInput) {
     const issue = slugIssue("project", input.slug, "slug");
     if (issue) {
       throw new BadRequestException(issue.hint ? `${issue.message} (${issue.hint})` : issue.message);
     }
     const data = this.validate({ name: input.name ?? input.slug, ...input }, true);
     try {
-      return await this.prisma.project.create({ data: { slug: input.slug as string, ...data } as Prisma.ProjectCreateInput });
+      const project = await this.prisma.project.create({ data: { slug: input.slug as string, ...data } as Prisma.ProjectCreateInput });
+      await this.audit.record(actor, "project.create", { target: project.slug, details: { repoUrl: project.repoUrl } });
+      return project;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         throw new ConflictException(`project "${input.slug}" already exists`);
@@ -57,12 +66,14 @@ export class ProjectsService {
     }
   }
 
-  async update(slug: string, input: ProjectInput) {
+  async update(actor: Actor, slug: string, input: ProjectInput) {
     await this.get(slug);
-    return this.prisma.project.update({ where: { slug }, data: this.validate(input, false) });
+    const project = await this.prisma.project.update({ where: { slug }, data: this.validate(input, false) });
+    await this.audit.record(actor, "project.update", { target: slug, details: { ...input } });
+    return project;
   }
 
-  async remove(slug: string) {
+  async remove(actor: Actor, slug: string) {
     const project = await this.get(slug);
     const live = await this.prisma.environment.count({ where: { projectId: project.id, deletedAt: null } });
     if (live > 0) {
@@ -72,6 +83,7 @@ export class ProjectsService {
       this.prisma.environment.deleteMany({ where: { projectId: project.id } }),
       this.prisma.project.delete({ where: { slug } }),
     ]);
+    await this.audit.record(actor, "project.delete", { target: slug });
   }
 
   private validate(input: ProjectInput, creating: boolean): Prisma.ProjectUpdateInput {

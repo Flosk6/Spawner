@@ -1,9 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import * as fs from "fs";
+import * as http from "http";
+import * as https from "https";
 import * as path from "path";
 import { stringify } from "yaml";
 import { DockerService } from "../../common/docker.service";
-import { SpawnerConfig } from "./spawner.config";
+import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
 export interface RoutedExposure {
@@ -11,7 +13,21 @@ export interface RoutedExposure {
   service: string;
   port: number;
   host: string;
+  /** "team": only the team and share links reach it; "none": public. */
+  auth: string;
 }
+
+/**
+ * Traefik middlewares of the protected exposures, declared once in the
+ * dashboard's file: Spawner checks each request (forwardAuth), then the
+ * preview token header is removed before the request reaches the
+ * application.
+ */
+const PREVIEW_MIDDLEWARES = ["spawner-preview-auth", "spawner-preview-strip"];
+
+/** Traefik applies a changed file within a couple of seconds. */
+const ROUTE_WAIT_MS = 15_000;
+const ROUTE_POLL_MS = 250;
 
 /**
  * Publishes environments through Traefik's file provider: one dynamic
@@ -37,6 +53,15 @@ export class RouterService implements OnModuleInit {
         http: {
           routers: { spawner: this.router(this.config.dashboardHost, "spawner") },
           services: { spawner: { loadBalancer: { servers: [{ url: this.config.dashboardUpstream }] } } },
+          middlewares: {
+            "spawner-preview-auth": {
+              forwardAuth: {
+                address: `${this.config.dashboardUpstream}/api/v1/auth/verify`,
+                authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview"],
+              },
+            },
+            "spawner-preview-strip": { headers: { customRequestHeaders: { "X-Spawner-Preview": "" } } },
+          },
         },
       }),
     );
@@ -64,10 +89,28 @@ export class RouterService implements OnModuleInit {
         throw new Error(`No container found for exposed service "${exposure.service}"`);
       }
       const id = `${environmentId}-${exposure.name}`;
-      routers[id] = this.router(exposure.host, id);
+      routers[id] = { ...this.router(exposure.host, id), ...(exposure.auth === "none" ? {} : { middlewares: PREVIEW_MIDDLEWARES }) };
       services[id] = { loadBalancer: { servers: [{ url: `http://${container.Names[0].replace(/^\//, "")}:${exposure.port}` }] } };
     }
     this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers, services } }));
+  }
+
+  /**
+   * Waits until Traefik serves each host, so that an environment announced
+   * ready answers on its URLs. A host is not served yet while Traefik
+   * answers its own "404 page not found" for it.
+   */
+  async waitUntilServed(hosts: string[], log: (line: string) => void): Promise<void> {
+    const deadline = Date.now() + ROUTE_WAIT_MS;
+    for (const host of hosts) {
+      while (!(await this.isServed(host))) {
+        if (Date.now() > deadline) {
+          log(`Traefik does not serve ${host} yet; it should within seconds`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, ROUTE_POLL_MS));
+      }
+    }
   }
 
   /**
@@ -80,6 +123,32 @@ export class RouterService implements OnModuleInit {
     } catch (error) {
       this.logger.warn(`Could not disconnect Traefik from ${composeProject}_default: ${(error as Error).message}`);
     }
+  }
+
+  private isServed(host: string): Promise<boolean> {
+    const secure = this.config.tls !== "off";
+    return new Promise((resolve) => {
+      const request = (secure ? https : http).request(
+        {
+          host: this.config.traefikContainer,
+          port: secure ? 443 : 80,
+          path: "/",
+          headers: { host, accept: "application/json" },
+          servername: host,
+          rejectUnauthorized: false,
+          timeout: 2000,
+        },
+        (response) => {
+          let body = "";
+          response.on("data", (chunk) => (body += chunk));
+          response.on("end", () => resolve(!(response.statusCode === 404 && body.trim() === "404 page not found")));
+        },
+      );
+      // Without Traefik's name (Spawner started outside Docker) there is nothing to wait for.
+      request.on("error", (error: NodeJS.ErrnoException) => resolve(error.code === "ENOTFOUND" || error.code === "EAI_AGAIN"));
+      request.on("timeout", () => request.destroy());
+      request.end();
+    });
   }
 
   private router(host: string, service: string): Record<string, unknown> {
