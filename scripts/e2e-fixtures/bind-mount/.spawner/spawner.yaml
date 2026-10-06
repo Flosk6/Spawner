@@ -1,4 +1,5 @@
 version: 1
 project: bindmount
 exposures:
-  - { name: web, service: web, port: 8080 }
+  # Public: also checks that an exposure can opt out of the team login.
+  - { name: web, service: web, port: 8080, auth: none }
