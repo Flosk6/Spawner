@@ -100,30 +100,7 @@ model Setting {
   @@map("settings")
 }
 
-model SystemSetting {
-  id          Int      @id @default(autoincrement())
-  key         String   @unique @db.VarChar
-  value       String?
-  description String?
-  createdAt   DateTime @default(now()) @map("createdAt") @db.Timestamp(6)
-  updatedAt   DateTime @default(now()) @map("updatedAt") @db.Timestamp(6)
 
-  @@map("system_settings")
-}
-
-model ServerPatch {
-  id             Int       @id @default(autoincrement())
-  packageName    String    @map("packageName") @db.VarChar
-  currentVersion String    @map("currentVersion") @db.VarChar
-  latestVersion  String    @map("latestVersion") @db.VarChar
-  type           String    @default("feature") @db.VarChar
-  status         String    @default("pending") @db.VarChar
-  changelog      String?
-  appliedAt      DateTime? @map("appliedAt") @db.Timestamp(6)
-  detectedAt     DateTime  @default(now()) @map("detectedAt") @db.Timestamp(6)
-
-  @@map("server_patches")
-}
 
 model Session {
   sid    String   @id @db.VarChar
@@ -134,13 +111,6 @@ model Session {
   @@map("sessions")
 }
 
-model Migration {
-  id        Int    @id @default(autoincrement())
-  timestamp BigInt
-  name      String @db.VarChar
-
-  @@map("migrations")
-}
 
 model EnvironmentStats {
   id            Int      @id @default(autoincrement())

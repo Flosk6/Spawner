@@ -10,11 +10,8 @@ import ProjectEnvironments from '../views/ProjectEnvironments.vue';
 import EnvironmentNew from '../views/EnvironmentNew.vue';
 import EnvironmentDetail from '../views/EnvironmentDetail.vue';
 import SystemOverview from '../views/SystemOverview.vue';
-import SystemDocker from '../views/SystemDocker.vue';
 import GitSettings from '../views/GitSettings.vue';
-import SystemSettings from '../views/SystemSettings.vue';
 import Login from '../views/Login.vue';
-import TypographyTest from '../views/TypographyTest.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -42,27 +39,9 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/system/docker',
-      name: 'SystemDocker',
-      component: SystemDocker,
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/system/settings',
-      name: 'SystemSettings',
-      component: SystemSettings,
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/system/settings/git',
       name: 'GitSettings',
       component: GitSettings,
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/typography-test',
-      name: 'TypographyTest',
-      component: TypographyTest,
       meta: { requiresAuth: true },
     },
     {

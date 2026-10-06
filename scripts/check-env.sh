@@ -45,11 +45,6 @@ REQUIRED_VARS=(
     "SESSION_SECRET"
 )
 
-OPTIONAL_VARS=(
-    "GITHUB_REPO"
-    "WEBHOOK_SECRET"
-    "DEPLOY_TOKEN"
-)
 
 PRODUCTION_VARS=(
     "DOMAIN"
@@ -74,18 +69,6 @@ for var in "${REQUIRED_VARS[@]}"; do
     fi
 done
 
-echo ""
-echo -e "${BLUE}Optional Variables (Update System):${NC}"
-
-for var in "${OPTIONAL_VARS[@]}"; do
-    VALUE=$(grep "^${var}=" "$ENV_FILE" | cut -d'=' -f2-)
-
-    if [ -z "$VALUE" ] || [[ "$VALUE" =~ (CHANGE|GENERATE|your_|example) ]]; then
-        echo -e "  ${YELLOW}⚠️  $var${NC} - Not configured (optional)"
-    else
-        echo -e "  ${GREEN}✅ $var${NC} - Configured"
-    fi
-done
 
 if [ "$ENV_FILE" = ".env.production" ]; then
     echo ""

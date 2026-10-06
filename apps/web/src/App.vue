@@ -138,9 +138,7 @@ const menuItems = computed(() => [
     path: '/system',
     submenu: [
       { label: 'Overview', path: '/system/overview' },
-      { label: 'Docker', path: '/system/docker' },
       { label: 'Git Keys', path: '/system/settings/git' },
-      { label: 'Settings', path: '/system/settings' },
     ]
   }
 ]);

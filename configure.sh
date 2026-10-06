@@ -184,7 +184,6 @@ PORT=3000
 FRONTEND_URL=https://spawner.$DOMAIN
 
 # APPLICATION PATHS
-PROJECT_CONFIG_PATH=/opt/spawner/project.config.yml
 GIT_KEYS_PATH=/opt/spawner/git-keys
 REPOS_PATH=/opt/spawner/repos
 ENVS_PATH=/opt/spawner/envs
