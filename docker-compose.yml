@@ -1,3 +1,13 @@
+# Local stack: Postgres, Traefik and Spawner, over plain HTTP.
+#
+# Environments get URLs under localtest.me, a public domain whose every
+# subdomain resolves to 127.0.0.1, so no DNS setup is needed:
+#   dashboard    http://spawner.localtest.me
+#   environment  http://<env>--<project>.localtest.me
+#
+# SPAWNER_DATA_DIR is mounted at the same path in the container, so the paths
+# Spawner writes in compose files are the same for the Docker daemon.
+
 services:
   postgres:
     image: postgres:15-alpine
@@ -10,12 +20,28 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - spawner-network
+      - spawner-core
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-spawner}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  traefik:
+    image: traefik:v3.5
+    container_name: spawner-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--log.level=INFO"
+    ports:
+      - "${SPAWNER_HTTP_PORT:-80}:80"
+    volumes:
+      - ${SPAWNER_DATA_DIR:?set SPAWNER_DATA_DIR to an absolute path}/traefik:/etc/traefik/dynamic:ro
+    networks:
+      - spawner-core
 
   spawner:
     build:
@@ -28,40 +54,43 @@ services:
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       - PORT=3000
-      # PostgreSQL Configuration
+      # PostgreSQL
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=${DB_USER:-spawner}
       - DB_PASSWORD=${DB_PASSWORD:-spawner}
       - DB_NAME=${DB_NAME:-spawner}
       - DATABASE_URL=postgresql://${DB_USER:-spawner}:${DB_PASSWORD:-spawner}@postgres:5432/${DB_NAME:-spawner}
-      # Application Paths
-      - GIT_KEYS_PATH=/opt/spawner/git-keys
-      - REPOS_PATH=/opt/spawner/repos
-      - ENVS_PATH=/opt/spawner/envs
+      # Engine
+      - SPAWNER_DATA_DIR=${SPAWNER_DATA_DIR}
+      - SPAWNER_PREVIEW_DOMAIN=${SPAWNER_PREVIEW_DOMAIN:-localtest.me}
+      - SPAWNER_TLS=off
+      - SPAWNER_TRAEFIK_CONTAINER=spawner-traefik
+      - SPAWNER_DASHBOARD_UPSTREAM=http://spawner:3000
+      - SPAWNER_BOOTSTRAP_TOKEN=${SPAWNER_BOOTSTRAP_TOKEN:-}
       - DOCKER_SOCKET=/var/run/docker.sock
-      # OAuth Configuration
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - GITHUB_CALLBACK_URL=${GITHUB_CALLBACK_URL:-http://localhost:8080/api/auth/github/callback}
-      - GITHUB_ORG=${GITHUB_ORG}
-      - GITHUB_TEAM=${GITHUB_TEAM}
-      # Session Configuration
-      - SESSION_SECRET=${SESSION_SECRET}
+      # GitHub OAuth
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-unset}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-unset}
+      - GITHUB_CALLBACK_URL=${GITHUB_CALLBACK_URL:-http://spawner.localtest.me/api/auth/github/callback}
+      - GITHUB_ORG=${GITHUB_ORG:-unset}
+      - GITHUB_TEAM=${GITHUB_TEAM:-unset}
+      # Session
+      - SESSION_SECRET=${SESSION_SECRET:-development-only-secret}
       - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400000}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
+      - FRONTEND_URL=${FRONTEND_URL:-http://spawner.localtest.me}
     volumes:
-      - /opt/spawner:/opt/spawner
+      - ${SPAWNER_DATA_DIR}:${SPAWNER_DATA_DIR}
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - spawner-network
+      - spawner-core
 
 networks:
-  spawner-network:
-    driver: bridge
+  spawner-core:
+    name: spawner-core
 
 volumes:
   postgres-data:

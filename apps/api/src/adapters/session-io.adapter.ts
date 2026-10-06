@@ -19,7 +19,6 @@ export class SessionIoAdapter extends IoAdapter {
     // Wrap session middleware for Socket.IO
     server.use((socket: any, next: any) => {
       this.logger.debug(`Socket.IO connection from ${socket.handshake.address}`);
-      this.logger.debug(`Cookies: ${JSON.stringify(socket.handshake.headers.cookie)}`);
 
       this.sessionMiddleware(socket.request, {}, (err: any) => {
         if (err) {
@@ -27,8 +26,6 @@ export class SessionIoAdapter extends IoAdapter {
           return next(err);
         }
 
-        this.logger.debug(`Session ID: ${socket.request.session?.id}`);
-        this.logger.debug(`Session passport: ${JSON.stringify(socket.request.session?.passport)}`);
         next();
       });
     });

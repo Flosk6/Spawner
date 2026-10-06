@@ -18,10 +18,10 @@ export class StatsService {
 
     try {
       const runningEnvironments = await this.prisma.environment.findMany({
-        where: { status: "running" },
+        where: { status: "ready", deletedAt: null },
         select: {
           id: true,
-          name: true,
+          slug: true,
         },
       });
 
@@ -32,7 +32,7 @@ export class StatsService {
       for (const environment of runningEnvironments) {
         try {
           const stats = await this.dockerService.getEnvironmentStats(
-            environment.name
+            environment.id
           );
 
           const totalMemoryUsageGB =
@@ -70,11 +70,11 @@ export class StatsService {
           `;
 
           this.logger.debug(
-            `Collected stats for environment ${environment.name}`
+            `Collected stats for environment ${environment.slug}`
           );
         } catch (error) {
           this.logger.error(
-            `Failed to collect stats for environment ${environment.name}: ${error.message}`
+            `Failed to collect stats for environment ${environment.slug}: ${error.message}`
           );
         }
       }

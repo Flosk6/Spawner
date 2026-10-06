@@ -14,10 +14,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@spawner/config": "workspace:*",
-    "@spawner/types": "workspace:*"
-  },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "typescript": "^5.3.3",

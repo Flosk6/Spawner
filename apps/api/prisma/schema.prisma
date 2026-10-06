@@ -8,17 +8,19 @@ datasource db {
 }
 
 model User {
-  id          Int        @id @default(autoincrement())
-  githubId    String     @unique @map("githubId") @db.VarChar
-  username    String     @db.VarChar
-  email       String?    @db.VarChar
-  avatarUrl   String?    @map("avatarUrl") @db.VarChar
-  role        String     @default("user") @db.VarChar
-  isActive    Boolean    @default(true) @map("isActive")
-  createdAt   DateTime   @default(now()) @map("createdAt") @db.Timestamp(6)
-  updatedAt   DateTime   @default(now()) @map("updatedAt") @db.Timestamp(6)
-  lastLoginAt DateTime?  @map("lastLoginAt") @db.Timestamp(6)
-  auditLogs   AuditLog[]
+  id           Int           @id @default(autoincrement())
+  githubId     String        @unique @map("githubId") @db.VarChar
+  username     String        @db.VarChar
+  email        String?       @db.VarChar
+  avatarUrl    String?       @map("avatarUrl") @db.VarChar
+  role         String        @default("user") @db.VarChar
+  isActive     Boolean       @default(true) @map("isActive")
+  createdAt    DateTime      @default(now()) @map("createdAt") @db.Timestamp(6)
+  updatedAt    DateTime      @default(now()) @map("updatedAt") @db.Timestamp(6)
+  lastLoginAt  DateTime?     @map("lastLoginAt") @db.Timestamp(6)
+  auditLogs    AuditLog[]
+  environments Environment[]
+  jobs         Job[]
 
   @@map("users")
 }
@@ -37,60 +39,100 @@ model AuditLog {
 }
 
 model Project {
-  id           Int               @id @default(autoincrement())
-  name         String            @unique @db.VarChar
-  baseDomain   String            @map("base_domain") @db.VarChar
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+  id           String        @id @default(cuid())
+  slug         String        @unique @db.VarChar(20)
+  name         String        @db.VarChar
+  repoUrl      String        @map("repo_url") @db.VarChar
+  defaultRef   String        @default("main") @map("default_ref") @db.VarChar
+  rootDir      String        @default(".") @map("root_dir") @db.VarChar
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   environments Environment[]
-  resources    ProjectResource[]
 
   @@map("projects")
 }
 
-model ProjectResource {
-  id                Int      @id @default(autoincrement())
-  projectId         Int      @map("project_id")
-  name              String   @db.VarChar
-  type              String   @db.VarChar
-  gitRepo           String?  @map("git_repo") @db.VarChar
-  defaultBranch     String?  @map("default_branch") @db.VarChar
-  baseImages        Json     @default("[]") @map("base_images") @db.Json
-  staticEnvVars     Json     @default("{}") @map("static_env_vars") @db.Json
-  postBuildCommands Json     @default("[]") @map("post_build_commands") @db.Json
-  resourceLimits    Json?    @map("resource_limits") @db.Json
-  exposedPort       Int?     @map("exposed_port")
-  isEntryPoint      Boolean  @default(false) @map("is_entry_point")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@map("project_resources")
-}
-
+/// One running copy of a project. A deleted environment keeps its row
+/// (deletedAt set); its slug is unique among live environments only, through
+/// a partial index created in the migration.
 model Environment {
-  id         String                @id @db.VarChar
-  name       String                @unique @db.VarChar
-  projectId  Int?                  @map("project_id")
-  status     String                @db.VarChar
-  configJson String                @map("config_json")
-  createdAt  DateTime              @default(now()) @map("created_at") @db.Timestamp(6)
-  resources  EnvironmentResource[]
-  project    Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id         String              @id @default(cuid())
+  projectId  String              @map("project_id")
+  slug       String              @db.VarChar(29)
+  status     String              @db.VarChar(20)
+  phase      String?             @db.VarChar(20)
+  error      String?
+  ownerId    Int?                @map("owner_id")
+  createdVia String              @default("api") @map("created_via") @db.VarChar(10)
+  manifest   Json?
+  expiresAt  DateTime?           @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime?           @map("deleted_at") @db.Timestamptz(6)
+  project    Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  owner      User?               @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  sources    EnvironmentSource[]
+  exposures  Exposure[]
+  jobs       Job[]
 
+  @@index([projectId, slug])
+  @@index([status])
   @@map("environments")
 }
 
-model EnvironmentResource {
-  id            String      @id @db.VarChar
-  environmentId String      @map("environment_id") @db.VarChar
-  resourceName  String      @map("resource_name") @db.VarChar
-  resourceType  String      @map("resource_type") @db.VarChar
-  branch        String?     @db.VarChar
-  url           String?     @db.VarChar
-  isEntryPoint  Boolean     @default(false) @map("is_entry_point")
-  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+model EnvironmentSource {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  name          String      @db.VarChar(20)
+  origin        String      @db.VarChar(10)
+  repoUrl       String?     @map("repo_url") @db.VarChar
+  ref           String?     @db.VarChar
+  commit        String?     @db.VarChar(64)
+  digest        String?     @db.VarChar(64)
+  sizeBytes     BigInt?     @map("size_bytes")
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
   environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
 
-  @@map("environment_resources")
+  @@unique([environmentId, name])
+  @@map("environment_sources")
+}
+
+model Exposure {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  name          String      @db.VarChar(10)
+  service       String      @db.VarChar
+  port          Int
+  host          String      @db.VarChar
+  entrypoint    Boolean     @default(false)
+  auth          String      @default("team") @db.VarChar(10)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, name])
+  @@map("exposures")
+}
+
+/// An operation on an environment (create, update, stop, start, delete,
+/// reseed). The queue lives in this table; one job runs per environment at
+/// a time.
+model Job {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  type          String      @db.VarChar(20)
+  status        String      @db.VarChar(20)
+  phase         String?     @db.VarChar(20)
+  error         String?
+  payload       Json?
+  triggeredById Int?        @map("triggered_by_id")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt     DateTime?   @map("started_at") @db.Timestamptz(6)
+  finishedAt    DateTime?   @map("finished_at") @db.Timestamptz(6)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  triggeredBy   User?       @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([environmentId, createdAt])
+  @@map("jobs")
 }
 
 model Setting {
@@ -100,8 +142,6 @@ model Setting {
   @@map("settings")
 }
 
-
-
 model Session {
   sid    String   @id @db.VarChar
   sess   Json     @db.Json
@@ -110,7 +150,6 @@ model Session {
   @@index([expire])
   @@map("sessions")
 }
-
 
 model EnvironmentStats {
   id            Int      @id @default(autoincrement())
@@ -123,18 +162,4 @@ model EnvironmentStats {
 
   @@index([environmentId, time(sort: Desc)])
   @@index([time])
-}
-
-model EnvironmentAction {
-  id            String    @id @db.VarChar
-  environmentId String    @map("environment_id") @db.VarChar
-  action        String    @db.VarChar(50)
-  status        String    @default("pending") @db.VarChar(50)
-  metadata      Json?     @db.Json
-  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
-  completedAt   DateTime? @map("completed_at") @db.Timestamp(6)
-
-  @@index([environmentId])
-  @@index([status])
-  @@map("environment_actions")
 }

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import * as os from "os";
-import { bytesToGB } from "@spawner/config";
+
+const bytesToGB = (bytes: number) => bytes / 1024 ** 3;
 
 export interface SystemMemoryStats {
   total: number;

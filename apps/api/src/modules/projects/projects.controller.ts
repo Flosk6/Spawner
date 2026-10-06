@@ -1,56 +1,35 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
-  Body,
-  ParseIntPipe,
-  UseGuards,
-} from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
-import { ProjectsService } from './projects.service';
-import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { ApiAuthGuard } from "../../common/api-auth.guard";
+import { ProjectsService, type ProjectInput } from "./projects.service";
 
-@Controller('projects')
-@UseGuards(SessionAuthGuard)
+@Controller("v1/projects")
+@UseGuards(ApiAuthGuard)
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  @Throttle({ long: { limit: 100, ttl: 60000 } })
-  async findAll() {
-    return this.projectsService.findAll();
+  list() {
+    return this.projects.list();
   }
 
-  @Get(':id')
-  @Throttle({ long: { limit: 100, ttl: 60000 } })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.findOne(id);
+  @Get(":slug")
+  get(@Param("slug") slug: string) {
+    return this.projects.get(slug);
   }
 
   @Post()
-  @Throttle({ medium: { limit: 20, ttl: 3600000 } })
-  async create(
-    @Body() data: { name: string; baseDomain: string },
-  ) {
-    return this.projectsService.create(data);
+  create(@Body() body: ProjectInput) {
+    return this.projects.create(body ?? {});
   }
 
-  @Put(':id')
-  @Throttle({ medium: { limit: 50, ttl: 3600000 } })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() data: { name?: string; baseDomain?: string },
-  ) {
-    return this.projectsService.update(id, data);
+  @Patch(":slug")
+  update(@Param("slug") slug: string, @Body() body: ProjectInput) {
+    return this.projects.update(slug, body ?? {});
   }
 
-  @Delete(':id')
-  @Throttle({ medium: { limit: 20, ttl: 3600000 } })
-  async delete(@Param('id', ParseIntPipe) id: number) {
-    await this.projectsService.delete(id);
-    return { success: true };
+  @Delete(":slug")
+  @HttpCode(204)
+  async remove(@Param("slug") slug: string) {
+    await this.projects.remove(slug);
   }
 }

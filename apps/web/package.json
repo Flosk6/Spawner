@@ -13,9 +13,7 @@
   },
   "dependencies": {
     "@primevue/themes": "^4.4.1",
-    "@spawner/config": "workspace:*",
     "@spawner/types": "workspace:*",
-    "@spawner/utils": "workspace:*",
     "axios": "^1.6.5",
     "chart.js": "^4.5.1",
     "pinia": "^3.0.4",

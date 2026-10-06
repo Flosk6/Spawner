@@ -87,7 +87,8 @@ export class SystemController {
     try {
       const environments = await this.prisma.environment.findMany({
         where: {
-          status: 'running',
+          status: 'ready',
+          deletedAt: null,
         },
         include: {
           project: true,
@@ -101,8 +102,8 @@ export class SystemController {
           if (!latestStats) {
             return {
               id: env.id,
-              name: env.name,
-              projectName: env.project?.name || 'Unknown',
+              name: env.slug,
+              projectName: env.project.slug,
               containers: [],
               totalCpu: 0,
               totalMemoryUsage: 0,
@@ -112,8 +113,8 @@ export class SystemController {
 
           return {
             id: env.id,
-            name: env.name,
-            projectName: env.project?.name || 'Unknown',
+            name: env.slug,
+            projectName: env.project.slug,
             containers: latestStats.containers.map((c: any) => ({
               name: c.name,
               cpuPercent: Number(c.cpuPercent),

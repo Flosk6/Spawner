@@ -1,27 +1,14 @@
 # @spawner/utils
 
-Shared utility functions for the Spawner monorepo.
-
-## Usage
+Validators for the git inputs Spawner receives, used by the API before any git command.
 
 ```typescript
-import { validateEnvironmentName, generateResourceUrl, sanitizeShellArg } from '@spawner/utils';
+import { sanitizeGitBranch, sanitizeGitRepo } from '@spawner/utils';
+
+sanitizeGitRepo('git@github.com:acme/app.git'); // returned unchanged
+sanitizeGitBranch('feat/login');                // returned unchanged
+sanitizeGitBranch('--upload-pack=x');           // throws
 ```
 
-## Exports
-
-### Validation
-- `validateEnvironmentName(name: string): boolean`
-- `validateBranchName(branch: string): boolean`
-
-### URL & Naming
-- `generateResourceUrl(resourceName, envName, baseDomain): string`
-- `generateServiceName(resourceName, envName): string`
-- `generateNetworkName(envName): string`
-- `generateVolumeName(dbResourceName, envName): string`
-- `generateComposeProjectName(envName): string`
-
-### Security & Utilities
-- `sanitizeShellArg(arg: string): string`
-- `formatDate(date: Date | string): string`
-- `parseConfigJson<T>(json: string): T | null`
+- `sanitizeGitRepo(repo)`: SSH (`git@host:path.git`) or HTTPS (`https://host/path.git`) URLs only.
+- `sanitizeGitBranch(ref)`: a branch, tag or commit that cannot be read as an option or a revision expression.

@@ -2,25 +2,22 @@ import { Injectable, OnModuleInit } from "@nestjs/common";
 import Docker from "dockerode";
 import * as stream from "stream";
 
-export interface ContainerConfig {
-  name: string;
-  image?: string;
-  buildContext?: string;
-  environment?: Record<string, string>;
-  labels?: Record<string, string>;
-  networks?: string[];
-  volumes?: string[];
-  ports?: string[];
-  dependsOn?: string[];
-  extraHosts?: string[];
-  resourceLimits?: {
-    cpus: string;
-    memory: string;
-    cpuReservation?: string;
-    memoryReservation?: string;
-  };
+export interface ExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  truncated: boolean;
+  timedOut: boolean;
 }
 
+const LABEL_ENV = "dev.spawner.env";
+const LABEL_COMPOSE_SERVICE = "com.docker.compose.service";
+
+/**
+ * Thin wrapper around the Docker API (dockerode). Environments are found by
+ * the dev.spawner.* labels Spawner puts on every container, volume and
+ * network it creates; no command ever goes through a shell.
+ */
 @Injectable()
 export class DockerService implements OnModuleInit {
   private docker: Docker;
@@ -30,397 +27,75 @@ export class DockerService implements OnModuleInit {
     this.docker = new Docker({ socketPath });
   }
 
-  async createNetwork(name: string): Promise<Docker.Network> {
-    try {
-      const existingNetworks = await this.docker.listNetworks({
-        filters: { name: [name] },
-      });
-
-      if (existingNetworks.length > 0) {
-        return this.docker.getNetwork(existingNetworks[0].Id);
-      }
-
-      return await this.docker.createNetwork({
-        Name: name,
-        Driver: "bridge",
-      });
-    } catch (error) {
-      throw new Error(`Failed to create network ${name}: ${error.message}`);
-    }
+  get client(): Docker {
+    return this.docker;
   }
 
-  async removeNetwork(name: string): Promise<void> {
-    try {
-      const networks = await this.docker.listNetworks({
-        filters: { name: [name] },
-      });
-
-      for (const networkInfo of networks) {
-        const network = this.docker.getNetwork(networkInfo.Id);
-        await network.remove();
-      }
-    } catch (error) {
-      console.error(`Failed to remove network ${name}:`, error.message);
-    }
-  }
-
-  async createVolume(name: string): Promise<void> {
-    try {
-      const existingVolumes = await this.docker.listVolumes({
-        filters: { name: [name] },
-      });
-
-      if (existingVolumes.Volumes && existingVolumes.Volumes.length > 0) {
-        console.warn(
-          `Volume ${name} already exists. Deleting it to create a fresh one...`
-        );
-        try {
-          await this.removeVolume(name);
-        } catch (error) {
-          console.error(
-            `Failed to remove existing volume ${name}:`,
-            error.message
-          );
-          throw new Error(
-            `Cannot create volume ${name}: old volume exists and couldn't be removed`
-          );
-        }
-      }
-
-      await this.docker.createVolume({ Name: name });
-      console.log(`Volume ${name} created successfully`);
-    } catch (error) {
-      throw new Error(`Failed to create volume ${name}: ${error.message}`);
-    }
-  }
-
-  async removeVolume(name: string): Promise<void> {
-    try {
-      const volume = this.docker.getVolume(name);
-      await volume.remove({ force: true });
-    } catch (error) {
-      if (error.statusCode === 404) {
-        console.log(`Volume ${name} does not exist, skipping...`);
-        return;
-      }
-      console.error(`Failed to remove volume ${name}:`, error.message);
-      throw error;
-    }
-  }
-
-  async removeImage(tag: string): Promise<void> {
-    try {
-      const image = this.docker.getImage(tag);
-      await image.remove({ force: true });
-    } catch (error) {
-      console.error(`Failed to remove image ${tag}:`, error.message);
-    }
-  }
-
-  async buildImage(
-    buildContext: string,
-    tag: string,
-    onProgress?: (message: string) => void,
-    dockerfilePath?: string
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const buildOptions: any = {
-        context: buildContext,
-        src: ["."],
-      };
-
-      if (dockerfilePath) {
-        buildOptions.src.push(dockerfilePath);
-      }
-
-      this.docker.buildImage(
-        buildOptions,
-        dockerfilePath ? { t: tag, dockerfile: dockerfilePath } : { t: tag },
-        (err, stream) => {
-          if (err) {
-            reject(new Error(`Failed to build image ${tag}: ${err.message}`));
-            return;
-          }
-
-          this.docker.modem.followProgress(
-            stream,
-            async (err) => {
-              if (err) {
-                reject(new Error(`Build failed for ${tag}: ${err.message}`));
-              } else {
-                const imageExists = await this.imageExists(tag);
-                if (!imageExists) {
-                  reject(
-                    new Error(
-                      `Build completed but image ${tag} was not created`
-                    )
-                  );
-                } else {
-                  resolve();
-                }
-              }
-            },
-            (event) => {
-              if (event.stream) {
-                const message = event.stream.trim();
-                if (message) {
-                  if (onProgress) {
-                    onProgress(message);
-                  } else {
-                    process.stdout.write(event.stream);
-                  }
-                }
-              }
-            }
-          );
-        }
-      );
+  /**
+   * Lists the containers of an environment, running or not.
+   */
+  async listEnvironmentContainers(environmentId: string): Promise<Docker.ContainerInfo[]> {
+    return this.docker.listContainers({
+      all: true,
+      filters: { label: [`${LABEL_ENV}=${environmentId}`] },
     });
   }
 
-  async imageExists(tag: string): Promise<boolean> {
-    try {
-      const image = this.docker.getImage(tag);
-      await image.inspect();
-      return true;
-    } catch (error) {
-      return false;
-    }
+  /**
+   * Finds the container of a compose service in an environment.
+   */
+  async findServiceContainer(environmentId: string, service: string): Promise<Docker.ContainerInfo | null> {
+    const containers = await this.docker.listContainers({
+      all: true,
+      filters: { label: [`${LABEL_ENV}=${environmentId}`, `${LABEL_COMPOSE_SERVICE}=${service}`] },
+    });
+    return containers[0] ?? null;
   }
 
-  async pullImage(
-    imageName: string,
-    onProgress?: (message: string) => void
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.docker.pull(imageName, (err, stream) => {
-        if (err) {
-          reject(new Error(`Failed to pull image ${imageName}: ${err.message}`));
-          return;
-        }
+  /**
+   * Runs a command in a container with an argument array (no shell) and
+   * returns its exit code and separate outputs, each capped.
+   *
+   * @param containerId - Target container
+   * @param argv - Command and arguments
+   * @param options - Timeout and output cap
+   */
+  async exec(
+    containerId: string,
+    argv: string[],
+    options: { timeoutMs: number; maxOutputBytes: number }
+  ): Promise<ExecResult> {
+    const container = this.docker.getContainer(containerId);
+    const exec = await container.exec({ Cmd: argv, AttachStdout: true, AttachStderr: true });
+    const execStream = await exec.start({ hijack: true, stdin: false });
 
-        this.docker.modem.followProgress(
-          stream,
-          (err) => {
-            if (err) {
-              reject(new Error(`Pull failed for ${imageName}: ${err.message}`));
-            } else {
-              resolve();
-            }
-          },
-          (event) => {
-            if (event.status && onProgress) {
-              const message = event.status + (event.progress || "");
-              onProgress(message);
-            }
-          }
-        );
+    const stdout = new CappedBuffer(options.maxOutputBytes);
+    const stderr = new CappedBuffer(options.maxOutputBytes);
+    this.docker.modem.demuxStream(execStream, stdout.writable(), stderr.writable());
+
+    const timedOut = await new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        execStream.destroy();
+        resolve(true);
+      }, options.timeoutMs);
+      execStream.on("end", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+      execStream.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
       });
     });
-  }
 
-  async ensureImage(
-    imageName: string,
-    onProgress?: (message: string) => void
-  ): Promise<void> {
-    const exists = await this.imageExists(imageName);
-    if (!exists) {
-      if (onProgress) {
-        onProgress(`Image ${imageName} not found, pulling...`);
-      }
-      await this.pullImage(imageName, onProgress);
-    }
-  }
-
-  async createContainer(config: ContainerConfig): Promise<Docker.Container> {
-    try {
-      const cpuLimit = this.parseCpuLimit(config.resourceLimits?.cpus || "2");
-      const memoryLimit = this.parseMemoryLimit(
-        config.resourceLimits?.memory || "1G"
-      );
-      const memoryReservation = config.resourceLimits?.memoryReservation
-        ? this.parseMemoryLimit(config.resourceLimits.memoryReservation)
-        : undefined;
-
-      const createOptions: any = {
-        name: config.name,
-        Image: config.image,
-        Env: config.environment
-          ? Object.entries(config.environment).map(
-              ([key, value]) => `${key}=${value}`
-            )
-          : [],
-        Labels: config.labels || {},
-        HostConfig: {
-          NetworkMode: config.networks?.[0] || "bridge",
-          Binds: config.volumes || [],
-          PortBindings: this.parsePortBindings(config.ports || []),
-          NanoCPUs: cpuLimit,
-          Memory: memoryLimit,
-          ExtraHosts: config.extraHosts || [],
-        },
-      };
-
-      if (memoryReservation) {
-        createOptions.HostConfig.MemoryReservation = memoryReservation;
-      }
-
-      const container = await this.docker.createContainer(createOptions);
-
-      if (config.networks && config.networks.length > 1) {
-        for (let i = 1; i < config.networks.length; i++) {
-          await this.connectContainerToNetwork(config.name, config.networks[i]);
-        }
-      }
-
-      return container;
-    } catch (error) {
-      throw new Error(
-        `Failed to create container ${config.name}: ${error.message}`
-      );
-    }
-  }
-
-  async startContainer(containerNameOrId: string): Promise<void> {
-    try {
-      const container = this.docker.getContainer(containerNameOrId);
-      await container.start();
-    } catch (error) {
-      if (error.statusCode === 304) {
-        return;
-      }
-      throw new Error(
-        `Failed to start container ${containerNameOrId}: ${error.message}`
-      );
-    }
-  }
-
-  async stopContainer(
-    containerNameOrId: string,
-    timeout: number = 10
-  ): Promise<void> {
-    try {
-      const container = this.docker.getContainer(containerNameOrId);
-      await container.stop({ t: timeout });
-    } catch (error) {
-      if (error.statusCode === 304 || error.statusCode === 404) {
-        return;
-      }
-      throw new Error(
-        `Failed to stop container ${containerNameOrId}: ${error.message}`
-      );
-    }
-  }
-
-  async restartContainer(
-    containerNameOrId: string,
-    timeout: number = 10
-  ): Promise<void> {
-    try {
-      const container = this.docker.getContainer(containerNameOrId);
-      await container.restart({ t: timeout });
-    } catch (error) {
-      if (error.statusCode === 404) {
-        throw new Error(
-          `Container ${containerNameOrId} not found. It may have been removed.`
-        );
-      }
-      throw new Error(
-        `Failed to restart container ${containerNameOrId}: ${error.message}`
-      );
-    }
-  }
-
-  async removeContainer(
-    containerNameOrId: string,
-    force: boolean = false
-  ): Promise<void> {
-    try {
-      const container = this.docker.getContainer(containerNameOrId);
-      await container.remove({ force, v: true });
-    } catch (error) {
-      if (error.statusCode === 404) {
-        return;
-      }
-      throw new Error(
-        `Failed to remove container ${containerNameOrId}: ${error.message}`
-      );
-    }
-  }
-
-  async getContainerLogs(
-    containerNameOrId: string,
-    tail: number = 500
-  ): Promise<string> {
-    try {
-      const container = this.docker.getContainer(containerNameOrId);
-      const logs = await container.logs({
-        stdout: true,
-        stderr: true,
-        tail,
-        timestamps: true,
-      });
-
-      return logs.toString("utf-8");
-    } catch (error) {
-      throw new Error(
-        `Failed to get logs for ${containerNameOrId}: ${error.message}`
-      );
-    }
-  }
-
-  async execInContainer(
-    containerNameOrId: string,
-    command: string[],
-    timeout: number = 30000
-  ): Promise<{ output: string; exitCode: number }> {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const container = this.docker.getContainer(containerNameOrId);
-
-        const exec = await container.exec({
-          Cmd: command,
-          AttachStdout: true,
-          AttachStderr: true,
-        });
-
-        const execStream = await exec.start({ hijack: true, stdin: false });
-
-        let output = "";
-        const outputStream = new stream.Writable({
-          write(chunk, encoding, callback) {
-            output += chunk.toString("utf-8");
-            callback();
-          },
-        });
-
-        this.docker.modem.demuxStream(execStream, outputStream, outputStream);
-
-        const timeoutHandle = setTimeout(() => {
-          reject(new Error("Command execution timeout"));
-        }, timeout);
-
-        execStream.on("end", async () => {
-          clearTimeout(timeoutHandle);
-          const inspectData = await exec.inspect();
-          resolve({
-            output: output.trim(),
-            exitCode: inspectData.ExitCode || 0,
-          });
-        });
-
-        execStream.on("error", (err) => {
-          clearTimeout(timeoutHandle);
-          reject(err);
-        });
-      } catch (error) {
-        reject(
-          new Error(
-            `Failed to execute command in ${containerNameOrId}: ${error.message}`
-          )
-        );
-      }
-    });
+    const inspect = timedOut ? null : await exec.inspect();
+    return {
+      exitCode: inspect?.ExitCode ?? -1,
+      stdout: stdout.text(),
+      stderr: stderr.text(),
+      truncated: stdout.truncated || stderr.truncated,
+      timedOut,
+    };
   }
 
   /**
@@ -461,207 +136,137 @@ export class DockerService implements OnModuleInit {
     };
   }
 
-  async listContainers(projectName: string): Promise<Docker.ContainerInfo[]> {
+  /**
+   * Returns the last log lines of a container, stdout and stderr merged in
+   * order, with timestamps.
+   */
+  async logs(containerId: string, options: { tail: number; since?: number }): Promise<string> {
+    const container = this.docker.getContainer(containerId);
+    const [info, raw] = await Promise.all([
+      container.inspect(),
+      container.logs({ stdout: true, stderr: true, tail: options.tail, since: options.since, timestamps: true, follow: false }),
+    ]);
+    const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as unknown as string);
+    return info.Config.Tty ? buffer.toString("utf8") : demuxLogs(buffer);
+  }
+
+  /**
+   * Attaches a container to a network; does nothing if it already is.
+   */
+  async connectNetwork(network: string, container: string): Promise<void> {
     try {
-      return await this.docker.listContainers({
-        all: true,
-        filters: {
-          label: [`com.docker.compose.project=${projectName}`],
-        },
-      });
+      await this.docker.getNetwork(network).connect({ Container: container });
     } catch (error) {
-      throw new Error(
-        `Failed to list containers for project ${projectName}: ${error.message}`
-      );
-    }
-  }
-
-  async connectContainerToNetwork(
-    containerNameOrId: string,
-    networkName: string
-  ): Promise<void> {
-    try {
-      const network = this.docker.getNetwork(networkName);
-      await network.connect({ Container: containerNameOrId });
-    } catch (error) {
-      throw new Error(
-        `Failed to connect ${containerNameOrId} to ${networkName}: ${error.message}`
-      );
-    }
-  }
-
-  private parseCpuLimit(cpuString: string): number {
-    const cpu = parseFloat(cpuString);
-    return cpu * 1e9;
-  }
-
-  private parseMemoryLimit(memoryString: string): number {
-    const units: Record<string, number> = {
-      k: 1024,
-      m: 1024 * 1024,
-      g: 1024 * 1024 * 1024,
-    };
-
-    const match = memoryString.toLowerCase().match(/^(\d+)([kmg])?$/);
-    if (!match) {
-      throw new Error(`Invalid memory format: ${memoryString}`);
-    }
-
-    const value = parseInt(match[1], 10);
-    const unit = match[2] || "";
-
-    return value * (units[unit] || 1);
-  }
-
-  private parsePortBindings(ports: string[]): Record<string, any[]> {
-    const bindings: Record<string, any[]> = {};
-
-    for (const port of ports) {
-      const [hostPort, containerPort] = port.split(":");
-      const containerKey = containerPort.includes("/")
-        ? containerPort
-        : `${containerPort}/tcp`;
-
-      bindings[containerKey] = [{ HostPort: hostPort }];
-    }
-
-    return bindings;
-  }
-
-  async getContainerByName(name: string): Promise<Docker.ContainerInfo | null> {
-    try {
-      const containers = await this.docker.listContainers({
-        all: true,
-        filters: { name: [name] },
-      });
-
-      return containers.length > 0 ? containers[0] : null;
-    } catch (error) {
-      console.error(`Failed to get container by name ${name}:`, error.message);
-      return null;
-    }
-  }
-
-  async waitForDependencies(
-    containerNames: string[],
-    timeout: number = 60000
-  ): Promise<void> {
-    const startTime = Date.now();
-
-    for (const name of containerNames) {
-      while (Date.now() - startTime < timeout) {
-        try {
-          const containerInfo = await this.getContainerByName(name);
-          if (containerInfo && containerInfo.State === "running") {
-            break;
-          }
-        } catch (error) {
-          console.error(`Error checking dependency ${name}:`, error.message);
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!/already exists|already attached/i.test(error.message)) {
+        throw error;
       }
     }
   }
 
-  async getContainerStats(containerName: string): Promise<{
+  /**
+   * Detaches a container from a network; does nothing if it is not attached
+   * or if the network is gone.
+   */
+  async disconnectNetwork(network: string, container: string): Promise<void> {
+    try {
+      await this.docker.getNetwork(network).disconnect({ Container: container, Force: true });
+    } catch (error) {
+      if (!/not connected|no such network|not found/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+
+  async getContainerStats(containerId: string): Promise<{
     cpuPercent: number;
     memoryUsage: number;
     memoryLimit: number;
-    memoryPercent: number;
   } | null> {
     try {
-      const container = this.docker.getContainer(containerName);
-      const stats = await container.stats({ stream: false });
-
-      const cpuDelta =
-        stats.cpu_stats.cpu_usage.total_usage -
-        stats.precpu_stats.cpu_usage.total_usage;
-      const systemDelta =
-        stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
-      const cpuPercent =
-        systemDelta > 0
-          ? (cpuDelta / systemDelta) * stats.cpu_stats.online_cpus * 100
-          : 0;
-
-      const memoryUsage = stats.memory_stats.usage || 0;
-      const memoryLimit = stats.memory_stats.limit || 0;
-      const memoryPercent =
-        memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0;
-
+      const stats = await this.docker.getContainer(containerId).stats({ stream: false });
+      const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+      const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+      const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * stats.cpu_stats.online_cpus * 100 : 0;
       return {
         cpuPercent: Math.round(cpuPercent * 10) / 10,
-        memoryUsage,
-        memoryLimit,
-        memoryPercent: Math.round(memoryPercent * 10) / 10,
+        memoryUsage: stats.memory_stats.usage || 0,
+        memoryLimit: stats.memory_stats.limit || 0,
       };
-    } catch (error) {
-      console.error(
-        `Failed to get stats for container ${containerName}:`,
-        error.message
-      );
+    } catch {
       return null;
     }
   }
 
-  async getEnvironmentStats(
-    environmentName: string
-  ): Promise<{
+  /**
+   * Sums CPU and memory over the running containers of an environment.
+   */
+  async getEnvironmentStats(environmentId: string): Promise<{
     totalCpu: number;
     totalMemoryUsage: number;
     totalMemoryLimit: number;
-    containers: Array<{
-      name: string;
-      cpuPercent: number;
-      memoryUsage: number;
-      memoryLimit: number;
-    }>;
+    containers: Array<{ name: string; cpuPercent: number; memoryUsage: number; memoryLimit: number }>;
   }> {
-    try {
-      const containerSuffix = `-${environmentName}`;
-      const allContainers = await this.docker.listContainers();
-      const envContainers = allContainers.filter((c) =>
-        c.Names.some((name) => name.endsWith(containerSuffix))
-      );
-
-      let totalCpu = 0;
-      let totalMemoryUsage = 0;
-      let totalMemoryLimit = 0;
-      const containers: Array<{
-        name: string;
-        cpuPercent: number;
-        memoryUsage: number;
-        memoryLimit: number;
-      }> = [];
-
-      for (const containerInfo of envContainers) {
-        const containerName = containerInfo.Names[0].replace("/", "");
-        const stats = await this.getContainerStats(containerName);
-
-        if (stats) {
-          totalCpu += stats.cpuPercent;
-          totalMemoryUsage += stats.memoryUsage;
-          totalMemoryLimit += stats.memoryLimit;
-
-          containers.push({
-            name: containerName,
-            cpuPercent: stats.cpuPercent,
-            memoryUsage: stats.memoryUsage,
-            memoryLimit: stats.memoryLimit,
-          });
-        }
+    const running = (await this.listEnvironmentContainers(environmentId)).filter((info) => info.State === "running");
+    const containers = [];
+    for (const info of running) {
+      const stats = await this.getContainerStats(info.Id);
+      if (stats) {
+        containers.push({ name: info.Labels[LABEL_COMPOSE_SERVICE] ?? info.Names[0].replace("/", ""), ...stats });
       }
-
-      return {
-        totalCpu: Math.round(totalCpu * 10) / 10,
-        totalMemoryUsage,
-        totalMemoryLimit,
-        containers,
-      };
-    } catch (error) {
-      throw new Error(
-        `Failed to get environment stats: ${error.message}`
-      );
     }
+    return {
+      totalCpu: Math.round(containers.reduce((sum, item) => sum + item.cpuPercent, 0) * 10) / 10,
+      totalMemoryUsage: containers.reduce((sum, item) => sum + item.memoryUsage, 0),
+      totalMemoryLimit: containers.reduce((sum, item) => sum + item.memoryLimit, 0),
+      containers,
+    };
   }
+}
+
+/**
+ * Collects a stream into memory up to a byte cap, then drops the rest.
+ */
+class CappedBuffer {
+  private readonly chunks: Buffer[] = [];
+  private size = 0;
+  truncated = false;
+
+  constructor(private readonly max: number) {}
+
+  writable(): stream.Writable {
+    return new stream.Writable({
+      write: (chunk: Buffer, _encoding, callback) => {
+        const room = this.max - this.size;
+        if (room > 0) {
+          const slice = chunk.length > room ? chunk.subarray(0, room) : chunk;
+          this.chunks.push(slice);
+          this.size += slice.length;
+        }
+        if (chunk.length > room) {
+          this.truncated = true;
+        }
+        callback();
+      },
+    });
+  }
+
+  text(): string {
+    return Buffer.concat(this.chunks).toString("utf8");
+  }
+}
+
+/**
+ * Decodes the multiplexed log format of containers without a TTY: frames of
+ * an 8-byte header (stream type, 3 zero bytes, big-endian length) followed by
+ * the payload.
+ */
+export function demuxLogs(buffer: Buffer): string {
+  const parts: Buffer[] = [];
+  let offset = 0;
+  while (offset + 8 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset + 4);
+    parts.push(buffer.subarray(offset + 8, offset + 8 + length));
+    offset += 8 + length;
+  }
+  return Buffer.concat(parts).toString("utf8");
 }

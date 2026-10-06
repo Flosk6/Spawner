@@ -158,13 +158,8 @@ export class TerminalGateway
     }
 
     try {
-      // Security: Verify environment exists and user has access
-      const environment = await this.prisma.environment.findUnique({
-        where: { id: data.environmentId },
-        include: {
-          resources: true,
-          project: true,
-        },
+      const environment = await this.prisma.environment.findFirst({
+        where: { id: data.environmentId, deletedAt: null },
       });
 
       if (!environment) {
@@ -172,44 +167,15 @@ export class TerminalGateway
         return;
       }
 
-      // Security: Verify resource exists in this environment
-      const resource = environment.resources?.find(
-        (r) => r.resourceName === data.resourceName
-      );
-
-      if (!resource) {
-        client.emit("terminal-error", "Resource not found");
+      const container = await this.dockerService.findServiceContainer(environment.id, data.resourceName);
+      if (!container || container.State !== "running") {
+        client.emit("terminal-error", `Service "${data.resourceName}" is not running`);
         return;
       }
 
-      // Security: Only allow terminal on non-database resources
-      if (resource.resourceType === "mysql-db") {
-        client.emit(
-          "terminal-error",
-          "Terminal not available for database resources"
-        );
-        return;
-      }
+      this.logger.log(`Starting a terminal in ${data.resourceName} of environment ${environment.id}`);
 
-      // Container naming convention (using dockerode):
-      // - Container: {resourceName}-{environmentName} (e.g., "api-test")
-      const containerName = `${data.resourceName}-${environment.name}`;
-
-      this.logger.log(`Starting docker exec for container: ${containerName}`);
-
-      // Determine working directory and user based on resource type
-      let workingDir = "/var/www"; // Default for Laravel
-      let execUser = "www-data"; // Default non-root user for Laravel
-
-      if (resource.resourceType === "nextjs-front") {
-        workingDir = "/app";
-        execUser = "node"; // Next.js typically runs as node user
-      }
-
-      const { stream, exitCode } = await this.dockerService.execInteractive(
-        containerName,
-        { cmd: ["/bin/sh"], user: execUser, workingDir }
-      );
+      const { stream, exitCode } = await this.dockerService.execInteractive(container.Id, { cmd: ["/bin/sh"] });
 
       const sessionId = `${client.id}-${data.resourceName}`;
 

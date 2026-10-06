@@ -26,6 +26,8 @@ FROM base AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client tini \
  && rm -rf /var/lib/apt/lists/*
+COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker:29-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 COPY --from=build --chown=node:node /repo/apps/web/dist ./web

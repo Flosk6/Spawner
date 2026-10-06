@@ -6,9 +6,10 @@ import { APP_GUARD } from "@nestjs/core";
 import { config } from "dotenv";
 import { join } from "path";
 import { PrismaModule } from "./common/prisma.module";
+import { DockerModule } from "./common/docker.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { GitModule } from "./modules/git/git.module";
-import { EnvironmentModule } from "./modules/environment/environment.module";
+import { EnvironmentsModule } from "./modules/environments/environments.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { TerminalModule } from "./modules/terminal/terminal.module";
 import { SystemModule } from "./modules/system/system.module";
@@ -44,9 +45,10 @@ config({ path: envPath });
       },
     ]),
     PrismaModule,
+    DockerModule,
     ProjectsModule,
     GitModule,
-    EnvironmentModule,
+    EnvironmentsModule,
     AuthModule,
     TerminalModule,
     SystemModule,
