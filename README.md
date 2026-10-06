@@ -1,151 +1,122 @@
 # Spawner
 
-> Self-hosted preview environments with automatic Docker orchestration
+> Preview environments for every branch, on your own server.
 >
 > **License:** AGPL-3.0 | **Copyright © 2025 Florian-mfr**
 
-Create and manage preview environments for Laravel APIs, Next.js frontends, and MySQL databases based on Git branches. Automatic Docker orchestration with GitHub OAuth authentication.
+Spawner runs a copy of your application for each branch on a VPS, with its own URL, database and logs, so the whole team can test any branch in real time. Developers and coding agents create, update and delete environments from the dashboard or the API, run commands in them and read their logs, while the code keeps living in their local worktrees.
 
-## 🚀 Quick Start
+**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine and its API are done (milestone M1); team access, the CLI and the installer come next.
 
-**VPS Installation (Ubuntu 22.04+):**
+## How it works
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/votre-org/spawner/main/install.sh | bash
+A project describes its environment in its own repository, in a `.spawner/` directory:
+
+```yaml
+# .spawner/spawner.yaml
+version: 1
+project: example
+exposures:
+  - { name: web, service: app, port: 3000 }
+seed:
+  - { service: app, run: [node, seed.js] }
+ttl: 24h
 ```
 
-**Prerequisites:**
-- VPS with 10GB+ disk space
-- DNS: `spawner.yourdomain.com` and `*.preview.yourdomain.com` → VPS IP
-- GitHub OAuth App
-
-**Duration:** 10-15 minutes | **Result:** Full production setup with HTTPS
-
-**Local Development:**
-
-```bash
-git clone <your-repo>
-cd spawner
-pnpm install
-pnpm build
-pnpm dev
+```yaml
+# .spawner/compose.yaml: a regular Docker Compose file
+services:
+  db:
+    image: postgres:18-alpine
+    environment: { POSTGRES_USER: app, POSTGRES_PASSWORD: app }
+  app:
+    build: ..
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app
+      PUBLIC_URL: ${SPAWNER_URL}
 ```
 
-Access at `http://localhost:8080`
+For each environment, Spawner:
 
-## ✨ Features
+1. checks out the branch (or receives the worktree as an archive),
+2. validates the compose file against a security policy: no host mounts, no privileged containers, no host network, limits on memory, CPU and processes,
+3. builds and starts it in its own Docker network, then runs the seed,
+4. publishes its URLs through Traefik: `https://<env>--<project>.preview.example.com`.
 
-- 🔐 **GitHub OAuth** - Team-based access control
-- 🚀 **Multi-Project** - Manage multiple projects with separate configs
-- 🌿 **Git Branches** - Deploy any branch with SSH deploy keys
-- 🐳 **Docker** - Containers, networks and volumes managed through the Docker API (dockerode)
-- 💻 **Interactive Terminal** - Browser-based access with security constraints
-- 🔗 **Auto URLs** - Unique URLs per environment (`api.feature-123.preview.example.com`)
-- 📊 **Logs & Audit** - Container logs and full action tracking
+Updates keep the data; `fresh` starts from scratch. See [examples/node-postgres](examples/node-postgres) for a complete project.
 
-## 🏗️ Tech Stack
+## Quick start (local)
 
-**Monorepo:** pnpm + Turborepo
+Requirements: Docker with Compose v2, Node.js 22 and pnpm 8.
+
+```bash
+cp .env.example .env    # set SPAWNER_DATA_DIR to an absolute path, and a SPAWNER_BOOTSTRAP_TOKEN
+docker compose up -d --build
+```
+
+The dashboard is at `http://spawner.localtest.me` (every subdomain of localtest.me resolves to 127.0.0.1). With the API:
+
+```bash
+TOKEN=<your SPAWNER_BOOTSTRAP_TOKEN>
+API=http://localhost:8080/api/v1
+
+# A project: a repository holding .spawner/ (rootDir for a monorepo)
+curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' $API/projects \
+  -d '{"slug":"example","name":"Example","repoUrl":"https://github.com/Florian-mfr/Spawner.git","defaultRef":"v1","rootDir":"examples/node-postgres"}'
+
+# An environment from a branch...
+curl -H "Authorization: Bearer $TOKEN" $API/envs -F project=example -F env=demo -F 'primary={"ref":"v1"}'
+
+# ...or from a local worktree: the archive stands for the repository, rootDir applies inside it
+tar -czf /tmp/worktree.tar.gz --exclude node_modules examples/node-postgres
+curl -H "Authorization: Bearer $TOKEN" $API/envs -F project=example -F env=local -F primary=@/tmp/worktree.tar.gz
+```
+
+Each change answers with a job: follow it with `GET /api/v1/jobs/<id>/logs/stream`. Then `GET /api/v1/envs/<id>` gives the URLs, `POST /api/v1/envs/<id>/exec` runs a command in a service, `GET /api/v1/envs/<id>/logs/<service>` reads its output. The full API is described in [CLAUDE.md](CLAUDE.md#api-endpoints).
+
+## Production
+
+On an Ubuntu 22.04+ VPS dedicated to previews, with Docker and a DNS record `*.preview.yourdomain.com` pointing to it:
+
+```bash
+git clone -b v1 https://github.com/Florian-mfr/Spawner.git spawner && cd spawner
+./configure.sh          # writes .env.production and starts docker-compose.production.yml
+```
+
+The dashboard is then at `https://spawner.preview.yourdomain.com`. Certificates are obtained per host for now; a one-command installer with a wildcard certificate comes with milestone M6.
+
+## Security
+
+- **Compose policy**: an allowlist checked before anything runs, with tests for each refused case ([fixtures](packages/core/test/fixtures/compose/forbidden))
+- **Isolation**: one network per environment; Traefik routes through files and never gets the Docker socket
+- **No shell**: git and Docker Compose run with argument arrays and a minimal environment; the host environment never reaches the compose files
+- **Uploads**: archives are checked entry by entry (no absolute paths, `..`, escaping links, devices)
+- **Access**: GitHub OAuth (team based) for the dashboard, a bootstrap token for the API until personal tokens arrive; changes made with a browser session need a header that other origins cannot send
+- **Deploy keys**: read-only SSH keys per repository
+
+Run Spawner on a server dedicated to previews: environments run code from branches that have not been reviewed yet.
+
+## Development
 
 ```
 apps/
-├── api/        # NestJS + PostgreSQL + Prisma + Dockerode (also serves the web app in production)
-└── web/        # Vue.js 3 + Vite + Tailwind CSS
+├── api/        # NestJS, Prisma (PostgreSQL), environment engine; serves the web app in production
+└── web/        # Vue 3, Vite, Tailwind CSS, PrimeVue
 packages/
-├── types/      # Shared TypeScript types
-├── config/     # Shared constants
-└── utils/      # Shared utilities
+├── core/       # Manifest, compose policy and rendering (pure, shared with the CLI)
+├── types/      # API types shared by the web app and the CLI
+└── utils/      # Git input validators
+examples/       # Projects ready to deploy
 ```
 
-**Key Technologies:**
-- Backend: NestJS, PostgreSQL, Prisma, Dockerode, Socket.IO
-- Frontend: Vue.js 3 Composition API, xterm.js
-- Infrastructure: Docker, Traefik, Let's Encrypt
-
-## 📖 Usage
-
-1. **Login** with GitHub OAuth
-2. **Create Project** - Configure base domain and resources
-3. **Create Environment** - Select branches to deploy
-4. **Access URLs** - Automatic routing (`api.feature-123.preview.example.com`)
-5. **Open Terminal** - Browser-based shell access with security
-6. **View Logs** - Real-time container logs
-7. **Delete** - Clean removal of all resources
-
-## 💻 Development
-
-**Setup:**
 ```bash
-pnpm install
-pnpm build
-pnpm dev  # API on :3000, Web on :8080
+pnpm install && pnpm build
+pnpm dev                    # API on :3000, web on :8080
+pnpm lint && pnpm typecheck && pnpm test
+scripts/e2e-engine.sh       # creates, calls, updates and deletes an environment on a local stack
 ```
 
-**Commands:**
-```bash
-pnpm dev          # Start both API and Web
-pnpm build        # Build all packages
-pnpm lint         # Lint code
-pnpm typecheck    # Type-check every package
-pnpm test         # Run the test suites (Vitest)
-pnpm format       # Format with Prettier
-pnpm --filter @spawner/api add <pkg>  # Add dependency
-```
-
-**Turborepo** provides intelligent caching and parallel execution for fast builds.
-
-## ⚙️ Configuration
-
-Configuration is in `.env` (development) or `.env.production` (production).
-
-**Required:**
-- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` - OAuth App credentials
-- `GITHUB_ORG`, `GITHUB_TEAM` - Access control
-- `SESSION_SECRET` - Session encryption (`openssl rand -base64 32`)
-- `DB_PASSWORD` - PostgreSQL password (production)
-- `DOMAIN` - Your domain for production (e.g., `example.com`)
-- `ACME_EMAIL` - Let's Encrypt SSL email
-
-**Optional:**
-- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME` - Database config
-- `GIT_KEYS_PATH`, `REPOS_PATH`, `ENVS_PATH` - Storage paths
-- `DB_LOGGING` - Enable SQL logs (`true`/`false`)
-
-## 🔧 Resource Types
-
-| Type | Description | Required Fields |
-|------|-------------|-----------------|
-| **laravel-api** | Laravel backend with Dockerfile | `gitRepo`, `defaultBranch`, `dbResource` |
-| **nextjs-front** | Next.js frontend with Dockerfile | `gitRepo`, `defaultBranch`, `apiResource` |
-| **mysql-db** | MySQL 8 with persistent volumes | None (no git repo) |
-
-All resources get automatic HTTPS, environment variables, and Traefik routing.
-
-## 🔒 Security
-
-- **OAuth** - GitHub organization + team authentication
-- **Docker API** - Docker operations go through dockerode, not the docker CLI. Git commands still run through a shell with validated and sanitized arguments; they move to argument arrays (no shell) in v1
-- **Terminal** - Blocked dangerous commands, restricted paths, 3 terminals/user max
-- **Audit** - All actions logged (including terminal commands)
-- **HTTPS** - Automatic SSL via Let's Encrypt + Traefik
-- **Deploy Keys** - Read-only SSH access to repositories
-
-## 🐛 Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Environment creation fails | Check SSH keys, test connection, view API logs |
-| Containers not starting | Verify Dockerfiles exist, check dependencies |
-| URLs not accessible | Verify DNS wildcard, check Traefik labels |
-| SQL logs in console | Set `DB_LOGGING=false` in `.env` |
-
-**Logs:**
-```bash
-docker logs spawner            # API and web interface logs
-docker-compose logs -f         # All services
-```
-
-## 📄 License
+## License
 
 **AGPL-3.0** - Free to use, modify, and distribute. If you run Spawner as a SaaS, you must share your source code with users.
 
