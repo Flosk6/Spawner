@@ -14,6 +14,7 @@ export interface PreparedCompose {
   yaml?: string;
   services: string[];
   bindSources: string[];
+  servicesMountingSources: string[];
 }
 
 /**
@@ -29,7 +30,7 @@ export interface PreparedCompose {
  * @returns The rendered YAML and model, or the issues found
  */
 export function prepareCompose(text: string, vars: Record<string, string>, ctx: ComposeContext): PreparedCompose {
-  const empty = { services: [], bindSources: [] };
+  const empty = { services: [], bindSources: [], servicesMountingSources: [] };
 
   if (Buffer.byteLength(text, 'utf8') > MAX_COMPOSE_BYTES) {
     return { ...empty, issues: [{ code: 'yaml.too_large', path: '', message: 'the compose file is larger than 1 MiB' }] };
@@ -63,5 +64,6 @@ export function prepareCompose(text: string, vars: Record<string, string>, ctx: 
     yaml: stringify(escapeDollars(document), { lineWidth: 0 }),
     services: model.services.map((service) => service.name),
     bindSources: model.bindSources,
+    servicesMountingSources: model.servicesMountingSources,
   };
 }

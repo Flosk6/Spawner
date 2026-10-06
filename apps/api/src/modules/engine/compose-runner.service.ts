@@ -29,6 +29,32 @@ export class ComposeRunner {
     );
   }
 
+  /**
+   * Recreates services whose configuration did not change, so that those
+   * mounting a source see the directory the update put in place of the old
+   * one.
+   */
+  async recreate(project: string, file: string, services: string[], onLine: (line: string) => void): Promise<void> {
+    await this.compose(
+      [
+        "-p",
+        project,
+        "-f",
+        file,
+        "up",
+        "-d",
+        "--no-deps",
+        "--force-recreate",
+        "--wait",
+        "--wait-timeout",
+        String(this.config.startTimeoutSeconds),
+        "--",
+        ...services,
+      ],
+      onLine,
+    );
+  }
+
   async stop(project: string, file: string, onLine: (line: string) => void): Promise<void> {
     await this.compose(["-p", project, "-f", file, "stop"], onLine);
   }

@@ -1,5 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import Docker from "dockerode";
+import * as os from "os";
+import * as path from "path";
 import * as stream from "stream";
 
 export interface ExecResult {
@@ -29,6 +31,41 @@ export class DockerService implements OnModuleInit {
 
   get client(): Docker {
     return this.docker;
+  }
+
+  /**
+   * Removes a directory as root, from a short-lived container of Spawner's
+   * own image with the directory's parent mounted. The data directory has
+   * the same path on the host and in Spawner's container, so the daemon
+   * mounts the right directory.
+   *
+   * @param dir - Absolute path of the directory to remove
+   * @throws When Spawner does not run in a container (development)
+   */
+  async removeAsRoot(dir: string): Promise<void> {
+    const self = await this.docker
+      .getContainer(os.hostname())
+      .inspect()
+      .catch(() => null);
+    if (!self) {
+      throw new Error(`${dir} holds files Spawner cannot delete, and Spawner does not run in a container to delete them as root`);
+    }
+    const container = await this.docker.createContainer({
+      Image: self.Image,
+      User: "0",
+      Entrypoint: ["rm", "-rf", "--", `/parent/${path.basename(dir)}`],
+      Cmd: [],
+      HostConfig: { Binds: [`${path.dirname(dir)}:/parent`], NetworkMode: "none" },
+    });
+    try {
+      await container.start();
+      const { StatusCode } = await container.wait();
+      if (StatusCode !== 0) {
+        throw new Error(`removing ${dir} as root failed (exit code ${StatusCode})`);
+      }
+    } finally {
+      await container.remove({ force: true }).catch(() => undefined);
+    }
   }
 
   /**

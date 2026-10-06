@@ -151,7 +151,10 @@ export interface NormalizedCompose {
   services: NormalizedService[];
   volumes: Record<string, Record<string, unknown>>;
   networks: Record<string, Record<string, unknown>>;
+  /** Sources with files mounted in a service: they must stay on disk. */
   bindSources: string[];
+  /** Services that mount files of a source: they see new code only once recreated. */
+  servicesMountingSources: string[];
 }
 
 interface ServiceDraft {
@@ -187,6 +190,7 @@ class ComposeValidator {
   private readonly limits: ComposeLimits;
   private readonly resolver: SourceResolver;
   private readonly bindSources = new Set<string>();
+  private readonly mountingServices = new Set<string>();
   private declaredVolumes = new Set<string>();
   private declaredNetworks = new Set<string>(['default']);
 
@@ -215,7 +219,7 @@ class ComposeValidator {
     const drafts = this.services(doc.services);
     const services = this.crossCheck(drafts);
 
-    return { services, volumes, networks, bindSources: [...this.bindSources] };
+    return { services, volumes, networks, bindSources: [...this.bindSources], servicesMountingSources: [...this.mountingServices] };
   }
 
   private topLevelVolumes(value: unknown): Record<string, Record<string, unknown>> {
@@ -438,7 +442,7 @@ class ComposeValidator {
         this.envFile(spec, value, path);
         return;
       case 'volumes':
-        this.serviceVolumes(spec, value, path);
+        this.serviceVolumes(draft.name, spec, value, path);
         return;
       case 'networks':
         this.serviceNetworks(draft, value, path);
@@ -604,7 +608,7 @@ class ComposeValidator {
     spec.env_file = output;
   }
 
-  private serviceVolumes(spec: Record<string, unknown>, value: unknown, path: string): void {
+  private serviceVolumes(service: string, spec: Record<string, unknown>, value: unknown, path: string): void {
     if (!Array.isArray(value)) {
       this.invalid(path, 'volumes must be a list');
       return;
@@ -613,12 +617,12 @@ class ComposeValidator {
     value.forEach((item, index) => {
       const itemPath = keyPath(path, index);
       if (typeof item === 'string') {
-        const volume = this.shortVolume(item, itemPath);
+        const volume = this.shortVolume(service, item, itemPath);
         if (volume !== null) {
           output.push(volume);
         }
       } else if (isPlainObject(item)) {
-        const volume = this.longVolume(item, itemPath);
+        const volume = this.longVolume(service, item, itemPath);
         if (volume !== null) {
           output.push(volume);
         }
@@ -629,7 +633,7 @@ class ComposeValidator {
     spec.volumes = output;
   }
 
-  private shortVolume(value: string, path: string): string | null {
+  private shortVolume(service: string, value: string, path: string): string | null {
     const parts = value.split(':');
     let source: string | undefined;
     let target: string;
@@ -663,6 +667,7 @@ class ComposeValidator {
         return null;
       }
       this.bindSources.add(resolved.source);
+      this.mountingServices.add(service);
       return [resolved.path, target, mode].filter((part) => part !== undefined).join(':');
     }
     if (!this.declaredVolumes.has(source)) {
@@ -672,7 +677,7 @@ class ComposeValidator {
     return value;
   }
 
-  private longVolume(value: Record<string, unknown>, path: string): Record<string, unknown> | null {
+  private longVolume(service: string, value: Record<string, unknown>, path: string): Record<string, unknown> | null {
     for (const key of Object.keys(value)) {
       if (!VOLUME_LONG_KEYS.has(key) && !key.startsWith('x-')) {
         this.unknown(keyPath(path, key), key, VOLUME_LONG_KEYS);
@@ -709,6 +714,7 @@ class ComposeValidator {
           return null;
         }
         this.bindSources.add(resolved.source);
+        this.mountingServices.add(service);
         return { ...output, source: resolved.path };
       }
       case 'tmpfs':

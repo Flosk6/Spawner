@@ -137,6 +137,7 @@ describe('rendering', () => {
     const api = service(result.document, 'api');
 
     expect(result.bindSources).toEqual(['app']);
+    expect(result.servicesMountingSources).toEqual(['api']);
     expect(api.volumes[2].source).toBe(fs.realpathSync(path.join(app, 'docker', 'nginx.conf')));
     expect(api.volumes[3]).toBe(`${fs.realpathSync(path.join(app, 'docker'))}:/docker:ro`);
     expect(api.volumes[4]).toBe('/var/lib/anonymous');

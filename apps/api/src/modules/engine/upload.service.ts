@@ -5,6 +5,7 @@ import * as path from "path";
 import { extract, list } from "tar";
 import type { ReadEntry } from "tar";
 import { SpawnerConfig } from "./spawner.config";
+import { StorageService } from "./storage.service";
 
 const ALLOWED_TYPES = new Set(["File", "OldFile", "ContiguousFile", "Directory", "SymbolicLink"]);
 
@@ -27,7 +28,10 @@ export class UploadRejectedError extends Error {
  */
 @Injectable()
 export class UploadService {
-  constructor(private readonly config: SpawnerConfig) {}
+  constructor(
+    private readonly config: SpawnerConfig,
+    private readonly storage: StorageService,
+  ) {}
 
   /**
    * Checks and extracts an archive into target.
@@ -66,7 +70,7 @@ export class UploadService {
       fs.renameSync(incoming, target);
     } finally {
       fs.rmSync(incoming, { recursive: true, force: true });
-      fs.rmSync(previous, { recursive: true, force: true });
+      await this.storage.removeTree(previous);
     }
 
     return { digest: await sha256(archivePath), sizeBytes, files };

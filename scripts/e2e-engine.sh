@@ -11,6 +11,10 @@
 #   5. deletes it and checks nothing is left (containers, volumes,
 #      network, images, routing file, sources)
 #
+# Then, with scripts/e2e-fixtures/bind-mount, a service that mounts files of
+# its source and writes into it as root: an update must reach the mounted
+# files, and a delete must remove what the container wrote.
+#
 # Usage: scripts/e2e-engine.sh            (KEEP=1 to leave the stack running)
 # Needs: docker with compose, curl, node, tar.
 
@@ -150,5 +154,31 @@ leftovers=""
 status=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $host" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/")
 [ "$status" = "404" ] || fail "the URL still answers ($status)"
 pass "nothing left behind"
+
+step "Serving files mounted from a source"
+BIND_FIXTURE=scripts/e2e-fixtures/bind-mount
+BIND_FILES=(.spawner www data README.md)
+api POST /projects -H 'Content-Type: application/json' \
+  -d '{"slug":"bindmount","name":"Bind mount","repoUrl":"https://github.com/Florian-mfr/Spawner.git"}' | json 'v.slug'
+mkdir -p "$WORK/bind"
+cp -R "$BIND_FIXTURE/." "$WORK/bind/"
+tar -C "$WORK/bind" -czf "$WORK/bind-v1.tar.gz" "${BIND_FILES[@]}"
+created=$(api POST /envs -F project=bindmount -F env=bind -F createdVia=cli -F "primary=@$WORK/bind-v1.tar.gz")
+bind_id=$(echo "$created" | json 'v.environment.id')
+wait_job "$(echo "$created" | json 'v.job.id')"
+bind_host=$(api GET "/envs/$bind_id" | json 'v.exposures[0].host')
+[[ "$(preview "$bind_host")" == *"version one"* ]] || fail "the mounted page is not served"
+pass "the mounted page is served"
+
+printf 'version two\n' > "$WORK/bind/www/index.html"
+tar -C "$WORK/bind" -czf "$WORK/bind-v2.tar.gz" "${BIND_FILES[@]}"
+wait_job "$(api POST "/envs/$bind_id/update" -F "primary=@$WORK/bind-v2.tar.gz" | json 'v.job.id')"
+[[ "$(preview "$bind_host")" == *"version two"* ]] || fail "the update did not reach the mounted files"
+pass "the service sees the updated files"
+
+wait_job "$(api DELETE "/envs/$bind_id" | json 'v.job.id')"
+[ -z "$(docker ps -aq --filter "label=dev.spawner.env=$bind_id")" ] || fail "containers left behind"
+[ ! -e "$SPAWNER_DATA_DIR/envs/$bind_id" ] || fail "the files written by the container are left behind"
+pass "the files written as root by the container are gone"
 
 step "All engine checks passed"

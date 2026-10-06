@@ -135,7 +135,7 @@ pnpm --filter @spawner/core add <package>   # Shared package
 - Engine services are tested against real programs where it matters: `git-mirror.service.spec.ts` uses local `file://` repositories, `upload.service.spec.ts` builds hostile archives by hand.
 - Specs are excluded from builds through `tsconfig.build.json`.
 - API specs load `reflect-metadata` (see `apps/api/vitest.config.mts`); instantiate services directly rather than through the Nest container when possible.
-- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik, runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources).
+- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik, runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). With `scripts/e2e-fixtures/bind-mount`, it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build and the end-to-end test on every pull request and on pushes to `master` and `v1`.
 
 ## Backend Architecture (apps/api)
@@ -293,11 +293,11 @@ Every change is a job, run in order per environment, at most one at a time per e
 
 1. **preparing**: memory check, sources (git worktree at the ref, or upload checked entry by entry: no absolute paths, `..`, links leaving the archive, devices or hard links)
 2. **validating**: manifest, compose policy, interpolation, limits; the issues found are logged with their path and a hint
-3. **building**: `docker compose up -d --build --wait` (with `fresh`, `down --volumes` first)
+3. **building**: `docker compose up -d --build --wait` (with `fresh`, `down --volumes` first); on an update, the services that mount files of a source are then recreated, since Compose keeps them on the replaced directory
 4. **seeding**: on create, or with `fresh` or `reseed`
 5. **routing**: Traefik joins the environment network, the routes file is written
 
-The environment ends `ready` (with an expiry) or `failed` (with the phase and the error). A delete removes the routes, `compose down --volumes`, the project's images, the worktrees and the environment directory.
+The environment ends `ready` (with an expiry) or `failed` (with the phase and the error). A delete removes the routes, `compose down --volumes`, the project's images, the worktrees and the environment directory. Files that services wrote as root into a mounted source are removed through a short-lived root container of Spawner's own image (`StorageService.removeTree`), since Spawner runs as `node`.
 
 ## Authentication & Security
 

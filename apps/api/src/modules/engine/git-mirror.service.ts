@@ -99,7 +99,7 @@ export class GitMirrorService {
   async removeWorktree(repoUrl: string, target: string): Promise<void> {
     const mirror = this.storage.mirrorDir(repoUrl);
     if (!fs.existsSync(mirror)) {
-      fs.rmSync(target, { recursive: true, force: true });
+      await this.storage.removeTree(target);
       return;
     }
     await this.locks.run(mirror, () => this.removeWorktreeLocked(mirror, target, this.env(repoUrl)));
@@ -134,7 +134,7 @@ export class GitMirrorService {
   private async removeWorktreeLocked(mirror: string, target: string, env: Record<string, string>): Promise<void> {
     if (fs.existsSync(target)) {
       await run("git", ["-C", mirror, "worktree", "remove", "--force", target], { env }).catch(() => undefined);
-      fs.rmSync(target, { recursive: true, force: true });
+      await this.storage.removeTree(target);
     }
     await run("git", ["-C", mirror, "worktree", "prune"], { env }).catch(() => undefined);
   }

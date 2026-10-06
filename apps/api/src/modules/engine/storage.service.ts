@@ -1,7 +1,8 @@
-import { Injectable, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleInit, Optional } from "@nestjs/common";
 import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
+import { DockerService } from "../../common/docker.service";
 import { SpawnerConfig } from "./spawner.config";
 
 /**
@@ -17,7 +18,10 @@ import { SpawnerConfig } from "./spawner.config";
  */
 @Injectable()
 export class StorageService implements OnModuleInit {
-  constructor(private readonly config: SpawnerConfig) {}
+  constructor(
+    private readonly config: SpawnerConfig,
+    @Optional() private readonly docker?: DockerService,
+  ) {}
 
   onModuleInit() {
     for (const dir of [this.mirrorsDir, this.envsDir, this.traefikDir, this.jobsDir, this.uploadsDir, this.homeDir, this.config.keysDir]) {
@@ -76,6 +80,23 @@ export class StorageService implements OnModuleInit {
 
   jobLogPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.log`);
+  }
+
+  /**
+   * Removes a directory and its content. A service that mounts a source can
+   * write files there as root, which the node user Spawner runs as cannot
+   * delete on Linux: those are removed as root through Docker.
+   */
+  async removeTree(dir: string): Promise<void> {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!this.docker || (code !== "EACCES" && code !== "EPERM")) {
+        throw error;
+      }
+      await this.docker.removeAsRoot(dir);
+    }
   }
 
   /**

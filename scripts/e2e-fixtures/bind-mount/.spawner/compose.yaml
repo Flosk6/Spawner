@@ -1,0 +1,11 @@
+# Serves ../www from a bind mount, and writes into ../data as root, as
+# development images often do (caches, logs). An update must reach the
+# mounted files, and a delete must remove what the container wrote.
+services:
+  web:
+    image: busybox:1.37
+    entrypoint: ["sh", "-c", "mkdir -p /data/cache && date > /data/cache/written-as-root && exec \"$$@\"", "--"]
+    command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+    volumes:
+      - ../www:/www:ro
+      - ../data:/data

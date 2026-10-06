@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { gzipSync } from "zlib";
 import type { SpawnerConfig } from "./spawner.config";
+import { StorageService } from "./storage.service";
 import { UploadRejectedError, UploadService } from "./upload.service";
 
 interface Entry {
@@ -62,7 +63,7 @@ describe("UploadService", () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "spawner-upload-"));
     target = path.join(dir, "src", "app");
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    service = new UploadService(config);
+    service = new UploadService(config, new StorageService(config));
   });
 
   afterEach(() => {

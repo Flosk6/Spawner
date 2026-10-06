@@ -197,6 +197,10 @@ export class PipelineService {
       log(`Building and starting ${projectName}`);
       try {
         await this.compose.up(projectName, renderedPath, log);
+        if (!isCreate && prepared.servicesMountingSources.length > 0) {
+          log(`Recreating ${prepared.servicesMountingSources.join(", ")}, which mount the updated sources`);
+          await this.compose.recreate(projectName, renderedPath, prepared.servicesMountingSources, log);
+        }
       } catch (error) {
         throw new PipelineError("building", (error as Error).message);
       }
@@ -241,7 +245,7 @@ export class PipelineService {
           await this.git.removeWorktree(source.repoUrl, dir);
         }
       }
-      fs.rmSync(this.storage.envDir(env.id), { recursive: true, force: true });
+      await this.storage.removeTree(this.storage.envDir(env.id));
       await this.prisma.environment.update({
         where: { id: env.id },
         data: { status: "deleted", phase: null, error: null, deletedAt: new Date() },
