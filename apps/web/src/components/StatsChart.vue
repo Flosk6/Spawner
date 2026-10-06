@@ -43,7 +43,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import axios from 'axios';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -59,6 +58,7 @@ import {
 import Card from 'primevue/card';
 import Button from 'primevue/button';
 import ProgressSpinner from 'primevue/progressspinner';
+import { environmentsApi } from '../services/api';
 
 ChartJS.register(
   CategoryScale,
@@ -89,8 +89,7 @@ let refreshInterval: ReturnType<typeof setInterval> | null = null;
 async function fetchHistory() {
   loading.value = true;
   try {
-    const response = await axios.get(`/api/environments/${props.environmentId}/stats/history`);
-    const data = response.data;
+    const data = await environmentsApi.usage(props.environmentId);
 
     if (data.length === 0) {
       chartData.value = null;
@@ -98,15 +97,15 @@ async function fetchHistory() {
     }
 
     chartData.value = {
-      labels: data.map((d: any) => {
+      labels: data.map((d) => {
         const date = new Date(d.time);
         return date.toLocaleTimeString('en-US', {
           hour: '2-digit',
           minute: '2-digit'
         });
       }),
-      cpu: data.map((d: any) => d.cpuPercent),
-      memory: data.map((d: any) => d.memoryUsageGB),
+      cpu: data.map((d) => d.cpuPercent),
+      memory: data.map((d) => d.memoryUsageGB),
     };
   } catch (error) {
     console.error('Failed to fetch stats history:', error);

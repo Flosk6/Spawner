@@ -9,7 +9,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => user.value !== null);
 
-  async function checkAuth() {
+  // The router guard and the app shell both ask on startup: they share one request.
+  let pending: Promise<void> | null = null;
+
+  function checkAuth(): Promise<void> {
+    pending ??= fetchStatus().finally(() => (pending = null));
+    return pending;
+  }
+
+  async function fetchStatus() {
     loading.value = true;
     error.value = null;
     try {

@@ -70,11 +70,9 @@ onMounted(() => {
 
 async function connectWebSocket() {
   try {
-    // Get WebSocket authentication token from API
-    const apiUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000';
-    const response = await fetch(`${apiUrl}/api/auth/ws-token`, {
-      credentials: 'include', // Send session cookie
-    });
+    // One-time ticket for the websocket, fetched with the session cookie.
+    // The interface and the API share the same origin.
+    const response = await fetch('/api/auth/ws-token', { credentials: 'include' });
 
     if (!response.ok) {
       throw new Error('Failed to get WebSocket token');
@@ -82,12 +80,8 @@ async function connectWebSocket() {
 
     const { token } = await response.json();
 
-    const wsUrl = apiUrl
-      .replace('http://', 'ws://')
-      .replace('https://', 'wss://');
-
-    socket = io(`${wsUrl}/terminal`, {
-      query: { token }, // Send token in query params
+    socket = io('/terminal', {
+      query: { token },
       transports: ['polling', 'websocket'],
     });
   } catch (error) {
