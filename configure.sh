@@ -47,27 +47,32 @@ echo -e "${CYAN}=== Configuration de Spawner ===${NC}"
 echo ""
 
 # Domain Configuration
-echo -e "${BLUE}[1/3] Configuration du domaine${NC}"
+echo -e "${BLUE}[1/2] Configuration du domaine${NC}"
 echo ""
-read -p "Votre domaine (ex: example.com): " DOMAIN
+echo "Les environnements sont servis sous un domaine dédié, par exemple"
+echo "preview.example.com, avec un enregistrement DNS *.preview.example.com"
+echo "qui pointe vers ce serveur. Le tableau de bord sera sur spawner.<domaine>."
+echo ""
+read -p "Domaine des previews (ex: preview.example.com): " DOMAIN
 while [ -z "$DOMAIN" ]; do
     echo -e "${RED}Le domaine est requis!${NC}"
-    read -p "Votre domaine: " DOMAIN
+    read -p "Domaine des previews: " DOMAIN
 done
 
-# Verify DNS
+# Verify DNS: the dashboard and any other name must reach this server
 echo ""
 echo -e "${YELLOW}Vérification DNS...${NC}"
 EXPECTED_IP=$(curl -s ifconfig.me)
 DNS_IP=$(dig +short spawner.$DOMAIN | tail -n1)
+WILDCARD_IP=$(dig +short "check-$RANDOM.$DOMAIN" | tail -n1)
 
-if [ "$DNS_IP" = "$EXPECTED_IP" ]; then
+if [ "$DNS_IP" = "$EXPECTED_IP" ] && [ "$WILDCARD_IP" = "$EXPECTED_IP" ]; then
     echo -e "${GREEN}OK DNS correctement configuré${NC}"
-    echo "  spawner.$DOMAIN -> $EXPECTED_IP"
+    echo "  *.$DOMAIN -> $EXPECTED_IP"
 else
     echo -e "${YELLOW}WARNING DNS pas encore propagé ou mal configuré${NC}"
     echo "  Attendu: $EXPECTED_IP"
-    echo "  Trouvé: ${DNS_IP:-N/A}"
+    echo "  Trouvé: spawner.$DOMAIN -> ${DNS_IP:-N/A}, *.$DOMAIN -> ${WILDCARD_IP:-N/A}"
     echo ""
     read -p "Continuer quand même? (y/n) " -n 1 -r
     echo
@@ -86,7 +91,7 @@ done
 
 # GitHub OAuth Configuration
 echo ""
-echo -e "${BLUE}[2/3] Configuration GitHub OAuth${NC}"
+echo -e "${BLUE}[2/2] Configuration GitHub OAuth${NC}"
 echo ""
 echo -e "${YELLOW}Vous devez créer une OAuth App sur GitHub:${NC}"
 echo ""
@@ -125,24 +130,12 @@ while [ -z "$GITHUB_TEAM" ]; do
     read -p "GitHub Team: " GITHUB_TEAM
 done
 
-# Security Configuration
-echo ""
-echo -e "${BLUE}[3/3] Configuration de sécurité${NC}"
-echo ""
-read -sp "Mot de passe pour Traefik Dashboard (admin): " TRAEFIK_PASSWORD
-echo ""
-while [ -z "$TRAEFIK_PASSWORD" ]; do
-    echo -e "${RED}Le mot de passe est requis!${NC}"
-    read -sp "Mot de passe: " TRAEFIK_PASSWORD
-    echo ""
-done
-
 # Generate secrets
 echo ""
 echo -e "${YELLOW}Génération des secrets sécurisés...${NC}"
-DB_PASSWORD=$(openssl rand -base64 32)
+DB_PASSWORD=$(openssl rand -hex 24)
 SESSION_SECRET=$(openssl rand -base64 32)
-TRAEFIK_AUTH=$(htpasswd -nb admin "$TRAEFIK_PASSWORD" | sed -e s/\\$/\\$\\$/g)
+SPAWNER_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)
 echo -e "${GREEN}OK Secrets générés${NC}"
 
 # Create .env.production
@@ -156,13 +149,14 @@ cat > .env.production << EOF
 # ====================
 
 # DOMAIN CONFIGURATION
-DOMAIN=$DOMAIN
+SPAWNER_PREVIEW_DOMAIN=$DOMAIN
 ACME_EMAIL=$ACME_EMAIL
-TRAEFIK_AUTH=$TRAEFIK_AUTH
+
+# ENGINE
+SPAWNER_DATA_DIR=/opt/spawner
+SPAWNER_BOOTSTRAP_TOKEN=$SPAWNER_BOOTSTRAP_TOKEN
 
 # DATABASE CONFIGURATION
-DB_HOST=postgres
-DB_PORT=5432
 DB_NAME=spawner
 DB_USER=spawner
 DB_PASSWORD=$DB_PASSWORD
@@ -170,24 +164,12 @@ DB_PASSWORD=$DB_PASSWORD
 # GITHUB OAUTH CONFIGURATION
 GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID
 GITHUB_CLIENT_SECRET=$GITHUB_CLIENT_SECRET
-GITHUB_CALLBACK_URL=https://spawner.$DOMAIN/api/auth/github/callback
 GITHUB_ORG=$GITHUB_ORG
 GITHUB_TEAM=$GITHUB_TEAM
 
 # SESSION CONFIGURATION
 SESSION_SECRET=$SESSION_SECRET
 SESSION_MAX_AGE=86400000
-
-# APPLICATION CONFIGURATION
-NODE_ENV=production
-PORT=3000
-FRONTEND_URL=https://spawner.$DOMAIN
-
-# APPLICATION PATHS
-GIT_KEYS_PATH=/opt/spawner/git-keys
-REPOS_PATH=/opt/spawner/repos
-ENVS_PATH=/opt/spawner/envs
-DOCKER_SOCKET=/var/run/docker.sock
 EOF
 
 chmod 600 .env.production
@@ -198,7 +180,8 @@ echo -e "${GREEN}OK Configuration sauvegardée${NC}"
 echo ""
 echo -e "${CYAN}=== Récapitulatif ===${NC}"
 echo ""
-echo -e "Domaine: ${GREEN}spawner.$DOMAIN${NC}"
+echo -e "Tableau de bord: ${GREEN}https://spawner.$DOMAIN${NC}"
+echo -e "Environnements: ${GREEN}https://<env>--<projet>.$DOMAIN${NC}"
 echo -e "Email: ${GREEN}$ACME_EMAIL${NC}"
 echo -e "GitHub Org: ${GREEN}$GITHUB_ORG${NC}"
 echo -e "GitHub Team: ${GREEN}$GITHUB_TEAM${NC}"
@@ -210,10 +193,6 @@ read -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""
-    echo -e "${BLUE}Création du réseau Traefik...${NC}"
-    docker network create traefik-public 2>/dev/null || echo -e "${YELLOW}Network already exists${NC}"
-
-    echo ""
     echo -e "${BLUE}Démarrage de Spawner...${NC}"
     echo -e "${YELLOW}Cela peut prendre 5-10 minutes (build des images)...${NC}"
     echo ""
@@ -224,7 +203,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}=== Démarrage en cours! ===${NC}"
     echo ""
     echo "Suivez les logs avec:"
-    echo "  docker compose -f docker-compose.production.yml logs -f"
+    echo "  docker compose -f docker-compose.production.yml --env-file .env.production logs -f"
     echo ""
     echo "Une fois démarré, accédez à:"
     echo -e "  ${GREEN}https://spawner.$DOMAIN${NC}"
@@ -232,9 +211,11 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
     echo ""
     echo "Pour démarrer Spawner plus tard:"
-    echo "  docker compose -f docker-compose.production.yml up -d"
+    echo "  docker compose -f docker-compose.production.yml --env-file .env.production up -d"
 fi
 
+echo ""
+echo "Le jeton d'API (SPAWNER_BOOTSTRAP_TOKEN) est dans .env.production."
 echo ""
 echo -e "${CYAN}Configuration terminée!${NC}"
 echo ""

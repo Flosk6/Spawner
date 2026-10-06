@@ -1,53 +1,61 @@
-services:
-  traefik:
-    image: traefik:v2.11
-    container_name: spawner-traefik
-    restart: unless-stopped
-    command:
-      - "--api.dashboard=true"
-      - "--providers.docker=true"
-      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--log.level=DEBUG"
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik-certs:/letsencrypt
-    networks:
-      - spawner-network
-      - traefik-public
-    labels:
-      # Global HTTP to HTTPS redirect
-      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
-      - "traefik.http.routers.http-catchall.entrypoints=web"
-      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+# Production stack: Postgres, Traefik and Spawner, over HTTPS.
+#
+# Needs a DNS record *.<SPAWNER_PREVIEW_DOMAIN> pointing to this server:
+#   dashboard    https://spawner.<SPAWNER_PREVIEW_DOMAIN>
+#   environment  https://<env>--<project>.<SPAWNER_PREVIEW_DOMAIN>
+#
+# Certificates are obtained per host (TLS-ALPN challenge), so the Let's
+# Encrypt limits apply: about 50 certificates per week and domain. The
+# wildcard certificate (DNS-01) comes with the installer.
+#
+# SPAWNER_DATA_DIR is mounted at the same path in the container, so the paths
+# Spawner writes in compose files are the same for the Docker daemon.
+#
+#   docker compose -f docker-compose.production.yml --env-file .env.production up -d --build
 
+services:
   postgres:
     image: postgres:15-alpine
     container_name: spawner-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-spawner}
+      POSTGRES_USER: ${DB_USER:-spawner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./backups:/backups
     networks:
-      - spawner-network
+      - spawner-core
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-spawner}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  traefik:
+    image: traefik:v3.5
+    container_name: spawner-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?set ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${SPAWNER_DATA_DIR:-/opt/spawner}/traefik:/etc/traefik/dynamic:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - spawner-core
 
   spawner:
     build:
@@ -58,50 +66,44 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      # PostgreSQL Configuration
+      # PostgreSQL
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USER=${DB_USER}
+      - DB_USER=${DB_USER:-spawner}
       - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
-      # Application Paths
-      - GIT_KEYS_PATH=/opt/spawner/git-keys
-      - REPOS_PATH=/opt/spawner/repos
-      - ENVS_PATH=/opt/spawner/envs
+      - DB_NAME=${DB_NAME:-spawner}
+      - DATABASE_URL=postgresql://${DB_USER:-spawner}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-spawner}
+      # Engine
+      - SPAWNER_DATA_DIR=${SPAWNER_DATA_DIR:-/opt/spawner}
+      - SPAWNER_PREVIEW_DOMAIN=${SPAWNER_PREVIEW_DOMAIN:?set SPAWNER_PREVIEW_DOMAIN, such as preview.example.com}
+      - SPAWNER_TLS=letsencrypt
+      - SPAWNER_TLS_RESOLVER=letsencrypt
+      - SPAWNER_TRAEFIK_CONTAINER=spawner-traefik
+      - SPAWNER_DASHBOARD_UPSTREAM=http://spawner:3000
+      - SPAWNER_BOOTSTRAP_TOKEN=${SPAWNER_BOOTSTRAP_TOKEN:-}
       - DOCKER_SOCKET=/var/run/docker.sock
-      # OAuth Configuration
+      # GitHub OAuth
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - GITHUB_CALLBACK_URL=https://spawner.${DOMAIN}/api/auth/github/callback
+      - GITHUB_CALLBACK_URL=https://spawner.${SPAWNER_PREVIEW_DOMAIN}/api/auth/github/callback
       - GITHUB_ORG=${GITHUB_ORG}
       - GITHUB_TEAM=${GITHUB_TEAM}
-      # Session Configuration
-      - SESSION_SECRET=${SESSION_SECRET}
-      - SESSION_MAX_AGE=86400000
-      - FRONTEND_URL=https://spawner.${DOMAIN}
+      # Session
+      - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET}
+      - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400000}
+      - FRONTEND_URL=https://spawner.${SPAWNER_PREVIEW_DOMAIN}
     volumes:
-      - /opt/spawner:/opt/spawner
+      - ${SPAWNER_DATA_DIR:-/opt/spawner}:${SPAWNER_DATA_DIR:-/opt/spawner}
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - spawner-network
-      - traefik-public
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=traefik-public"
-      - "traefik.http.routers.spawner.rule=Host(`spawner.${DOMAIN}`)"
-      - "traefik.http.routers.spawner.entrypoints=websecure"
-      - "traefik.http.routers.spawner.tls.certresolver=letsencrypt"
-      - "traefik.http.services.spawner.loadbalancer.server.port=3000"
+      - spawner-core
 
 networks:
-  spawner-network:
-    driver: bridge
-  traefik-public:
-    external: true
+  spawner-core:
+    name: spawner-core
 
 volumes:
   postgres-data:

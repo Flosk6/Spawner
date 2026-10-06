@@ -239,7 +239,7 @@ echo -e "${GREEN}OK Build complete${NC}"
 
 echo ""
 echo -e "${BLUE}[9/10] Creating directories...${NC}"
-sudo mkdir -p /opt/spawner/{data,git-keys,repos,envs,backups}
+sudo mkdir -p /opt/spawner
 sudo chown -R $(whoami):$(whoami) /opt/spawner
 echo -e "${GREEN}OK Directories created${NC}"
 
@@ -271,18 +271,17 @@ echo -e "${NC}"
 echo ""
 echo -e "${CYAN}Access Spawner:${NC}"
 SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo "YOUR_IP")
-DOMAIN=$(grep "^DOMAIN=" ~/spawner/.env.production 2>/dev/null | cut -d'=' -f2)
+DOMAIN=$(grep "^SPAWNER_PREVIEW_DOMAIN=" ~/spawner/.env.production 2>/dev/null | cut -d'=' -f2)
 
 if [ -n "$DOMAIN" ]; then
     echo -e "  ${GREEN}-> https://spawner.${DOMAIN}${NC}"
-    echo -e "  ${GREEN}-> https://traefik.${DOMAIN}${NC} (admin dashboard)"
 else
     echo -e "  ${GREEN}-> http://${SERVER_IP}:8080${NC} (once configured)"
 fi
 
 echo ""
 echo -e "${CYAN}Useful commands:${NC}"
-echo "  - View logs: cd ~/spawner && docker-compose -f docker-compose.production.yml logs -f"
+echo "  - View logs: cd ~/spawner && docker compose -f docker-compose.production.yml --env-file .env.production logs -f"
 echo "  - Check status: docker ps"
 echo "  - Health check: cd ~/spawner && ./scripts/health-check.sh"
 echo "  - Backup database: cd ~/spawner && ./scripts/backup-db.sh"
