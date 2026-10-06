@@ -89,46 +89,33 @@ while [ -z "$ACME_EMAIL" ]; do
     read -p "Email: " ACME_EMAIL
 done
 
-# GitHub OAuth Configuration
+# GitHub OAuth Configuration (optional)
 echo ""
-echo -e "${BLUE}[2/2] Configuration GitHub OAuth${NC}"
+echo -e "${BLUE}[2/2] Connexion avec GitHub (facultatif)${NC}"
 echo ""
-echo -e "${YELLOW}Vous devez créer une OAuth App sur GitHub:${NC}"
+echo "Les comptes se créent par invitation et se connectent avec une passkey."
+echo "La connexion GitHub est en plus, et se configure aussi plus tard depuis"
+echo "le tableau de bord (System, Settings)."
 echo ""
-echo "1. Allez sur: https://github.com/organizations/VOTRE_ORG/settings/applications"
-echo "2. Cliquez sur 'New OAuth App'"
-echo "3. Remplissez:"
-echo "   - Application name: Spawner"
-echo "   - Homepage URL: https://spawner.$DOMAIN"
-echo "   - Callback URL: https://spawner.$DOMAIN/api/auth/github/callback"
-echo ""
-read -p "Appuyez sur Entrée quand l'app est créée..."
-
-read -p "GitHub Client ID: " GITHUB_CLIENT_ID
-while [ -z "$GITHUB_CLIENT_ID" ]; do
-    echo -e "${RED}Le Client ID est requis!${NC}"
+read -p "Configurer GitHub maintenant? (y/N) " -n 1 -r
+echo
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+GITHUB_ORG=""
+GITHUB_TEAM=""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    echo -e "${YELLOW}Créez une OAuth App sur GitHub:${NC}"
+    echo "1. Organisation, Settings, Developer settings, OAuth Apps, New OAuth App"
+    echo "2. Homepage URL: https://spawner.$DOMAIN"
+    echo "3. Callback URL: https://spawner.$DOMAIN/api/v1/auth/github/callback"
+    echo ""
     read -p "GitHub Client ID: " GITHUB_CLIENT_ID
-done
-
-read -sp "GitHub Client Secret: " GITHUB_CLIENT_SECRET
-echo ""
-while [ -z "$GITHUB_CLIENT_SECRET" ]; do
-    echo -e "${RED}Le Client Secret est requis!${NC}"
     read -sp "GitHub Client Secret: " GITHUB_CLIENT_SECRET
     echo ""
-done
-
-read -p "GitHub Organization (nom): " GITHUB_ORG
-while [ -z "$GITHUB_ORG" ]; do
-    echo -e "${RED}L'organisation est requise!${NC}"
-    read -p "GitHub Organization: " GITHUB_ORG
-done
-
-read -p "GitHub Team (slug, ex: developers): " GITHUB_TEAM
-while [ -z "$GITHUB_TEAM" ]; do
-    echo -e "${RED}La team est requise!${NC}"
-    read -p "GitHub Team: " GITHUB_TEAM
-done
+    read -p "Organisation GitHub dont les membres peuvent se connecter (vide: aucune): " GITHUB_ORG
+    read -p "Équipe de cette organisation (slug, vide: toute l'organisation): " GITHUB_TEAM
+fi
 
 # Generate secrets
 echo ""
@@ -183,8 +170,11 @@ echo ""
 echo -e "Tableau de bord: ${GREEN}https://spawner.$DOMAIN${NC}"
 echo -e "Environnements: ${GREEN}https://<env>--<projet>.$DOMAIN${NC}"
 echo -e "Email: ${GREEN}$ACME_EMAIL${NC}"
-echo -e "GitHub Org: ${GREEN}$GITHUB_ORG${NC}"
-echo -e "GitHub Team: ${GREEN}$GITHUB_TEAM${NC}"
+if [ -n "$GITHUB_CLIENT_ID" ]; then
+    echo -e "GitHub: ${GREEN}configuré${NC}"
+else
+    echo -e "GitHub: ${GREEN}non configuré (passkeys seulement)${NC}"
+fi
 echo ""
 
 # Ask to deploy
@@ -200,18 +190,35 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     sg docker -c "docker compose -f docker-compose.production.yml --env-file .env.production up -d --build"
 
     echo ""
-    echo -e "${GREEN}=== Démarrage en cours! ===${NC}"
+    echo -e "${YELLOW}Attente du démarrage de Spawner...${NC}"
+    INVITE=""
+    for _ in $(seq 1 60); do
+        INVITE=$(sg docker -c "docker exec -u node spawner node dist/admin.js invite --role admin --hours 1 --note 'premier admin'" 2>/dev/null) && break
+        sleep 5
+    done
+
     echo ""
-    echo "Suivez les logs avec:"
+    echo -e "${GREEN}=== Spawner est démarré ===${NC}"
+    echo ""
+    echo -e "Tableau de bord: ${GREEN}https://spawner.$DOMAIN${NC}"
+    if [ -n "$INVITE" ]; then
+        echo ""
+        echo "Créez le compte admin avec ce lien, valable une heure:"
+        echo -e "  ${GREEN}$INVITE${NC}"
+    else
+        echo ""
+        echo "Pour obtenir le lien du compte admin une fois Spawner démarré:"
+        echo "  docker exec -u node spawner node dist/admin.js invite --role admin --hours 1"
+    fi
+    echo ""
+    echo "Logs:"
     echo "  docker compose -f docker-compose.production.yml --env-file .env.production logs -f"
-    echo ""
-    echo "Une fois démarré, accédez à:"
-    echo -e "  ${GREEN}https://spawner.$DOMAIN${NC}"
     echo ""
 else
     echo ""
-    echo "Pour démarrer Spawner plus tard:"
-    echo "  docker compose -f docker-compose.production.yml --env-file .env.production up -d"
+    echo "Pour démarrer Spawner plus tard, puis obtenir le lien du compte admin:"
+    echo "  docker compose -f docker-compose.production.yml --env-file .env.production up -d --build"
+    echo "  docker exec -u node spawner node dist/admin.js invite --role admin --hours 1"
 fi
 
 echo ""

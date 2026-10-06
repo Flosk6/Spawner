@@ -37,11 +37,8 @@ fi
 echo -e "${GREEN}✅ $ENV_FILE file exists${NC}"
 echo ""
 
+# GitHub login is optional (configured from the dashboard).
 REQUIRED_VARS=(
-    "GITHUB_CLIENT_ID"
-    "GITHUB_CLIENT_SECRET"
-    "GITHUB_ORG"
-    "GITHUB_TEAM"
     "SESSION_SECRET"
 )
 
