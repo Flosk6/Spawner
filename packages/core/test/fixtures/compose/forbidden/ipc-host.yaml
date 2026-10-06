@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.ipc
+services:
+  api:
+    build: ..
+    ipc: host
+  front:
+    image: nginx:alpine

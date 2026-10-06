@@ -1,0 +1,12 @@
+# expect: compose.forbidden_key networks.core.name
+# expect: compose.forbidden_key networks.core.external
+services:
+  api:
+    build: ..
+    networks: [default, core]
+  front:
+    image: nginx:alpine
+networks:
+  core:
+    name: spawner-core
+    external: true

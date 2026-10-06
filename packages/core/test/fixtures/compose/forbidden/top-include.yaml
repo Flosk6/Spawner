@@ -1,0 +1,8 @@
+# expect: compose.forbidden_key include
+include:
+  - ../other.yaml
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine

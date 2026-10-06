@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key services.api.extends
+services:
+  api:
+    build: ..
+    extends:
+      file: /etc/compose.yaml
+      service: base
+  front:
+    image: nginx:alpine

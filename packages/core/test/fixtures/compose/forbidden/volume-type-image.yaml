@@ -1,0 +1,10 @@
+# expect: compose.forbidden_key services.api.volumes[0].type
+services:
+  api:
+    build: ..
+    volumes:
+      - type: image
+        source: alpine
+        target: /img
+  front:
+    image: nginx:alpine

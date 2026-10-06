@@ -1,0 +1,11 @@
+# expect: compose.unknown_key services.api.deploy.resources.reservations.devices
+services:
+  api:
+    build: ..
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+  front:
+    image: nginx:alpine

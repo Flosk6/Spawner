@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.container_name
+services:
+  api:
+    build: ..
+    container_name: spawner-postgres
+  front:
+    image: nginx:alpine

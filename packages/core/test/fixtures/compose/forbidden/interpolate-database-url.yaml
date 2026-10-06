@@ -1,0 +1,8 @@
+# expect: interpolation.unknown_variable services.api.environment[0]
+services:
+  api:
+    build: ..
+    environment:
+      - LEAK=$DATABASE_URL
+  front:
+    image: nginx:alpine

@@ -1,0 +1,7 @@
+# expect: compose.limit_exceeded services.api.mem_limit
+services:
+  api:
+    build: ..
+    mem_limit: 3g
+  front:
+    image: nginx:alpine

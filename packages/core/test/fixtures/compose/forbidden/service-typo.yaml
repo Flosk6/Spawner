@@ -1,0 +1,8 @@
+# expect: compose.unknown_key services.api.enviroment
+services:
+  api:
+    build: ..
+    enviroment:
+      A: b
+  front:
+    image: nginx:alpine

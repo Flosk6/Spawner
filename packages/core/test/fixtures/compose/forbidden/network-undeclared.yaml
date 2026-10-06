@@ -1,0 +1,7 @@
+# expect: compose.undefined_reference services.api.networks.ghost
+services:
+  api:
+    build: ..
+    networks: [default, ghost]
+  front:
+    image: nginx:alpine

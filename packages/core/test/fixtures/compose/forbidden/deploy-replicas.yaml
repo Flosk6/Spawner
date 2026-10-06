@@ -1,0 +1,8 @@
+# expect: compose.limit_exceeded services.api.deploy.replicas
+services:
+  api:
+    build: ..
+    deploy:
+      replicas: 3
+  front:
+    image: nginx:alpine

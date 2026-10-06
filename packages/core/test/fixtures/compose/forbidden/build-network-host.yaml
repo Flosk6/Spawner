@@ -1,0 +1,8 @@
+# expect: compose.forbidden_key services.api.build.network
+services:
+  api:
+    build:
+      context: ..
+      network: host
+  front:
+    image: nginx:alpine

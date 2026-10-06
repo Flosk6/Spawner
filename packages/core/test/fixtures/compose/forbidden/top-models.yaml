@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key models
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+models:
+  llm:
+    model: ai/smollm2

@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.cgroup_parent
+services:
+  api:
+    build: ..
+    cgroup_parent: /system.slice
+  front:
+    image: nginx:alpine

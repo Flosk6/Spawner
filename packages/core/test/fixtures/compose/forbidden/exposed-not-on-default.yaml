@@ -1,0 +1,9 @@
+# expect: compose.not_exposable services.api.networks
+services:
+  api:
+    build: ..
+    networks: [backend]
+  front:
+    image: nginx:alpine
+networks:
+  backend:

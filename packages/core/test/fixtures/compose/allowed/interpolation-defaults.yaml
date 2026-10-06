@@ -1,0 +1,11 @@
+services:
+  api:
+    build: ..
+    environment:
+      PORT: ${PORT:-3000}
+      LITERAL: "$$HOME"
+      URL: ${SPAWNER_URL_API}
+      NESTED: ${MISSING:-${SPAWNER_ENV}-fallback}
+    command: ["sh", "-c", "echo $${PORT}"]
+  front:
+    image: nginx:alpine

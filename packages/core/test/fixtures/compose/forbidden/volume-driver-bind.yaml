@@ -1,0 +1,15 @@
+# expect: compose.forbidden_key volumes.data.driver
+# expect: compose.forbidden_key volumes.data.driver_opts
+services:
+  api:
+    build: ..
+    volumes: ["data:/data"]
+  front:
+    image: nginx:alpine
+volumes:
+  data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /

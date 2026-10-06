@@ -1,0 +1,5 @@
+# expect: compose.unknown_key servics
+# expect: compose.invalid services
+servics:
+  api:
+    build: ..

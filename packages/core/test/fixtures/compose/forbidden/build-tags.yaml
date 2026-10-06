@@ -1,0 +1,8 @@
+# expect: compose.forbidden_key services.api.build.tags
+services:
+  api:
+    build:
+      context: ..
+      tags: ["postgres:15-alpine"]
+  front:
+    image: nginx:alpine

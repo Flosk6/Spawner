@@ -1,0 +1,7 @@
+# expect: compose.path_outside_sources services.api.env_file
+services:
+  api:
+    build: ..
+    env_file: /proc/self/environ
+  front:
+    image: nginx:alpine

@@ -1,0 +1,8 @@
+# expect: compose.forbidden_key services.api.build.ssh
+services:
+  api:
+    build:
+      context: ..
+      ssh: [default]
+  front:
+    image: nginx:alpine

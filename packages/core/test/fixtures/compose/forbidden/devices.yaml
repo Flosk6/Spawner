@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.devices
+services:
+  api:
+    build: ..
+    devices: ["/dev/sda:/dev/sda"]
+  front:
+    image: nginx:alpine

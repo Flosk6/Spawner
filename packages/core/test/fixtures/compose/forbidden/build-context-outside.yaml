@@ -1,0 +1,6 @@
+# expect: compose.path_outside_sources services.api.build.context
+services:
+  api:
+    build: ../../../outside
+  front:
+    image: nginx:alpine

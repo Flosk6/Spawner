@@ -1,0 +1,7 @@
+# expect: compose.limit_exceeded services.api.cpus
+services:
+  api:
+    build: ..
+    cpus: 4
+  front:
+    image: nginx:alpine

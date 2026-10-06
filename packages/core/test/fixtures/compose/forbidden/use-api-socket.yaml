@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.use_api_socket
+services:
+  api:
+    build: ..
+    use_api_socket: true
+  front:
+    image: nginx:alpine

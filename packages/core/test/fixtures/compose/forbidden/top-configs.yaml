@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key configs
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+configs:
+  conf:
+    file: /etc/hosts
