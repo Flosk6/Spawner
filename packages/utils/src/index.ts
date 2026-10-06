@@ -48,7 +48,7 @@ export function generateComposeProjectName(envName: string): string {
  *
  * @example
  * sanitizeShellArg("my-resource") // "my-resource"
- * sanitizeShellArg("evil; rm -rf /") // throws Error
+ * sanitizeShellArg("evil; rm -rf /") // "evil rm -rf /": metacharacters are removed, not rejected
  */
 export function sanitizeShellArg(arg: string): string {
   if (!arg || typeof arg !== 'string') {
