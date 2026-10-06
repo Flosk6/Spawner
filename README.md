@@ -62,7 +62,7 @@ API=http://localhost:8080/api/v1
 
 # A project: a repository holding .spawner/ (rootDir for a monorepo)
 curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' $API/projects \
-  -d '{"slug":"example","name":"Example","repoUrl":"https://github.com/Florian-mfr/Spawner.git","defaultRef":"v1","rootDir":"examples/node-postgres"}'
+  -d '{"slug":"example","name":"Example","repoUrl":"https://github.com/Flosk6/Spawner.git","defaultRef":"v1","rootDir":"examples/node-postgres"}'
 
 # An environment from a branch...
 curl -H "Authorization: Bearer $TOKEN" $API/envs -F project=example -F env=demo -F 'primary={"ref":"v1"}'
@@ -79,7 +79,7 @@ Each change answers with a job: follow it with `GET /api/v1/jobs/<id>/logs/strea
 On an Ubuntu 22.04+ VPS dedicated to previews, with Docker and a DNS record `*.preview.yourdomain.com` pointing to it:
 
 ```bash
-git clone -b v1 https://github.com/Florian-mfr/Spawner.git spawner && cd spawner
+git clone -b v1 https://github.com/Flosk6/Spawner.git spawner && cd spawner
 ./configure.sh          # writes .env.production and starts docker-compose.production.yml
 ```
 

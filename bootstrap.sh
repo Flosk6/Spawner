@@ -1,10 +1,10 @@
 #!/bin/bash
 # Bootstrap script - Downloads and executes install.sh
-# Usage: curl -fsSL https://raw.githubusercontent.com/Florian-mfr/Spawner/master/bootstrap.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Flosk6/Spawner/master/bootstrap.sh | bash
 
 set -e
 
-INSTALL_URL="https://raw.githubusercontent.com/Florian-mfr/Spawner/master/install.sh"
+INSTALL_URL="https://raw.githubusercontent.com/Flosk6/Spawner/master/install.sh"
 TMP_FILE="/tmp/spawner-install-$$.sh"
 
 # Download the installer

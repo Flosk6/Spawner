@@ -97,7 +97,7 @@ pass "Spawner is up"
 
 step "Creating the project"
 api POST /projects -H 'Content-Type: application/json' \
-  -d "{\"slug\":\"example\",\"name\":\"Example\",\"repoUrl\":\"https://github.com/Florian-mfr/Spawner.git\",\"rootDir\":\"$EXAMPLE\"}" | json 'v.slug'
+  -d "{\"slug\":\"example\",\"name\":\"Example\",\"repoUrl\":\"https://github.com/Flosk6/Spawner.git\",\"rootDir\":\"$EXAMPLE\"}" | json 'v.slug'
 
 step "Creating the environment from an uploaded worktree"
 archive "$PWD" "$WORK/v1.tar.gz"
@@ -159,7 +159,7 @@ step "Serving files mounted from a source"
 BIND_FIXTURE=scripts/e2e-fixtures/bind-mount
 BIND_FILES=(.spawner www data README.md)
 api POST /projects -H 'Content-Type: application/json' \
-  -d '{"slug":"bindmount","name":"Bind mount","repoUrl":"https://github.com/Florian-mfr/Spawner.git"}' | json 'v.slug'
+  -d '{"slug":"bindmount","name":"Bind mount","repoUrl":"https://github.com/Flosk6/Spawner.git"}' | json 'v.slug'
 mkdir -p "$WORK/bind"
 cp -R "$BIND_FIXTURE/." "$WORK/bind/"
 tar -C "$WORK/bind" -czf "$WORK/bind-v1.tar.gz" "${BIND_FILES[@]}"

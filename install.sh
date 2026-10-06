@@ -3,7 +3,7 @@
 # Spawner - Installation Automatique
 # Installe Spawner sur un VPS Ubuntu vierge en une seule commande
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/Florian-mfr/Spawner/refs/heads/master/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Flosk6/Spawner/refs/heads/master/install.sh | bash
 #
 # Version: 1.0.0
 #
@@ -222,7 +222,7 @@ if [ -d "spawner" ]; then
     git pull -q
 else
     echo -e "${YELLOW}Cloning from GitHub...${NC}"
-    git clone https://github.com/Florian-mfr/Spawner.git spawner
+    git clone https://github.com/Flosk6/Spawner.git spawner
     cd spawner
 fi
 echo -e "${GREEN}OK Spawner ready${NC}"
