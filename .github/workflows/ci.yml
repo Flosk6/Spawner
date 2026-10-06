@@ -55,5 +55,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # The script only needs node; no pnpm here to cache for.
+          package-manager-cache: false
       - name: Create, call, update and delete examples/node-postgres
         run: scripts/e2e-engine.sh
