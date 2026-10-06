@@ -10,7 +10,7 @@ Spawner is a self-hosted environment management system for creating and managing
 - GitHub OAuth authentication with team-based access control
 - Multi-project support with isolated environments
 - Interactive browser-based terminal access to containers
-- Dockerode library for secure Docker operations (no shell command injection)
+- Docker operations through the Docker API (dockerode); git still runs through a shell with sanitized arguments until v1 M1
 - Audit logging for all user actions
 - Real-time build progress and container logs
 - Memory safety guard to prevent system crashes during Docker builds
@@ -37,6 +37,10 @@ Project documentation is stored in `/.ai/docs/`:
 - This keeps all AI-relevant documentation organized and separate from user-facing docs
 
 **Note:** This is different from user-facing documentation (like README.md) which remains in the project root.
+
+### v1 rewrite
+
+The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens on the `v1` branch, milestone by milestone (M0 to M6). Read the spec before changing the environment engine, auth, routing or the installer.
 
 ## Code Style
 
@@ -96,7 +100,9 @@ pnpm web:dev              # Start only frontend (Vite dev server)
 pnpm build                # Build all (uses Turborepo cache)
 pnpm api:build            # Build backend only
 pnpm web:build            # Build frontend only
-pnpm lint                 # Lint all code
+pnpm lint                 # Lint all code (read-only; use `pnpm --filter @spawner/api lint:fix` to fix)
+pnpm typecheck            # Type-check every package
+pnpm test                 # Run the test suites (Vitest)
 pnpm format               # Format with Prettier
 pnpm clean                # Clean build artifacts + node_modules
 ```
@@ -110,6 +116,13 @@ pnpm --filter @spawner/web add <package>    # Frontend
 pnpm --filter @spawner/types add <package>  # Shared package
 ```
 
+## Testing
+
+- Vitest, tests named `*.spec.ts` next to the code they cover (`apps/api/src`, `packages/utils/src`).
+- Specs are excluded from builds through `tsconfig.build.json`.
+- API specs load `reflect-metadata` (see `apps/api/vitest.config.mts`); instantiate services directly rather than through the Nest container when possible.
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build and the Docker image build on every pull request.
+
 ## Backend Architecture (apps/api)
 
 NestJS application with feature modules:
@@ -118,18 +131,19 @@ NestJS application with feature modules:
 
 - **auth**: GitHub OAuth, session management, audit logging, WebSocket tokens
 - **projects**: Multi-project CRUD (database-backed)
-- **project**: Legacy single project (reads from project.config.yml)
 - **git**: SSH key generation and repository testing
 - **environment**: Environment lifecycle (create, list, view, delete, logs)
 - **terminal**: WebSocket gateway for interactive container terminals
+- **system**: Host stats (CPU, RAM, disk) and the memory guard used before builds
+- **stats**: Per-environment resource sampling (cron, every minute)
 
 ### Key Files
 
-- **app.module.ts**: Root module with TypeORM, session setup
+- **app.module.ts**: Root module (config, throttling, schedule, feature modules)
 - **main.ts**: Bootstrap, CORS, session middleware, Passport
-- **entities/**: User, AuditLog, Setting, Environment, EnvironmentResource, Project, ProjectResource
+- **web-app.ts**: Serves the built web interface from `WEB_DIST_PATH` (production image)
+- **prisma/schema.prisma**: Database schema; migrations in `prisma/migrations/`
 - **common/docker.service.ts**: Dockerode integration for all Docker operations
-- **common/docker-compose.generator.ts**: Container configuration generation
 - **modules/terminal/terminal.gateway.ts**: WebSocket terminal with security constraints
 
 ### Database (PostgreSQL + Prisma)
@@ -165,6 +179,7 @@ Connection configured via `DATABASE_URL` environment variable.
 - `REPOS_PATH`: Git clones (default: /opt/spawner/repos)
 - `ENVS_PATH`: Environment files (default: /opt/spawner/envs)
 - `DOCKER_SOCKET`: Docker socket (default: /var/run/docker.sock)
+- `WEB_DIST_PATH`: Built web interface served by the API (set to `/app/web` in the image; unset in development)
 
 **Memory Safety:**
 - `MIN_REQUIRED_FREE_MEMORY_GB`: Minimum free RAM required before Docker builds (default: 2)
@@ -183,7 +198,7 @@ Vue.js 3 with Composition API, Vue Router 4, Tailwind CSS.
 - **EnvironmentNew.vue**: Create environment with branch selection
 - **EnvironmentDetail.vue**: Resource status, URLs, terminal, logs, delete
 - **GitSettings.vue**: SSH key generation and testing
-- **Dashboard.vue**: Legacy single-project view
+- **SystemOverview.vue**: Host and environment resource usage
 
 ### Architecture Patterns
 
@@ -341,7 +356,9 @@ When `POST /api/environments` is called:
 
 ## Project Configuration
 
-### YAML Format (legacy single project mode)
+### Example
+
+Projects and their resources are stored in the database and edited from the UI. The shape below shows the fields of each resource type:
 
 ```yaml
 baseDomain: "preview.example.com"
@@ -384,10 +401,10 @@ Defaults defined in `packages/config/src/index.ts`. Override per-resource with:
 
 ## Docker Management via Dockerode
 
-All Docker operations use the [dockerode](https://github.com/apocas/dockerode) library instead of shell commands.
+All Docker operations use the [dockerode](https://github.com/apocas/dockerode) library instead of the docker CLI. Git operations still use shell strings with sanitized arguments; v1 M1 moves every external command to `execFile` with argument arrays.
 
 **Benefits:**
-- Eliminates command injection vulnerabilities
+- No shell involved in Docker operations
 - Structured error responses from Docker API
 - Real-time progress streams for builds
 - Programmatic control of Docker daemon
@@ -406,7 +423,7 @@ All Docker operations use the [dockerode](https://github.com/apocas/dockerode) l
 Browser-based terminal access to running containers.
 
 **Stack:**
-- Backend: `node-pty` for PTY allocation
+- Backend: Docker exec API with a TTY (dockerode), no native module
 - Frontend: `xterm.js` for terminal emulation
 - Transport: Socket.IO WebSocket
 - Auth: Temporary JWT tokens
@@ -415,7 +432,7 @@ Browser-based terminal access to running containers.
 1. User clicks "Open Terminal" on environment detail
 2. Frontend fetches WS token: `GET /api/auth/ws-token`
 3. Connect to `/terminal` namespace with token
-4. Backend spawns: `docker exec -it -u <user> <container> /bin/sh`
+4. Backend opens a TTY exec session (`/bin/sh`, non-root user) through the Docker API
 5. Bidirectional streaming via WebSocket
 6. Commands logged with userId for audit
 7. Security constraints enforced
@@ -470,7 +487,7 @@ docker logs <container-name>
 docker network inspect net-<project>-<env>
 
 # Check API logs
-docker logs spawner-api
+docker logs spawner
 ```
 
 **Code inspection:**
@@ -504,7 +521,7 @@ curl http://localhost:3000/api/auth/status -H "Cookie: connect.sid=<cookie>"
 
 - Ubuntu 22.04+ VPS
 - Docker and Docker Compose installed
-- Node.js 20+ with pnpm 8+
+- Node.js 22.x with pnpm 8 for development (the production image bundles its own Node)
 - Access to `/var/run/docker.sock`
 - Wildcard DNS:
   - `spawner.yourdomain.com` → VPS IP
@@ -519,17 +536,21 @@ All data under `/opt/spawner/`:
 
 PostgreSQL database runs separately (Docker container or managed service).
 
+### Container Image
+
+One image built from the root `Dockerfile` runs the API and serves the web interface on the same origin (`docker-compose*.yml` service `spawner`). The entrypoint applies Prisma migrations, gives the `node` user access to the Docker socket, then drops root.
+
 ### Reverse Proxy
 
-Use Nginx or Traefik:
-- Main app: `spawner.yourdomain.com` → Spawner UI/API
+Traefik routes:
+- Main app: `spawner.yourdomain.com` → the `spawner` container (port 3000)
 - Environments: `*.preview.yourdomain.com` → Dynamic routing
 
 ### Turborepo Caching
 
 - `build`: Depends on `^build`, caches `dist/**`
 - `dev`: No cache, persistent
-- `lint`: Depends on `^build`
+- `lint`, `typecheck`, `test`: Depend on `^build`
 
 Second builds are instant due to caching.
 

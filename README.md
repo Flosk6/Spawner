@@ -38,11 +38,10 @@ Access at `http://localhost:8080`
 - 🔐 **GitHub OAuth** - Team-based access control
 - 🚀 **Multi-Project** - Manage multiple projects with separate configs
 - 🌿 **Git Branches** - Deploy any branch with SSH deploy keys
-- 🐳 **Docker** - Secure operations via Dockerode (no shell injection)
+- 🐳 **Docker** - Containers, networks and volumes managed through the Docker API (dockerode)
 - 💻 **Interactive Terminal** - Browser-based access with security constraints
 - 🔗 **Auto URLs** - Unique URLs per environment (`api.feature-123.preview.example.com`)
 - 📊 **Logs & Audit** - Container logs and full action tracking
-- ⚡ **Auto-Update** - GitHub webhooks and system patch management
 
 ## 🏗️ Tech Stack
 
@@ -50,7 +49,7 @@ Access at `http://localhost:8080`
 
 ```
 apps/
-├── api/        # NestJS + PostgreSQL + TypeORM + Dockerode
+├── api/        # NestJS + PostgreSQL + Prisma + Dockerode (also serves the web app in production)
 └── web/        # Vue.js 3 + Vite + Tailwind CSS
 packages/
 ├── types/      # Shared TypeScript types
@@ -59,7 +58,7 @@ packages/
 ```
 
 **Key Technologies:**
-- Backend: NestJS, PostgreSQL, Dockerode, node-pty, Socket.IO
+- Backend: NestJS, PostgreSQL, Prisma, Dockerode, Socket.IO
 - Frontend: Vue.js 3 Composition API, xterm.js
 - Infrastructure: Docker, Traefik, Let's Encrypt
 
@@ -87,6 +86,8 @@ pnpm dev  # API on :3000, Web on :8080
 pnpm dev          # Start both API and Web
 pnpm build        # Build all packages
 pnpm lint         # Lint code
+pnpm typecheck    # Type-check every package
+pnpm test         # Run the test suites (Vitest)
 pnpm format       # Format with Prettier
 pnpm --filter @spawner/api add <pkg>  # Add dependency
 ```
@@ -123,7 +124,7 @@ All resources get automatic HTTPS, environment variables, and Traefik routing.
 ## 🔒 Security
 
 - **OAuth** - GitHub organization + team authentication
-- **Dockerode** - No shell commands, prevents injection attacks
+- **Docker API** - Docker operations go through dockerode, not the docker CLI. Git commands still run through a shell with validated and sanitized arguments; they move to argument arrays (no shell) in v1
 - **Terminal** - Blocked dangerous commands, restricted paths, 3 terminals/user max
 - **Audit** - All actions logged (including terminal commands)
 - **HTTPS** - Automatic SSL via Let's Encrypt + Traefik
