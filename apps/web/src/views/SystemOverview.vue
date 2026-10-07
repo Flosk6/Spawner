@@ -110,7 +110,7 @@
             </tbody>
           </table>
         </div>
-        <p class="field-hint">Room for: (available memory - 1 GiB) and (free disk - 10 GiB), divided by what one environment of the project uses.</p>
+        <p class="field-hint">Room for: (available memory - 1 GiB) and (free disk - 10 GiB), divided by what one environment of the project uses; the last one must still find the memory a build waits for.</p>
       </section>
 
       <CleanupPanel />

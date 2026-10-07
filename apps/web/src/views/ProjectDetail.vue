@@ -56,7 +56,7 @@
           <h2 class="panel-title"><i class="pi pi-server text-sm"></i>Room for</h2>
           <p class="text-3xl font-bold">{{ places === null ? '-' : `${places} more` }}</p>
           <p v-if="capacityEntry?.limitedBy" class="text-sm text-slate-500 mt-1">Limited by the {{ capacityEntry.limitedBy }} of the server.</p>
-          <p class="field-hint">What the server can still hold, keeping 1 GiB of memory and 10 GiB of disk free.</p>
+          <p class="field-hint">What the server can still build and hold, keeping 1 GiB of memory and 10 GiB of disk free.</p>
         </section>
       </div>
 

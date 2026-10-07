@@ -25,6 +25,14 @@ describe('capacity', () => {
     });
   });
 
+  it('counts only the environments whose build still finds the build guards free', () => {
+    const input = { availableMemoryBytes: 6.5 * GiB, freeDiskBytes: 100 * GiB, envMemoryBytes: 0.3 * GiB, envDiskBytes: 2 * GiB };
+    expect(capacity(input).byMemory).toBe(18);
+    expect(capacity({ ...input, buildGuards: { memoryBytes: 2 * GiB, diskBytes: 10 * GiB } })).toMatchObject({ places: 16, byMemory: 16, byDisk: 45 });
+    expect(capacity({ ...input, buildGuards: { memoryBytes: null, diskBytes: 60 * GiB } })).toMatchObject({ byMemory: 18, byDisk: 21 });
+    expect(capacity({ ...input, availableMemoryBytes: 1.9 * GiB, buildGuards: { memoryBytes: 2 * GiB, diskBytes: null } })).toMatchObject({ places: 0, byMemory: 0 });
+  });
+
   it('never goes below zero', () => {
     expect(capacity({ availableMemoryBytes: 0.5 * GiB, freeDiskBytes: 5 * GiB, envMemoryBytes: GiB, envDiskBytes: GiB, quotaRemaining: -2 })).toMatchObject({
       places: 0,

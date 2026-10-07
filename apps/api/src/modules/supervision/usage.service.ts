@@ -193,11 +193,8 @@ export class UsageService {
   /**
    * How many more environments of each project fit, from the memory the
    * host can hand out and its free disk, divided by what an environment of
-   * the project typically uses.
-   */
-  /**
-   * How many more environments of each project fit; for a person, within
-   * what their quota leaves.
+   * the project typically uses; each one must also find the build guards
+   * free before its build. For a person, within what their quota leaves.
    */
   async capacity(actor?: Actor) {
     const host = this.collector.host()?.host ?? null;
@@ -205,8 +202,9 @@ export class UsageService {
     const snapshot = await this.disk.latest();
     const typical = await this.typicalUsage(projects.map((project) => project.id), snapshot?.details.environments ?? {});
     const quota = await this.quota(actor);
+    const buildGuards = { memoryBytes: this.config.memoryCheckEnabled ? this.config.minFreeMemoryBytes : null, diskBytes: this.config.minFreeDiskBytes };
     return {
-      host: host ? { availableMemoryBytes: host.memory.availableBytes, freeDiskBytes: host.disk.freeBytes, reserves: CAPACITY_RESERVES } : null,
+      host: host ? { availableMemoryBytes: host.memory.availableBytes, freeDiskBytes: host.disk.freeBytes, reserves: CAPACITY_RESERVES, buildGuards } : null,
       quota,
       projects: projects.map((project) => {
         const cost = typical.get(project.id)!;
@@ -217,6 +215,7 @@ export class UsageService {
               envMemoryBytes: cost.memoryBytes,
               envDiskBytes: cost.diskBytes,
               quotaRemaining: quota?.remaining ?? null,
+              buildGuards,
             })
           : null;
         return { project: project.slug, name: project.name, ...cost, ...(places ?? { places: null }) };

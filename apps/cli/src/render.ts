@@ -112,9 +112,13 @@ export function renderCapacity(result: Capacity, style: Styles, formatBytes: (by
     lines.push(result.quota.remaining === 0 ? style.red(text) : text, "");
   }
   if (result.host) {
+    const guard = result.host.buildGuards?.memoryBytes;
     lines.push(
       `Available: ${formatBytes(result.host.availableMemoryBytes)} of memory, ${formatBytes(result.host.freeDiskBytes)} of disk ` +
-        style.dim(`(${formatBytes(result.host.reserves.memoryBytes)} and ${formatBytes(result.host.reserves.diskBytes)} kept free)`),
+        style.dim(
+          `(${formatBytes(result.host.reserves.memoryBytes)} and ${formatBytes(result.host.reserves.diskBytes)} kept free` +
+            (guard ? `, ${formatBytes(guard)} of memory free before each build)` : ")"),
+        ),
       "",
     );
   }

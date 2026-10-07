@@ -575,7 +575,13 @@ export interface SystemMetrics {
 
 /** Room for more environments of each project (GET /api/v1/system/capacity). */
 export interface Capacity {
-  host: { availableMemoryBytes: number; freeDiskBytes: number; reserves: { memoryBytes: number; diskBytes: number } } | null;
+  host: {
+    availableMemoryBytes: number;
+    freeDiskBytes: number;
+    reserves: { memoryBytes: number; diskBytes: number };
+    /** What a build waits for before it starts (null: not checked); the places count it. */
+    buildGuards?: { memoryBytes: number | null; diskBytes: number | null };
+  } | null;
   /** The environments the reader may still create; null without a user or a limit. */
   quota: { limit: number; used: number; remaining: number } | null;
   projects: {
