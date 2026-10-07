@@ -1,0 +1,7 @@
+version: 1
+project: blog
+exposures:
+  - { name: web, service: web, port: 3000 }
+  - { name: api, service: api, port: 8000 }
+seed:
+  - { service: api, run: [php, artisan, migrate, --seed, --force] }

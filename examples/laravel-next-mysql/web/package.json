@@ -1,0 +1,14 @@
+{
+  "name": "spawner-example-blog-web",
+  "private": true,
+  "description": "The front of Spawner's Laravel, Next.js and MySQL example",
+  "scripts": {
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}
