@@ -1,4 +1,4 @@
-import type { Environment, EnvironmentSource, ServiceState, ServiceUsage } from "@spawner/types";
+import type { Capacity, CrashLoop, Environment, EnvironmentSource, ServiceState, ServiceUsage, TimelineEvent } from "@spawner/types";
 import { formatBytes, relativeTime, table } from "./format";
 import type { Styles } from "./output";
 
@@ -42,9 +42,15 @@ export function urlLines(environment: Environment, style: Styles): string[] {
 }
 
 /**
- * A detailed view of an environment and its services, for spawner status.
+ * A detailed view of an environment, its services and its last events, for
+ * spawner status.
  */
-export function renderStatus(environment: Environment, services: ServiceState[], style: Styles): string {
+export function renderStatus(
+  environment: Environment,
+  services: ServiceState[],
+  style: Styles,
+  timeline: { events: TimelineEvent[]; crashLoops: CrashLoop[] } = { events: [], crashLoops: [] },
+): string {
   const lines: string[] = [`${style.bold(environment.slug)} ${style.dim(`(${environment.project})`)}  ${statusLabel(environment.status, style)}`];
   if (environment.status === "failed" && environment.error) {
     lines.push(style.red(`Failed${environment.phase ? ` during ${environment.phase}` : ""}: ${environment.error.split("\n")[0]}`));
@@ -62,6 +68,43 @@ export function renderStatus(environment: Environment, services: ServiceState[],
   if (services.length > 0) {
     lines.push("", renderServices(services, style));
   }
+  for (const loop of timeline.crashLoops) {
+    lines.push(style.red(`${loop.service} failed ${loop.count} times in ${loop.windowMinutes} minutes, last cause: ${loop.lastCause}`));
+  }
+  if (timeline.events.length > 0) {
+    lines.push("", style.dim("Recent events"));
+    for (const event of timeline.events.slice(0, 10)) {
+      const color = event.type === "crash" || event.type === "oom" || event.type === "job_failed" || event.type === "unhealthy" ? style.red : style.dim;
+      lines.push(`  ${style.dim(new Date(event.time).toLocaleTimeString())}  ${color(event.message)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Room for more environments of each project, for spawner capacity.
+ */
+export function renderCapacity(result: Capacity, style: Styles, formatBytes: (bytes: number) => string): string {
+  const lines: string[] = [];
+  if (result.host) {
+    lines.push(
+      `Available: ${formatBytes(result.host.availableMemoryBytes)} of memory, ${formatBytes(result.host.freeDiskBytes)} of disk ` +
+        style.dim(`(${formatBytes(result.host.reserves.memoryBytes)} and ${formatBytes(result.host.reserves.diskBytes)} kept free)`),
+      "",
+    );
+  }
+  lines.push(
+    table(
+      result.projects.map((project) => [
+        style.bold(project.project),
+        project.places === null ? "-" : project.places === 0 ? style.red("0") : String(project.places),
+        project.limitedBy ?? "-",
+        `${formatBytes(project.memoryBytes)} ${style.dim(project.basedOn.memory === "usage" ? "(measured)" : "(limits)")}`,
+        `${formatBytes(project.diskBytes)} ${style.dim(project.basedOn.disk === "usage" ? "(measured)" : "(estimate)")}`,
+      ]),
+      ["PROJECT", "PLACES", "LIMITED BY", "MEMORY EACH", "DISK EACH"].map((title) => style.dim(title)),
+    ),
+  );
   return lines.join("\n");
 }
 

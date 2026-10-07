@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EXIT } from "../errors";
 import { events, fakeContext, fakeFetch, INFO, reply, type FakeRequest } from "../testing/fake-api";
 import { repo } from "../testing/repo";
-import { lifecycle, share, status, url } from "./envs";
+import { capacity, lifecycle, share, status, url } from "./envs";
 import { exec } from "./exec";
 import { followLogs, readLogs, sinceDate } from "./logs";
 
@@ -30,6 +30,33 @@ describe("environment operations", () => {
     const result = await status(context({ "GET /envs/env-1/services": () => [{ name: "api", state: "running" }] }, calls), { env: "feat-login" });
     expect(calls[0].query.toString()).toBe("project=blog&slug=feat-login");
     expect(result.services).toEqual([{ name: "api", state: "running" }]);
+  });
+
+  it("adds the last events and the crash loops of the timeline", async () => {
+    const ctx = context({
+      "GET /envs/env-1/services": () => [],
+      "GET /envs/env-1/events": () => ({
+        events: [{ id: "2", time: "2026-10-07T10:00:00Z", type: "oom", service: "api", message: "api ran out of memory (limit 512 MiB)", details: null }],
+        crashLoops: [{ service: "api", count: 3, windowMinutes: 10, lastCause: "out of memory (limit 512 MiB)", lastAt: "2026-10-07T10:00:00Z" }],
+      }),
+    });
+    const result = await status(ctx, { env: "feat-login" });
+    expect(result.events[0].type).toBe("oom");
+    expect(result.crashLoops[0].lastCause).toBe("out of memory (limit 512 MiB)");
+  });
+
+  it("gives the room left for each project, or one", async () => {
+    const ctx = context({
+      "GET /system/capacity": () => ({
+        host: null,
+        projects: [
+          { project: "blog", places: 3 },
+          { project: "shop", places: 0 },
+        ],
+      }),
+    });
+    expect((await capacity(ctx, {})).projects).toHaveLength(2);
+    expect((await capacity(ctx, { project: "shop" })).projects).toEqual([{ project: "shop", places: 0 }]);
   });
 
   it("explains an unknown environment", async () => {

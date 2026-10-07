@@ -1,7 +1,17 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { buildVariables, defaultRealpath, isInside, parseManifest, prepareCompose, type ComposeLimits, type Issue, type Manifest } from "@spawner/core";
+import {
+  buildVariables,
+  defaultRealpath,
+  isInside,
+  parseManifest,
+  prepareCompose,
+  publicExposureIssues,
+  type ComposeLimits,
+  type Issue,
+  type Manifest,
+} from "@spawner/core";
 import type { ServerInfo } from "@spawner/types";
 import type { Workspace } from "./workspace";
 
@@ -22,13 +32,25 @@ export interface LocalCheck {
  * cannot be checked here; the server checks them.
  *
  * @param uploads - Local directory of each source sent from a worktree
+ * @param project - What the server says of the project: whether it allows
+ *   public URLs, and the names of its variables (their values stay there)
  */
-export function checkProject(workspace: Workspace, env: string, info: ServerInfo, uploads: Record<string, string>): LocalCheck {
+export function checkProject(
+  workspace: Workspace,
+  env: string,
+  info: ServerInfo,
+  uploads: Record<string, string>,
+  project: { allowPublic: boolean; variables: string[] } = { allowPublic: true, variables: [] },
+): LocalCheck {
   const parsed = parseManifest(workspace.manifestText);
   if (!parsed.manifest) {
     return { issues: parsed.issues.map((issue) => ({ ...issue, path: issue.path ? `spawner.yaml: ${issue.path}` : "spawner.yaml" })), services: [] };
   }
   const manifest = parsed.manifest;
+  const publicIssues = publicExposureIssues(manifest, project.allowPublic);
+  if (publicIssues.length > 0) {
+    return { manifest, issues: publicIssues.map((issue) => ({ ...issue, path: `spawner.yaml: ${issue.path}` })), services: [] };
+  }
 
   const sourceRoots: Record<string, string> = { [manifest.name]: workspace.projectRoot };
   for (const name of Object.keys(manifest.sources)) {
@@ -43,6 +65,7 @@ export function checkProject(workspace: Workspace, env: string, info: ServerInfo
     scheme: info.scheme,
     exposures: manifest.exposures,
     sourceRoots,
+    projectVariables: Object.fromEntries(project.variables.map((name) => [name, "value-set-on-the-server"])),
   });
   if (variableIssues.length > 0) {
     return { manifest, issues: variableIssues, services: [] };

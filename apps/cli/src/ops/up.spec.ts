@@ -98,6 +98,22 @@ describe("up", () => {
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
+  it("refuses a public URL the project does not allow, before anything is sent", async () => {
+    fs.writeFileSync(path.join(root, ".spawner/spawner.yaml"), MANIFEST.replace("    port: 3000\n", "    port: 3000\n    auth: none\n"));
+    await expect(up(fakeContext(root, routes({ "GET /projects/example": () => ({ ...PROJECT, allowPublic: false, variables: [] }) })), {})).rejects.toMatchObject({
+      exit: EXIT.refused,
+      details: { issues: [expect.objectContaining({ code: "manifest.public_exposure" })] },
+    });
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("knows the variables of the project, not their values", async () => {
+    fs.writeFileSync(path.join(root, ".spawner/compose.yaml"), COMPOSE.replace("      PUBLIC_URL: ${SPAWNER_URL}\n", "      PUBLIC_URL: ${SPAWNER_URL}\n      STRIPE_KEY: ${STRIPE_KEY}\n"));
+    await expect(up(fakeContext(root, routes()), {})).rejects.toMatchObject({ exit: EXIT.refused });
+    const withVariable = routes({ "GET /projects/example": () => ({ ...PROJECT, allowPublic: false, variables: [{ name: "STRIPE_KEY", secret: true }] }) });
+    await expect(up(fakeContext(root, withVariable), {})).resolves.toMatchObject({ action: "created" });
+  });
+
   it("checks that spawner.yaml sits where the project expects it", async () => {
     await expect(up(fakeContext(root, routes({ "GET /projects/example": () => ({ ...PROJECT, rootDir: "apps/api" }) })), {})).rejects.toMatchObject({
       exit: EXIT.usage,

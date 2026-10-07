@@ -1,5 +1,5 @@
 import { parseDuration } from "@spawner/core";
-import type { CreatedShareLink, Environment, Job, JobAccepted, PreviewToken, ServiceState, ServiceUsage } from "@spawner/types";
+import type { Capacity, CrashLoop, CreatedShareLink, Environment, EnvironmentEvents, Job, JobAccepted, PreviewToken, ServiceState, ServiceUsage, TimelineEvent } from "@spawner/types";
 import { CliError, usageError } from "../errors";
 import { Context, findEnvironment, jobLogTail, resolveTarget, waitForJob, type TargetOptions } from "../context";
 
@@ -7,16 +7,38 @@ import { Context, findEnvironment, jobLogTail, resolveTarget, waitForJob, type T
 export interface StatusResult {
   environment: Environment;
   services: ServiceState[];
+  /** The last events of its timeline, newest first: crashes, out-of-memory kills, failed healthchecks, jobs. */
+  events: TimelineEvent[];
+  /** Services that crashed at least three times in ten minutes, and why. */
+  crashLoops: CrashLoop[];
 }
 
+const STATUS_EVENTS = 20;
+
 /**
- * An environment and the state of its services: health, restarts and kills
- * for lack of memory, so that an agent sees a crashed service and why.
+ * An environment, the state of its services (health, restarts, kills for
+ * lack of memory) and its last events, so that an agent sees a crashed
+ * service and why.
  */
 export async function status(ctx: Context, options: TargetOptions): Promise<StatusResult> {
   const environment = await findEnvironment(ctx, await resolveTarget(ctx, options));
-  const services = await ctx.api().get<ServiceState[]>(`/envs/${environment.id}/services`);
-  return { environment, services };
+  const [services, timeline] = await Promise.all([
+    ctx.api().get<ServiceState[]>(`/envs/${environment.id}/services`),
+    ctx
+      .api()
+      .get<EnvironmentEvents>(`/envs/${environment.id}/events`, { limit: STATUS_EVENTS })
+      .catch(() => ({ events: [], crashLoops: [] })),
+  ]);
+  return { environment, services, events: timeline.events, crashLoops: timeline.crashLoops };
+}
+
+/**
+ * Room for more environments of each project (or of one), from the memory
+ * the server can hand out and its free disk.
+ */
+export async function capacity(ctx: Context, options: { project?: string }): Promise<Capacity> {
+  const result = await ctx.api().get<Capacity>("/system/capacity");
+  return options.project ? { ...result, projects: result.projects.filter((project) => project.project === options.project) } : result;
 }
 
 /**

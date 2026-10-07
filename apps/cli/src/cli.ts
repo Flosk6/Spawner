@@ -5,17 +5,17 @@ import type { LogLine } from "@spawner/types";
 import { Command, CommanderError, Option } from "commander";
 import { Context } from "./context";
 import { asCliError, CliError, EXIT, usageError } from "./errors";
-import { relativeTime, table } from "./format";
+import { formatBytes, relativeTime, table } from "./format";
 import { serveMcp } from "./mcp";
 import { createToken, listTokens, login, logout, openBrowser, revokeToken, whoami } from "./ops/auth";
 import { exec } from "./ops/exec";
-import { extend, lifecycle, list, share, stats, status, url } from "./ops/envs";
+import { capacity, extend, lifecycle, list, share, stats, status, url } from "./ops/envs";
 import { defaultAgentsFile, init, type Database } from "./ops/init";
 import { followJobLog, followLogs, readJobLog, readLogs } from "./ops/logs";
 import { shell } from "./ops/shell";
 import { jobExitCode, up } from "./ops/up";
 import { Output } from "./output";
-import { renderList, renderStatus, renderUsage, urlLines } from "./render";
+import { renderCapacity, renderList, renderStatus, renderUsage, urlLines } from "./render";
 import { findEnvironment, resolveTarget } from "./context";
 import { loadWorkspace, manifestProject } from "./workspace";
 import { VERSION } from "./version";
@@ -339,7 +339,7 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
         if (output.json) {
           output.data(result);
         } else {
-          output.print(renderStatus(result.environment, result.services, output.out));
+          output.print(renderStatus(result.environment, result.services, output.out, result));
         }
       }),
     );
@@ -517,6 +517,21 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
         } else {
           output.print(`${output.out.bold(result.environment.slug)} (${result.environment.project})  ${result.environment.status}`);
           output.print(renderUsage(result.services, output.out));
+        }
+      }),
+    );
+
+  program
+    .command("capacity")
+    .description("how many more environments of each project fit on the server")
+    .addOption(new Option("-p, --project <slug>", "only this project"))
+    .action(
+      run(async ({ output, ctx }, options: { project?: string }) => {
+        const result = await capacity(ctx(), { project: options.project });
+        if (output.json) {
+          output.data(result);
+        } else {
+          output.print(renderCapacity(result, output.out, formatBytes));
         }
       }),
     );

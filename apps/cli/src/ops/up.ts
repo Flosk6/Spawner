@@ -1,8 +1,8 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { formatIssue, parseDuration, type Issue } from "@spawner/core";
-import type { Environment, Job, JobAccepted, Project } from "@spawner/types";
+import { formatIssue, parseDuration, parseManifest, type Issue } from "@spawner/core";
+import type { Environment, Job, JobAccepted, ProjectDetail } from "@spawner/types";
 import { sanitizeGitBranch } from "@spawner/utils";
 import { checkSourceFiles, collectFiles, packFiles } from "../archive";
 import { checkProject } from "../check";
@@ -81,7 +81,15 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
   }
 
   const info = await ctx.info();
-  const check = checkProject(workspace, env, info, sourceDirs);
+  const parsed = parseManifest(workspace.manifestText);
+  if (!parsed.manifest) {
+    throw refused(checkProject(workspace, env, info, sourceDirs).issues);
+  }
+  const project = await projectOf(ctx, parsed.manifest.project);
+  const check = checkProject(workspace, env, info, sourceDirs, {
+    allowPublic: project.allowPublic ?? true,
+    variables: (project.variables ?? []).map((variable) => variable.name),
+  });
   if (check.issues.length > 0) {
     throw refused(check.issues);
   }
@@ -96,7 +104,6 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
     throw usageError(`"${manifest.name}" is this worktree: it is always sent, or taken from git with --ref ${manifest.name}=<branch>`);
   }
 
-  const project = await projectOf(ctx, manifest.project);
   const expectedRoot = normalizeRootDir(project.rootDir);
   if (expectedRoot !== workspace.rootDir) {
     throw usageError(
@@ -239,9 +246,9 @@ async function resolveSourceDirs(ctx: Context, sources: Record<string, string>):
   return dirs;
 }
 
-async function projectOf(ctx: Context, slug: string): Promise<Project> {
+async function projectOf(ctx: Context, slug: string): Promise<ProjectDetail> {
   try {
-    return await ctx.api().get<Project>(`/projects/${slug}`);
+    return await ctx.api().get<ProjectDetail>(`/projects/${slug}`);
   } catch (error) {
     if (error instanceof CliError && error.status === 404) {
       throw new CliError(`project "${slug}" is not registered on ${ctx.server}`, {
