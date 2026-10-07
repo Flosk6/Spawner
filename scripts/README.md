@@ -93,6 +93,10 @@ Write the `CHANGELOG.md` section of the version first: the release notes come
 from it. The script sets the version of every `package.json` and the default
 version of `install.sh`, commits, and makes an annotated tag. Pushing the tag
 starts `.github/workflows/release.yml`, which publishes the images on GHCR
-(`linux/amd64`, `linux/arm64`), the CLI on npm (`spawner-cli`, when the
-`NPM_TOKEN` secret is set) and the GitHub release with `install.sh`, the CLI
-bundle and their checksums.
+(`linux/amd64`, `linux/arm64`), the CLI on npm (`spawner-cli`) and the GitHub
+release with `install.sh`, the CLI bundle and their checksums.
+
+npm publishes through trusted publishing: the settings of the `spawner-cli`
+package on npmjs.com trust this repository's `release.yml`, so no token is
+stored, and each version carries its provenance. A version already on npm is
+skipped, and the GitHub release does not wait for npm.

@@ -1,9 +1,11 @@
 name: Release
 
 # A tag v2.0.0 (or v2.0.0-rc.1) publishes the images on GHCR, the CLI on npm
-# (spawner-cli, when the NPM_TOKEN secret is set) and a GitHub release with
-# install.sh, the CLI bundle and their checksums. scripts/release.sh prepares
-# the versions and the tag.
+# and a GitHub release with install.sh, the CLI bundle and their checksums.
+# npm trusts this workflow (trusted publishing, set in the settings of the
+# spawner-cli package on npmjs.com): no token is stored, and each version
+# comes with its provenance. scripts/release.sh prepares the versions and the
+# tag.
 
 on:
   push:
@@ -82,7 +84,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     env:
       TURBO_TELEMETRY_DISABLED: 1
       SPAWNER_VERSION: ${{ needs.version.outputs.version }}
@@ -93,7 +94,6 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run build --filter=@spawner/cli...
       - name: Prepare the npm package
@@ -117,20 +117,42 @@ jobs:
             }, null, 2) + "\n");
           '
           node release/npm/spawner.cjs --version
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::notice::NPM_TOKEN is not set: the CLI is not published to npm"
-            exit 0
-          fi
-          cd release/npm
-          npm publish --provenance --access public --tag ${{ needs.version.outputs.prerelease == 'true' && 'next' || 'latest' }}
       - uses: actions/upload-artifact@v4
         with:
           name: cli
           path: apps/cli/dist/spawner.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: release/npm
+
+  npm:
+    name: CLI on npm
+    needs: [version, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: npm 11.5.1 or later, for trusted publishing
+        run: npm install -g npm@^11.5.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: npm-package
+      - name: Publish spawner-cli
+        working-directory: npm-package
+        run: |
+          if [ -n "$(npm view "spawner-cli@$VERSION" version 2>/dev/null)" ]; then
+            echo "::notice::spawner-cli@$VERSION is already on npm"
+            exit 0
+          fi
+          npm publish --access public --tag ${{ needs.version.outputs.prerelease == 'true' && 'next' || 'latest' }}
 
   release:
     name: GitHub release
