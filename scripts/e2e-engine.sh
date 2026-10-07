@@ -120,7 +120,8 @@ cleanup() {
     for project in "${TEST_PROJECTS[@]}"; do
       remove_project "$project" >/dev/null 2>&1 || true
     done
-    "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+    # Each run builds Spawner's image again: removing it keeps old builds from piling up (the build cache stays).
+    "${COMPOSE[@]}" down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     docker run --rm -v "$SPAWNER_DATA_DIR:/data" alpine:3.20 sh -c 'rm -rf /data/*' >/dev/null 2>&1 || true
     rm -rf "$SPAWNER_DATA_DIR"
     rm -rf "$WORK"
