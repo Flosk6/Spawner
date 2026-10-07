@@ -220,7 +220,6 @@ const environments = ref<Environment[]>([]);
 const stats = ref<{ environmentCount: number; projectCount: number } | null>(null);
 const capacity = ref<Capacity | null>(null);
 
-/** "3 more blog" for the project with the most room, or "-" before the first sample. */
 /**
  * More environments the server can hold: those of the only project, or the
  * range from the heaviest project to the lightest.
