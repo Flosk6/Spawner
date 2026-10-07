@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.cap_add
+services:
+  api:
+    build: ..
+    cap_add: [SYS_ADMIN]
+  front:
+    image: nginx:alpine

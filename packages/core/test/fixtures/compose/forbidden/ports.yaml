@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.ports
+services:
+  api:
+    build: ..
+    ports: ["0.0.0.0:5432:5432"]
+  front:
+    image: nginx:alpine

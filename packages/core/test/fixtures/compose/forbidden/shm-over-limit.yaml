@@ -1,0 +1,7 @@
+# expect: compose.limit_exceeded services.api.shm_size
+services:
+  api:
+    build: ..
+    shm_size: 2g
+  front:
+    image: nginx:alpine

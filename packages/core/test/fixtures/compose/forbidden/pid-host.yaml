@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.pid
+services:
+  api:
+    build: ..
+    pid: host
+  front:
+    image: nginx:alpine

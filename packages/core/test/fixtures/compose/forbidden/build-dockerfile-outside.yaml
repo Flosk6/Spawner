@@ -1,0 +1,8 @@
+# expect: compose.path_outside_sources services.api.build.dockerfile
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: ../../outside/secret.txt
+  front:
+    image: nginx:alpine

@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.userns_mode
+services:
+  api:
+    build: ..
+    userns_mode: host
+  front:
+    image: nginx:alpine

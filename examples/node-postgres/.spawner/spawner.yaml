@@ -1,0 +1,10 @@
+version: 1
+project: example
+exposures:
+  - name: web
+    service: app
+    port: 3000
+seed:
+  - service: app
+    run: [node, seed.js]
+ttl: 24h

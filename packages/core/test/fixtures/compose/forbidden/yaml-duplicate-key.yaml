@@ -1,0 +1,8 @@
+# expect: yaml.invalid
+services:
+  api:
+    build: ..
+  api:
+    image: alpine
+  front:
+    image: nginx:alpine

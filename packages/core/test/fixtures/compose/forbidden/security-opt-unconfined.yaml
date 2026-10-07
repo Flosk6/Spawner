@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.security_opt
+services:
+  api:
+    build: ..
+    security_opt: ["seccomp=unconfined", "apparmor=unconfined"]
+  front:
+    image: nginx:alpine

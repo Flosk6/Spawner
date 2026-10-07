@@ -1,68 +1,66 @@
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
-import { AppModule } from './app.module';
-import { config } from 'dotenv';
-import { join } from 'path';
-import session from 'express-session';
-import passport from 'passport';
-import connectPgSimple from 'connect-pg-simple';
-import { Pool } from 'pg';
-import { SessionIoAdapter } from './adapters/session-io.adapter';
+import { ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { NestExpressApplication } from "@nestjs/platform-express";
+import connectPgSimple from "connect-pg-simple";
+import { config } from "dotenv";
+import session from "express-session";
+import { join } from "path";
+import { Pool } from "pg";
+import { AppModule } from "./app.module";
+import { SecretsService } from "./common/secrets.service";
+import { SpawnerConfig } from "./common/spawner.config";
+import { serveWebApp } from "./web-app";
 
-// Load .env file from root BEFORE anything else
-config({ path: join(__dirname, '..', '..', '..', '.env') });
+// The root .env, before anything reads the environment.
+config({ path: join(__dirname, "..", "..", "..", ".env") });
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const settings = app.get(SpawnerConfig);
+  const secure = settings.scheme === "https";
 
-  // Trust proxy - required for secure cookies behind reverse proxy
-  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  // Behind Traefik: the client address and protocol come from X-Forwarded-*.
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
 
-  // CORS configuration with credentials support
-  app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:8080',
-    credentials: true,
-  });
+  serveWebApp(app);
 
-  // Session configuration with PostgreSQL store
+  app.enableCors({ origin: settings.dashboardOrigins, credentials: true });
+
   const PgSession = connectPgSimple(session);
-
-  // Create PostgreSQL connection pool for sessions
-  const pgPool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-    user: process.env.DB_USER || 'spawner',
-    password: process.env.DB_PASSWORD || 'spawner',
-    database: process.env.DB_NAME || 'spawner',
-  });
-
-  const sessionMiddleware = session({
-    store: new PgSession({
-      pool: pgPool,
-      tableName: 'sessions',
-      createTableIfMissing: true, // Auto-create session table
+  app.use(
+    session({
+      // A __Host- cookie stays on the dashboard host: previews, on sibling
+      // hosts of the same site, can neither receive nor overwrite it.
+      name: secure ? "__Host-spawner_session" : "spawner_session",
+      store: new PgSession({
+        pool: new Pool({
+          host: process.env.DB_HOST || "localhost",
+          port: parseInt(process.env.DB_PORT || "5432", 10),
+          user: process.env.DB_USER || "spawner",
+          password: process.env.DB_PASSWORD || "spawner",
+          database: process.env.DB_NAME || "spawner",
+        }),
+        tableName: "sessions",
+        createTableIfMissing: true,
+      }),
+      secret: process.env.SESSION_SECRET || app.get(SecretsService).key("session").toString("hex"),
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        maxAge: parseInt(process.env.SESSION_MAX_AGE || "86400000", 10),
+        httpOnly: true,
+        secure,
+        sameSite: "lax",
+        path: "/",
+      },
     }),
-    secret: process.env.SESSION_SECRET || 'default-secret-change-in-production',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      maxAge: parseInt(process.env.SESSION_MAX_AGE || '86400000'), // 24 hours
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', // Lax works because frontend and API are on same domain
-    },
-  });
+  );
 
-  app.use(sessionMiddleware);
+  // Room for the standard input of a command (1 MiB, sent in base64).
+  app.useBodyParser("json", { limit: "2mb" });
 
-  // Passport initialization
-  app.use(passport.initialize());
-  app.use(passport.session());
-
-  // Configure Socket.IO adapter to share sessions
-  app.useWebSocketAdapter(new SessionIoAdapter(app, sessionMiddleware));
-
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix("api");
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
   const port = process.env.PORT || 3000;

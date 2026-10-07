@@ -1,0 +1,7 @@
+# expect: compose.invalid services.api.pids_limit
+services:
+  api:
+    build: ..
+    pids_limit: -1
+  front:
+    image: nginx:alpine

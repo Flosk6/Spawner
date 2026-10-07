@@ -1,0 +1,10 @@
+# expect: compose.forbidden_key networks.hostnet.driver
+services:
+  api:
+    build: ..
+    networks: [default, hostnet]
+  front:
+    image: nginx:alpine
+networks:
+  hostnet:
+    driver: host

@@ -1,74 +1,71 @@
-import { Controller, Get, Post, Body, BadRequestException, UseGuards } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
-import { GitService } from './git.service';
-import { GitKeysService, RepoKeyInfo } from './git-keys.service';
-import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+import { BadRequestException, Body, Controller, Get, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
+import type { Actor } from "../../common/actor";
+import { CurrentActor, Scopes } from "../../common/auth.guard";
+import { AuditService } from "../audit/audit.service";
+import { GitKeysService, type RepoKeyInfo } from "../engine/git-keys.service";
+import { GitMirrorService } from "../engine/git-mirror.service";
 
-@Controller('git')
-@UseGuards(SessionAuthGuard)
+/**
+ * Deploy keys and repository checks, used by the Git settings page (admins).
+ */
+@Controller("v1/git")
+@Scopes("admin")
 export class GitController {
   constructor(
-    private readonly gitService: GitService,
-    private readonly gitKeysService: GitKeysService,
+    private readonly keys: GitKeysService,
+    private readonly git: GitMirrorService,
+    private readonly audit: AuditService,
   ) {}
 
-  @Get('key')
+  @Get("key")
   @Throttle({ long: { limit: 100, ttl: 60000 } })
-  async getKey() {
-    return this.gitService.getKeyInfo();
+  getKey() {
+    return this.keys.globalKeyInfo();
   }
 
-  @Post('key/generate')
+  @Post("key/generate")
   @Throttle({ short: { limit: 5, ttl: 3600000 } })
-  async generateKey() {
-    return this.gitService.generateKey();
+  async generateKey(@CurrentActor() actor: Actor) {
+    try {
+      const key = await this.keys.generateGlobalKey();
+      await this.audit.record(actor, "git.key", { target: "global" });
+      return key;
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
   }
 
-  @Post('test')
+  @Post("test")
   @Throttle({ medium: { limit: 30, ttl: 3600000 } })
-  async testConnection(@Body() body: { gitRepo: string }) {
-    if (!body.gitRepo) {
-      throw new BadRequestException('gitRepo is required');
-    }
-
-    return this.gitService.testConnection(body.gitRepo);
+  testConnection(@Body() body: { gitRepo?: string }) {
+    return this.git.testAccess(this.repo(body));
   }
 
-  @Get('keys/repos')
+  @Get("keys/repos")
   @Throttle({ long: { limit: 100, ttl: 60000 } })
-  async getAllReposWithKeys(): Promise<RepoKeyInfo[]> {
-    return this.gitKeysService.getAllReposWithKeys();
+  listRepos(): Promise<RepoKeyInfo[]> {
+    return this.keys.listRepos();
   }
 
-  @Post('keys/generate')
+  @Post("keys/generate")
   @Throttle({ short: { limit: 10, ttl: 3600000 } })
-  async generateKeyForRepo(@Body() body: { gitRepo: string }) {
-    if (!body.gitRepo) {
-      throw new BadRequestException('gitRepo is required');
+  async generateKeyForRepo(@CurrentActor() actor: Actor, @Body() body: { gitRepo?: string }) {
+    const repo = this.repo(body);
+    try {
+      this.git.validateRepoUrl(repo);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
     }
-
-    return this.gitKeysService.generateKeyForRepo(body.gitRepo);
+    const key = await this.keys.generateKeyForRepo(repo);
+    await this.audit.record(actor, "git.key", { target: repo });
+    return key;
   }
 
-  @Post('branches')
-  @Throttle({ medium: { limit: 30, ttl: 60000 } })
-  async listBranches(@Body() body: { gitRepo: string; resourceName?: string }) {
-    if (!body.gitRepo) {
-      throw new BadRequestException('gitRepo is required');
+  private repo(body: { gitRepo?: string }): string {
+    if (!body?.gitRepo) {
+      throw new BadRequestException("gitRepo is required");
     }
-
-    const branches = await this.gitService.listRemoteBranches(body.gitRepo, body.resourceName);
-    return { branches };
-  }
-
-  @Post('branches/refresh')
-  @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  async refreshBranches(@Body() body: { gitRepo: string; resourceName: string }) {
-    if (!body.gitRepo || !body.resourceName) {
-      throw new BadRequestException('gitRepo and resourceName are required');
-    }
-
-    const branches = await this.gitService.refreshRemoteBranches(body.gitRepo, body.resourceName);
-    return { branches };
+    return body.gitRepo;
   }
 }

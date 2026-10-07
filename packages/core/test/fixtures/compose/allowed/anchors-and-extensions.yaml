@@ -1,0 +1,12 @@
+x-common: &common
+  restart: always
+  environment:
+    TZ: Europe/Paris
+
+services:
+  api:
+    <<: *common
+    build: ..
+  front:
+    <<: *common
+    image: nginx:alpine

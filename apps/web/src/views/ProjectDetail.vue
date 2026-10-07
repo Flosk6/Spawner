@@ -1,618 +1,196 @@
 <template>
-  <div>
-    <!-- Back Button - Sticky at top -->
-    <div v-if="!loading && !error" class="mb-6">
-      <Button label="Back" icon="pi pi-arrow-left" text @click="$router.push('/projects')" />
-    </div>
+  <div class="max-w-6xl mx-auto space-y-6">
+    <router-link to="/projects" class="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white">
+      <i class="pi pi-arrow-left text-xs"></i>Projects
+    </router-link>
 
-    <div v-if="loading" class="flex justify-center items-center min-h-[400px]">
-      <ProgressSpinner />
-    </div>
+    <div v-if="!project && !loadError" class="flex justify-center py-20"><ProgressSpinner /></div>
+    <Message v-else-if="loadError" severity="error" :closable="false">{{ loadError }}</Message>
 
-    <div v-else-if="error" class="text-center py-20">
-      <Message severity="error" :closable="false">{{ error }}</Message>
-    </div>
-
-    <div v-else-if="project" class="flex gap-6">
-      <!-- Left Sidebar - Navigation -->
-      <div class="w-64 flex-shrink-0">
-        <!-- Project Info Header -->
-        <div class="mb-6 p-4 rounded-xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/20 dark:border-blue-400/20">
-          <div class="flex items-center gap-3 mb-3">
-            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <i class="pi pi-folder text-white text-xl"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <h2 class="font-bold text-lg text-slate-900 dark:text-white truncate">{{ project.name }}</h2>
-              <div class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
-                <i class="pi pi-globe text-xs"></i>
-                <span class="truncate">{{ project.baseDomain }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
-              <div class="text-lg font-bold text-slate-900 dark:text-white">{{ project.resources?.length || 0 }}</div>
-              <div class="text-xs text-slate-600 dark:text-slate-400">Resources</div>
-            </div>
-            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
-              <div class="text-lg font-bold text-slate-900 dark:text-white">{{ environments.length }}</div>
-              <div class="text-xs text-slate-600 dark:text-slate-400">Environments</div>
-            </div>
-          </div>
+    <template v-else-if="project">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h1 class="text-4xl font-bold mb-2">{{ project.name }}</h1>
+          <p class="text-sm text-slate-500 font-mono break-all">{{ project.repoUrl }}</p>
+          <p class="text-sm text-slate-500 mt-1">
+            Default branch <span class="font-mono">{{ project.defaultRef }}</span>
+            <template v-if="project.rootDir !== '.'"> · <span class="font-mono">.spawner/</span> in <span class="font-mono">{{ project.rootDir }}</span></template>
+            · URLs {{ project.allowPublic ? 'may be public (auth: none)' : 'always need a login' }}
+            · environments {{ project.allowAlwaysOn ? 'may never sleep (idle: never)' : 'sleep when idle' }}
+          </p>
         </div>
-
-        <!-- Navigation Tabs -->
-        <nav class="space-y-1">
-          <button
-            v-for="tab in tabs"
-            :key="tab.value"
-            @click="activeTab = tab.value"
-            :class="[
-              'w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200',
-              activeTab === tab.value
-                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/70'
-            ]"
-          >
-            <i :class="tab.icon"></i>
-            <span>{{ tab.label }}</span>
-          </button>
-        </nav>
-      </div>
-
-      <!-- Right Content Area -->
-      <div class="flex-1 min-w-0">
-        <!-- Overview Tab -->
-        <div v-if="activeTab === 'overview'">
-          <h2 class="text-3xl font-bold mb-6 text-slate-900 dark:text-white">Overview</h2>
-
-          <div class="grid gap-6">
-            <!-- Project Information Card -->
-            <Card>
-              <template #title>
-                <div class="flex items-center gap-2">
-                  <i class="pi pi-info-circle text-blue-500"></i>
-                  <span>Project Information</span>
-                </div>
-              </template>
-              <template #content>
-                <div class="grid gap-4">
-                  <div>
-                    <label class="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-1 block">Project Name</label>
-                    <div class="text-lg text-slate-900 dark:text-white">{{ project.name }}</div>
-                  </div>
-                  <div>
-                    <label class="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-1 block">Base Domain</label>
-                    <div class="text-lg text-slate-900 dark:text-white flex items-center gap-2">
-                      <i class="pi pi-globe text-blue-500"></i>
-                      {{ project.baseDomain }}
-                    </div>
-                  </div>
-                  <div>
-                    <label class="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-1 block">Created</label>
-                    <div class="text-lg text-slate-900 dark:text-white">{{ formatDate(project.createdAt) }}</div>
-                  </div>
-                </div>
-              </template>
-            </Card>
-
-            <!-- Quick Stats Card -->
-            <Card>
-              <template #title>
-                <div class="flex items-center gap-2">
-                  <i class="pi pi-chart-bar text-green-500"></i>
-                  <span>Quick Stats</span>
-                </div>
-              </template>
-              <template #content>
-                <div class="grid grid-cols-3 gap-4">
-                  <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
-                    <i class="pi pi-box text-3xl text-blue-500 mb-2"></i>
-                    <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ project.resources?.length || 0 }}</div>
-                    <div class="text-sm text-slate-600 dark:text-slate-400">Resources</div>
-                  </div>
-                  <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
-                    <i class="pi pi-sitemap text-3xl text-green-500 mb-2"></i>
-                    <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ environments.length }}</div>
-                    <div class="text-sm text-slate-600 dark:text-slate-400">Environments</div>
-                  </div>
-                  <div class="text-center p-4 bg-slate-100 dark:bg-dark-700 rounded-lg">
-                    <i class="pi pi-check-circle text-3xl text-green-500 mb-2"></i>
-                    <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ runningEnvironments }}</div>
-                    <div class="text-sm text-slate-600 dark:text-slate-400">Running</div>
-                  </div>
-                </div>
-              </template>
-            </Card>
-          </div>
-        </div>
-
-        <!-- Resources Tab -->
-        <div v-if="activeTab === 'resources'">
-          <div class="flex justify-between items-center mb-6">
-            <h2 class="text-3xl font-bold text-slate-900 dark:text-white">Resources</h2>
-            <Button
-              label="Add Resource"
-              icon="pi pi-plus"
-              @click="$router.push(`/projects/${project.id}/resources/new`)"
-            />
-          </div>
-
-          <div v-if="loadingResources" class="flex justify-center py-12">
-            <ProgressSpinner />
-          </div>
-
-          <div v-else-if="(project.resources?.length || 0) === 0" class="text-center py-20">
-            <i class="pi pi-box text-6xl mb-6 block opacity-30"></i>
-            <p class="text-xl mb-6 opacity-60">No resources yet</p>
-            <Button
-              label="Add your first resource"
-              icon="pi pi-plus"
-              @click="$router.push(`/projects/${project.id}/resources/new`)"
-            />
-          </div>
-
-          <div v-else class="grid gap-4">
-            <div
-              v-for="resource in project.resources"
-              :key="resource.id"
-              class="group relative rounded-xl p-[1px] bg-gradient-to-br from-slate-300 to-slate-400 dark:from-slate-700 dark:to-slate-600 hover:from-blue-500 hover:to-purple-600 transition-all duration-300"
-            >
-              <div class="relative rounded-xl bg-white dark:bg-dark-800 p-6">
-                <div class="flex items-start justify-between">
-                  <div class="flex-1">
-                    <div class="flex items-center gap-3 mb-3">
-                      <i :class="getResourceIcon(resource.type)" class="text-2xl text-blue-500"></i>
-                      <h3 class="font-bold text-xl text-slate-900 dark:text-white">{{ resource.name }}</h3>
-                      <Tag :value="resource.type" severity="info" />
-                    </div>
-
-                    <div v-if="resource.gitRepo" class="flex flex-col gap-2 text-slate-600 dark:text-slate-400">
-                      <div class="flex items-center gap-2">
-                        <i class="pi pi-github"></i>
-                        <span class="text-sm">{{ resource.gitRepo }}</span>
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <i class="pi pi-code-branch"></i>
-                        <span class="text-sm">Branch: {{ resource.defaultBranch }}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flex gap-2">
-                    <Button
-                      icon="pi pi-pencil"
-                      severity="secondary"
-                      outlined
-                      @click="$router.push(`/projects/${project.id}/resources/${resource.id}/edit`)"
-                      v-tooltip.top="'Edit resource'"
-                    />
-                    <Button
-                      icon="pi pi-trash"
-                      severity="danger"
-                      outlined
-                      @click="confirmDeleteResource(resource)"
-                      v-tooltip.top="'Delete resource'"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Environments Tab -->
-        <div v-if="activeTab === 'environments'">
-          <div class="flex justify-between items-center mb-6">
-            <h2 class="text-3xl font-bold text-slate-900 dark:text-white">Environments</h2>
-            <Button
-              label="New Environment"
-              icon="pi pi-plus"
-              @click="$router.push(`/projects/${project.id}/environments/new`)"
-            />
-          </div>
-
-          <div v-if="loadingEnvironments" class="flex justify-center py-12">
-            <ProgressSpinner />
-          </div>
-
-          <div v-else-if="environments.length === 0" class="text-center py-20">
-            <i class="pi pi-sitemap text-6xl mb-6 block opacity-30"></i>
-            <p class="text-xl mb-6 opacity-60">No environments yet</p>
-            <Button
-              label="Create your first environment"
-              icon="pi pi-plus"
-              @click="$router.push(`/projects/${project.id}/environments/new`)"
-            />
-          </div>
-
-          <div v-else class="grid gap-4">
-            <EnvironmentCard
-              v-for="environment in environments"
-              :key="environment.id"
-              :environment="environment"
-              :loading="loadingActions.has(environment.id)"
-              @view="$router.push(`/environments/${environment.id}`)"
-              @delete="confirmDeleteEnvironment(environment)"
-              @pause="pauseEnvironment"
-              @resume="resumeEnvironment"
-              @restart="restartEnvironment"
-              @update="updateEnvironment"
-            />
-          </div>
-        </div>
-
-        <!-- Settings Tab -->
-        <div v-if="activeTab === 'settings'">
-          <h2 class="text-3xl font-bold mb-6 text-slate-900 dark:text-white">Settings</h2>
-
-          <Card>
-            <template #title>Project Configuration</template>
-            <template #content>
-              <div class="flex flex-col gap-4">
-                <div class="flex flex-col gap-2">
-                  <label for="projectName" class="font-semibold">Project Name</label>
-                  <InputText
-                    id="projectName"
-                    v-model="editForm.name"
-                    placeholder="my-project"
-                  />
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <label for="baseDomain" class="font-semibold">Base Domain</label>
-                  <InputText
-                    id="baseDomain"
-                    v-model="editForm.baseDomain"
-                    placeholder="preview.yourdomain.com"
-                  />
-                </div>
-
-                <Button
-                  :label="saving ? 'Saving...' : 'Save Changes'"
-                  icon="pi pi-save"
-                  @click="saveProject"
-                  :disabled="saving"
-                  :loading="saving"
-                />
-              </div>
-            </template>
-          </Card>
-        </div>
-
-        <!-- Danger Zone Tab -->
-        <div v-if="activeTab === 'danger'">
-          <h2 class="text-3xl font-bold mb-6 text-slate-900 dark:text-white">Danger Zone</h2>
-
-          <Card>
-            <template #content>
-              <div class="border-2 border-red-500/50 rounded-lg p-6">
-                <h3 class="text-xl font-bold mb-3 text-red-600 dark:text-red-400">Delete Project</h3>
-                <p class="text-slate-600 dark:text-slate-400 mb-4">
-                  Once you delete a project, all of its environments and resources will be permanently removed. This action cannot be undone.
-                </p>
-                <Button
-                  label="Delete Project"
-                  icon="pi pi-trash"
-                  severity="danger"
-                  @click="confirmDeleteProject"
-                />
-              </div>
-            </template>
-          </Card>
+        <div class="flex flex-wrap gap-2">
+          <router-link :to="{ path: '/environments', query: { project: project.slug } }">
+            <Button label="Environments" icon="pi pi-sitemap" severity="secondary" outlined />
+          </router-link>
+          <Button v-if="authStore.isAdmin" label="Edit" icon="pi pi-cog" severity="secondary" outlined @click="editing = true" />
         </div>
       </div>
-    </div>
 
-    <!-- Delete Resource Confirmation -->
-    <Dialog
-      v-model:visible="showDeleteResourceDialog"
-      header="Delete Resource?"
-      :modal="true"
-      :style="{ width: '450px' }"
-    >
-      <p class="mb-4">
-        Are you sure you want to delete <strong>{{ resourceToDelete?.name }}</strong>?
-      </p>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="showDeleteResourceDialog = false"
-        />
-        <Button
-          label="Delete"
-          severity="danger"
-          @click="deleteResource"
-        />
-      </template>
-    </Dialog>
+      <!-- Usage -->
+      <div class="grid gap-6 md:grid-cols-3">
+        <section class="panel">
+          <h2 class="panel-title"><i class="pi pi-sitemap text-sm"></i>Environments</h2>
+          <p class="text-3xl font-bold">{{ usage?.environments.total ?? '-' }}</p>
+          <p class="text-sm text-slate-500 mt-1">
+            <template v-for="(count, status, index) in usage?.environments.byStatus ?? {}" :key="status">{{ index ? ', ' : '' }}{{ count }} {{ status }}</template>
+          </p>
+          <p class="text-sm text-slate-500 mt-3">Now: {{ formatSize(usage?.now.memoryBytes) }} of memory, {{ formatSize(usage?.now.diskBytes) }} of disk</p>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title"><i class="pi pi-calculator text-sm"></i>One environment</h2>
+          <ul v-if="usage" class="space-y-1.5 text-sm">
+            <li class="flex justify-between">
+              <span>Memory</span>
+              <span>{{ formatSize(usage.typical.memoryBytes) }}<span v-if="usage.typical.basedOn.memory === 'limits'" class="text-slate-500"> (limit)</span></span>
+            </li>
+            <li class="flex justify-between">
+              <span>Disk</span>
+              <span>{{ formatSize(usage.typical.diskBytes) }}<span v-if="usage.typical.basedOn.disk === 'default'" class="text-slate-500"> (estimate)</span></span>
+            </li>
+            <li class="flex justify-between"><span>Build</span><span>{{ formatSeconds(usage.typical.buildSeconds) }}</span></li>
+          </ul>
+          <p class="field-hint">Medians over the environments of the project: memory of the last day, disk of the last measure, builds of the last 30 days.</p>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title"><i class="pi pi-server text-sm"></i>Room for</h2>
+          <p class="text-3xl font-bold">{{ places === null ? '-' : `${places} more` }}</p>
+          <p v-if="capacityEntry?.limitedBy" class="text-sm text-slate-500 mt-1">Limited by the {{ capacityEntry.limitedBy }} of the server.</p>
+          <p class="field-hint">What the server can still build and hold, keeping 1 GiB of memory and 10 GiB of disk free.</p>
+        </section>
+      </div>
 
-    <!-- Delete Environment Confirmation -->
-    <Dialog
-      v-model:visible="showDeleteEnvDialog"
-      header="Delete Environment?"
-      :modal="true"
-      :style="{ width: '450px' }"
-    >
-      <p class="mb-4">
-        Are you sure you want to delete environment <strong>{{ environmentToDelete?.name }}</strong>?
-      </p>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="showDeleteEnvDialog = false"
-        />
-        <Button
-          label="Delete"
-          severity="danger"
-          @click="deleteEnvironment"
-        />
-      </template>
-    </Dialog>
+      <!-- Variables -->
+      <section v-if="authStore.isAdmin" class="panel">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+          <h2 class="panel-title !mb-0"><i class="pi pi-key text-sm"></i>Variables</h2>
+        </div>
+        <p class="field-hint mb-4">
+          The compose files of the project use them as <code>${NAME}</code>, wired into <code>environment:</code> or <code>args:</code>. Secret values are
+          stored encrypted, never shown again, and masked in job logs.
+        </p>
+        <table v-if="variables.length" class="w-full text-sm mb-4">
+          <thead class="text-left text-xs uppercase text-slate-500">
+            <tr>
+              <th class="py-2 pr-4">Name</th>
+              <th class="py-2 pr-4">Value</th>
+              <th class="py-2 pr-4">Updated</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
+            <tr v-for="variable in variables" :key="variable.name">
+              <td class="py-2 pr-4 font-mono">{{ variable.name }}</td>
+              <td class="py-2 pr-4 font-mono text-xs break-all">
+                <span v-if="variable.secret" class="text-slate-500"><i class="pi pi-lock text-xs mr-1"></i>secret</span>
+                <span v-else>{{ variable.value }}</span>
+              </td>
+              <td class="py-2 pr-4 text-slate-500">{{ timeAgo(variable.updatedAt) }}</td>
+              <td class="py-2 text-right whitespace-nowrap">
+                <Button icon="pi pi-pencil" text rounded size="small" v-tooltip.top="'Change'" @click="editVariable(variable)" />
+                <Button icon="pi pi-trash" severity="danger" text rounded size="small" v-tooltip.top="'Delete'" @click="removeVariable(variable.name)" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <form class="grid gap-3 md:grid-cols-[12rem_1fr_auto_auto] items-end" @submit.prevent="saveVariable">
+          <div>
+            <label class="field-label" for="variable-name">Name</label>
+            <InputText id="variable-name" v-model="draft.name" class="w-full font-mono" placeholder="STRIPE_KEY" />
+          </div>
+          <div>
+            <label class="field-label" for="variable-value">Value</label>
+            <InputText id="variable-value" v-model="draft.value" class="w-full font-mono" :type="draft.secret ? 'password' : 'text'" autocomplete="off" />
+          </div>
+          <label class="flex items-center gap-2 text-sm pb-2.5">
+            <Checkbox v-model="draft.secret" binary input-id="variable-secret" />Secret
+          </label>
+          <Button type="submit" label="Save" :disabled="!draft.name.trim()" :loading="savingVariable" />
+        </form>
+      </section>
+    </template>
+
+    <ProjectDialog v-model:visible="editing" :project="project" @saved="load" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import axios from 'axios';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import Button from 'primevue/button';
-import Card from 'primevue/card';
+import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
-import Tag from 'primevue/tag';
-import Dialog from 'primevue/dialog';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
-import EnvironmentCard from '../components/EnvironmentCard.vue';
+import ProjectDialog from '../components/ProjectDialog.vue';
 import { useNotification } from '../composables/useNotification';
-import { environmentApi } from '../services/api';
-import type { Environment } from '../types';
-
-interface Resource {
-  id: number;
-  name: string;
-  type: string;
-  gitRepo?: string;
-  defaultBranch?: string;
-}
-
-interface Project {
-  id: number;
-  name: string;
-  baseDomain: string;
-  resources?: Resource[];
-  createdAt: string | Date;
-}
+import { errorMessage, projectsApi, systemApi } from '../services/api';
+import { useAuthStore } from '../stores/auth';
+import type { Capacity, ProjectDetail, ProjectUsage, ProjectVariable } from '../types';
+import { timeAgo } from '../utils/format';
+import { formatSeconds, formatSize } from '../utils/palette';
 
 const route = useRoute();
-const router = useRouter();
-const { showSuccess, showError } = useNotification();
+const authStore = useAuthStore();
+const { showError, showSuccess, confirmAction } = useNotification();
 
-const project = ref<Project | null>(null);
-const environments = ref<Environment[]>([]);
-const loading = ref(true);
-const loadingResources = ref(false);
-const loadingEnvironments = ref(false);
-const saving = ref(false);
-const error = ref('');
+const project = ref<ProjectDetail | null>(null);
+const usage = ref<ProjectUsage | null>(null);
+const capacity = ref<Capacity | null>(null);
+const variables = ref<ProjectVariable[]>([]);
+const loadError = ref('');
+const editing = ref(false);
+const savingVariable = ref(false);
+const draft = reactive({ name: '', value: '', secret: false });
 
-const activeTab = ref('overview');
+const slug = computed(() => route.params.slug as string);
+const capacityEntry = computed(() => capacity.value?.projects.find((entry) => entry.project === slug.value) ?? null);
+const places = computed(() => capacityEntry.value?.places ?? null);
 
-const tabs = [
-  { value: 'overview', label: 'Overview', icon: 'pi pi-home' },
-  { value: 'resources', label: 'Resources', icon: 'pi pi-box' },
-  { value: 'environments', label: 'Environments', icon: 'pi pi-sitemap' },
-  { value: 'settings', label: 'Settings', icon: 'pi pi-cog' },
-  { value: 'danger', label: 'Danger Zone', icon: 'pi pi-exclamation-triangle' },
-];
-
-const editForm = ref({
-  name: '',
-  baseDomain: '',
-});
-
-const resourceToDelete = ref<Resource | null>(null);
-const showDeleteResourceDialog = ref(false);
-const environmentToDelete = ref<Environment | null>(null);
-const showDeleteEnvDialog = ref(false);
-const loadingActions = ref<Set<string>>(new Set());
-
-const runningEnvironments = computed(() => {
-  return environments.value.filter(e => e.status === 'running').length;
-});
-
-function formatDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-function getResourceIcon(type: string): string {
-  const icons: Record<string, string> = {
-    'mysql-db': 'pi pi-database',
-    'laravel-api': 'pi pi-cog',
-    'nextjs-front': 'pi pi-palette',
-  };
-  return icons[type] || 'pi pi-box';
-}
-
-async function loadProject() {
+async function load() {
   try {
-    loading.value = true;
-    const response = await axios.get(`/api/projects/${route.params.id}`);
-    project.value = response.data;
-    editForm.value.name = response.data.name;
-    editForm.value.baseDomain = response.data.baseDomain;
-
-    await Promise.all([loadEnvironments()]);
+    project.value = await projectsApi.get(slug.value);
+    loadError.value = '';
   } catch (err) {
-    console.error('Error loading project:', err);
-    error.value = 'Failed to load project';
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadEnvironments() {
-  try {
-    loadingEnvironments.value = true;
-    const response = await axios.get(`/api/environments?projectId=${route.params.id}`);
-    environments.value = response.data;
-  } catch (err) {
-    console.error('Error loading environments:', err);
-    showError('Failed to load environments');
-  } finally {
-    loadingEnvironments.value = false;
-  }
-}
-
-async function saveProject() {
-  if (!editForm.value.name || !editForm.value.baseDomain) {
-    showError('Please fill in all fields');
+    loadError.value = errorMessage(err, 'The project could not be loaded');
     return;
   }
+  [usage.value, capacity.value, variables.value] = await Promise.all([
+    projectsApi.usage(slug.value).catch(() => null),
+    systemApi.capacity().catch(() => null),
+    authStore.isAdmin ? projectsApi.variables(slug.value).catch(() => []) : Promise.resolve([]),
+  ]);
+}
 
+function editVariable(variable: ProjectVariable) {
+  Object.assign(draft, { name: variable.name, value: variable.secret ? '' : (variable.value ?? ''), secret: variable.secret });
+}
+
+async function saveVariable() {
+  savingVariable.value = true;
   try {
-    saving.value = true;
-    await axios.put(`/api/projects/${project.value?.id}`, editForm.value);
-    showSuccess('Project updated successfully');
-    if (project.value) {
-      project.value.name = editForm.value.name;
-      project.value.baseDomain = editForm.value.baseDomain;
+    await projectsApi.setVariable(slug.value, draft.name.trim(), draft.value, draft.secret);
+    showSuccess(`${draft.name.trim()} saved: it applies from the next deploy`);
+    Object.assign(draft, { name: '', value: '', secret: false });
+    variables.value = await projectsApi.variables(slug.value);
+  } catch (err) {
+    showError(errorMessage(err, 'The variable could not be saved'));
+  } finally {
+    savingVariable.value = false;
+  }
+}
+
+function removeVariable(name: string) {
+  confirmAction(`Delete ${name}? Compose files that use it will be refused at their next deploy.`, async () => {
+    try {
+      await projectsApi.deleteVariable(slug.value, name);
+      variables.value = await projectsApi.variables(slug.value);
+    } catch (err) {
+      showError(errorMessage(err, 'The variable could not be deleted'));
     }
-  } catch (err: any) {
-    console.error('Error saving project:', err);
-    showError(err.response?.data?.message || 'Failed to save project');
-  } finally {
-    saving.value = false;
-  }
-}
-
-function confirmDeleteResource(resource: Resource) {
-  resourceToDelete.value = resource;
-  showDeleteResourceDialog.value = true;
-}
-
-async function deleteResource() {
-  const resource = resourceToDelete.value;
-  if (!resource || !project.value) return;
-
-  try {
-    await axios.delete(`/api/projects/${project.value.id}/resources/${resource.id}`);
-    showDeleteResourceDialog.value = false;
-    resourceToDelete.value = null;
-    showSuccess('Resource deleted successfully');
-    await loadProject();
-  } catch (err) {
-    console.error('Error deleting resource:', err);
-    showError('Failed to delete resource');
-  }
-}
-
-function confirmDeleteEnvironment(environment: Environment) {
-  environmentToDelete.value = environment;
-  showDeleteEnvDialog.value = true;
-}
-
-async function deleteEnvironment() {
-  const environment = environmentToDelete.value;
-  if (!environment) return;
-
-  try {
-    await axios.delete(`/api/environments/${environment.id}`);
-    showDeleteEnvDialog.value = false;
-    environmentToDelete.value = null;
-    showSuccess('Environment deleted successfully');
-    await loadEnvironments();
-  } catch (err) {
-    console.error('Error deleting environment:', err);
-    showError('Failed to delete environment');
-  }
-}
-
-async function confirmDeleteProject() {
-  if (!project.value) return;
-
-  const confirmed = await new Promise<boolean>((resolve) => {
-    const dialog = window.confirm(
-      `Are you sure you want to delete project "${project.value?.name}"? This will delete all environments and cannot be undone.`
-    );
-    resolve(dialog);
   });
-
-  if (!confirmed) return;
-
-  try {
-    await axios.delete(`/api/projects/${project.value.id}`);
-    showSuccess('Project deleted successfully');
-    router.push('/projects');
-  } catch (err) {
-    console.error('Error deleting project:', err);
-    showError('Failed to delete project');
-  }
 }
 
-async function pauseEnvironment(env: Environment) {
-  try {
-    loadingActions.value.add(env.id);
-    await environmentApi.pause(env.id);
-    showSuccess(`Environment "${env.name}" paused successfully`);
-    await loadEnvironments();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to pause environment');
-  } finally {
-    loadingActions.value.delete(env.id);
-  }
-}
-
-async function resumeEnvironment(env: Environment) {
-  try {
-    loadingActions.value.add(env.id);
-    await environmentApi.resume(env.id);
-    showSuccess(`Environment "${env.name}" resumed successfully`);
-    await loadEnvironments();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to resume environment');
-  } finally {
-    loadingActions.value.delete(env.id);
-  }
-}
-
-async function restartEnvironment(env: Environment) {
-  try {
-    loadingActions.value.add(env.id);
-    await environmentApi.restart(env.id);
-    showSuccess(`Environment "${env.name}" restarted successfully`);
-    await loadEnvironments();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to restart environment');
-  } finally {
-    loadingActions.value.delete(env.id);
-  }
-}
-
-async function updateEnvironment(env: Environment) {
-  try {
-    loadingActions.value.add(env.id);
-    await environmentApi.update(env.id);
-    showSuccess(`Environment "${env.name}" updated successfully`);
-    await loadEnvironments();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to update environment');
-  } finally {
-    loadingActions.value.delete(env.id);
-  }
-}
-
-onMounted(() => {
-  loadProject();
-});
+watch(slug, load);
+onMounted(load);
 </script>

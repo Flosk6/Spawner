@@ -1,0 +1,8 @@
+{
+  "name": "spawner-example-node-postgres",
+  "private": true,
+  "description": "Minimal Spawner example: a Node.js app and a PostgreSQL database",
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

@@ -1,21 +1,20 @@
 {
   "name": "@spawner/web",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
     "format": "prettier --write src/",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@primevue/themes": "^4.4.1",
-    "@spawner/config": "workspace:*",
+    "@simplewebauthn/browser": "^14.0.0",
     "@spawner/types": "workspace:*",
-    "@spawner/utils": "workspace:*",
     "axios": "^1.6.5",
     "chart.js": "^4.5.1",
     "pinia": "^3.0.4",

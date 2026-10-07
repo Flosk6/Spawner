@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.volumes_from
+services:
+  api:
+    build: ..
+    volumes_from: ["container:spawner-postgres"]
+  front:
+    image: nginx:alpine

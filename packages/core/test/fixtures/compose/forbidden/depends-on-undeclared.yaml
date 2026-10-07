@@ -1,0 +1,7 @@
+# expect: compose.undefined_reference services.api.depends_on[0]
+services:
+  api:
+    build: ..
+    depends_on: [ghost]
+  front:
+    image: nginx:alpine

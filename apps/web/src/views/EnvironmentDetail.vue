@@ -1,792 +1,598 @@
 <template>
-  <div>
-    <div class="mb-6">
-      <Button label="Back" icon="pi pi-arrow-left" text @click="$router.push('/')" />
-    </div>
+  <div class="max-w-7xl mx-auto">
+    <router-link to="/environments" class="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white mb-6">
+      <i class="pi pi-arrow-left text-xs"></i>Environments
+    </router-link>
 
-    <div v-if="loading" class="flex justify-center py-20">
+    <div v-if="loading && !environment" class="flex justify-center py-20">
       <ProgressSpinner />
     </div>
 
-    <div v-else-if="environment" class="flex gap-6">
-      <!-- Left Sidebar - Navigation -->
-      <div class="w-64 flex-shrink-0">
-        <!-- Environment Info Header -->
-        <div class="mb-6 p-4 rounded-xl bg-gradient-to-br from-green-500/10 to-blue-500/10 border border-green-500/20 dark:border-green-400/20">
-          <div class="flex items-center gap-3 mb-3">
-            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center">
-              <i class="pi pi-sitemap text-white text-xl"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <h2 class="font-bold text-lg text-slate-900 dark:text-white truncate">{{ environment.name }}</h2>
-              <div class="mt-1">
-                <Tag :value="environment.status" :severity="getStatusSeverity(environment.status)" size="small" />
-              </div>
-            </div>
-          </div>
+    <Message v-else-if="loadError" severity="error" :closable="false">{{ loadError }}</Message>
 
-          <div class="grid grid-cols-2 gap-2">
-            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
-              <div class="text-lg font-bold text-slate-900 dark:text-white">{{ environment.resources?.length || 0 }}</div>
-              <div class="text-xs text-slate-600 dark:text-slate-400">Resources</div>
-            </div>
-            <div class="bg-white/50 dark:bg-dark-700/50 rounded-lg p-2 text-center">
-              <div class="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Created</div>
-              <div class="text-xs text-slate-900 dark:text-white">{{ formatDateShort(environment.createdAt) }}</div>
-            </div>
+    <template v-else-if="environment">
+      <!-- Header -->
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-3 mb-2">
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white break-all">{{ environment.slug }}</h1>
+            <router-link
+              :to="{ path: '/environments', query: { project: environment.project } }"
+              class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-200/80 dark:bg-dark-700/50 border border-slate-300/50 dark:border-purple-800/30 text-xs font-medium text-slate-700 dark:text-slate-300"
+            >
+              <i class="pi pi-folder text-blue-600 dark:text-blue-400 text-xs"></i>{{ environment.project }}
+            </router-link>
+            <EnvironmentStatus :status="environment.status" />
           </div>
+          <p class="text-sm text-slate-500">
+            Created {{ timeAgo(environment.createdAt) }} by {{ ownerLabel(environment) }}, from the {{ environment.createdVia }}
+            <template v-if="environment.usage"> · {{ formatSize(environment.usage.memoryBytes) }} of memory now</template>
+            <template v-if="environment.expiresAt && !deleted && environment.status !== 'failed'"> · expires {{ timeLeft(environment.expiresAt) }}</template>
+            <template v-if="environment.sleepsAt && new Date(environment.sleepsAt) > new Date()"> · sleeps {{ timeLeft(environment.sleepsAt) }} without activity</template>
+          </p>
         </div>
 
-        <!-- Navigation Tabs -->
-        <nav class="space-y-1">
-          <button
-            v-for="tab in tabs"
-            :key="tab.value"
-            @click="activeTab = tab.value"
-            :class="[
-              'w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200',
-              activeTab === tab.value
-                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/70'
-            ]"
-          >
-            <i :class="tab.icon"></i>
-            <span>{{ tab.label }}</span>
-          </button>
-        </nav>
+        <div v-if="!deleted" class="flex flex-wrap items-center gap-2">
+          <a v-if="environment.url && environment.status === 'ready'" :href="environment.url" target="_blank" rel="noopener">
+            <Button label="Open" icon="pi pi-external-link" />
+          </a>
+          <span v-if="manageable" v-tooltip.bottom="redeployBlocked ?? ''">
+            <SplitButton
+              label="Redeploy"
+              icon="pi pi-refresh"
+              severity="secondary"
+              outlined
+              :model="redeployOptions"
+              :disabled="busy || acting || !!redeployBlocked"
+              @click="redeploy({})"
+            />
+          </span>
+          <Button
+            v-if="manageable && environment.status === 'ready'"
+            label="Stop"
+            icon="pi pi-pause"
+            severity="secondary"
+            outlined
+            :disabled="busy || acting"
+            @click="act('stop')"
+          />
+          <Button
+            v-if="manageable && environment.status === 'stopped'"
+            label="Start"
+            icon="pi pi-play"
+            severity="secondary"
+            outlined
+            :disabled="busy || acting"
+            @click="act('start')"
+          />
+          <Button
+            v-if="manageable && (environment.status === 'ready' || environment.status === 'degraded')"
+            v-tooltip.bottom="'Stop its containers now to free memory: the next visit wakes it up'"
+            label="Sleep"
+            icon="pi pi-moon"
+            severity="secondary"
+            outlined
+            :disabled="busy || acting"
+            @click="act('sleep')"
+          />
+          <Button v-if="manageable && environment.status === 'sleeping'" label="Wake up" icon="pi pi-sun" :disabled="acting" @click="act('wake')" />
+          <Button v-if="manageable && environment.expiresAt" label="Extend" icon="pi pi-clock" severity="secondary" outlined :disabled="acting" @click="extendMenu?.toggle($event)" />
+          <Menu ref="extendMenu" :model="extendOptions" popup />
+          <Button
+            v-if="manageable"
+            label="Delete"
+            icon="pi pi-trash"
+            severity="danger"
+            outlined
+            :disabled="environment.status === 'deleting' || acting"
+            @click="confirmRemove"
+          />
+        </div>
       </div>
 
-      <!-- Right Content Area -->
-      <div class="flex-1">
-        <!-- Overview Tab -->
-        <div v-if="activeTab === 'overview'">
-          <div class="mb-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-2xl font-bold text-slate-900 dark:text-white">Overview</h3>
+      <Message v-if="deleted" severity="secondary" :closable="false" class="mb-6">
+        Deleted {{ timeAgo(environment.deletedAt) }}. Its timeline and the last logs of its services stay readable until
+        {{ keptUntil }}.
+      </Message>
+      <Message v-for="loop in crashLoops" :key="loop.service" severity="error" :closable="false" class="mb-4">
+        <span class="font-semibold">{{ loop.service }}</span> failed {{ loop.count }} times in {{ loop.windowMinutes }} minutes, last cause:
+        {{ loop.lastCause }}.
+        <button class="underline ml-1" @click="showLogs(loop.service, true)">See its errors</button>
+      </Message>
+      <Message v-if="environment.status === 'sleeping'" severity="secondary" :closable="false" class="mb-6">
+        Asleep after {{ formatIdle(environment.idleSeconds) }} without activity: its containers are stopped, its data stays. The next visit to one of its URLs wakes it up.
+      </Message>
+      <Message v-if="environment.status === 'degraded' && environment.error" severity="warn" :closable="false" class="mb-6">
+        <span class="font-semibold">Degraded:</span> {{ environment.error }}. Its timeline and logs say why.
+      </Message>
+      <Message v-if="environment.status === 'failed' && environment.error" severity="error" :closable="false" class="mb-6">
+        <div class="font-semibold mb-1">Failed{{ environment.phase ? ` during ${environment.phase}` : '' }}</div>
+        <pre class="whitespace-pre-wrap text-sm font-mono">{{ environment.error }}</pre>
+        <button v-if="environment.lastJob" class="underline text-sm mt-2" @click="showJob(environment.lastJob.id)">Read the job log</button>
+      </Message>
+      <Message v-if="busy && environment.lastJob && tab !== 'jobs'" severity="info" :closable="false" class="mb-6">
+        {{ environment.status === 'queued' ? 'Waiting for its turn' : `${environment.status.charAt(0).toUpperCase()}${environment.status.slice(1)}` }}...
+        <button class="underline ml-1" @click="showJob(environment.lastJob.id)">Follow the job log</button>
+      </Message>
 
-              <!-- Action Buttons -->
-              <div class="flex gap-2">
-                <a v-if="entryPointUrl" :href="entryPointUrl" target="_blank">
-                  <Button
-                    label="Open Environment"
-                    icon="pi pi-external-link"
-                    severity="primary"
-                    size="small"
-                  />
-                </a>
-                <Button
-                  v-if="environment.status === 'running'"
-                  label="Pause"
-                  icon="pi pi-pause"
-                  severity="warning"
-                  outlined
-                  size="small"
-                  @click="pauseEnvironment"
-                  :loading="loadingAction"
-                />
-                <Button
-                  v-if="environment.status === 'paused'"
-                  label="Resume"
-                  icon="pi pi-play"
-                  severity="success"
-                  outlined
-                  size="small"
-                  @click="resumeEnvironment"
-                  :loading="loadingAction"
-                />
-                <Button
-                  v-if="environment.status === 'running' || environment.status === 'paused'"
-                  label="Restart"
-                  icon="pi pi-refresh"
-                  severity="info"
-                  outlined
-                  size="small"
-                  @click="restartEnvironment"
-                  :loading="loadingAction"
-                />
-                <Button
-                  v-if="environment.status === 'running' || environment.status === 'paused'"
-                  label="Update"
-                  icon="pi pi-upload"
-                  severity="secondary"
-                  outlined
-                  size="small"
-                  @click="updateEnvironment"
-                  :loading="loadingAction"
-                />
+      <Tabs v-model:value="tab">
+        <TabList>
+          <Tab value="overview">Overview</Tab>
+          <Tab value="logs">Logs</Tab>
+          <Tab value="resources">Resources</Tab>
+          <Tab value="timeline">Timeline</Tab>
+          <Tab value="jobs">Jobs</Tab>
+          <Tab v-if="manageable && !deleted" value="terminal">Terminal</Tab>
+        </TabList>
+        <TabPanels class="!px-0">
+          <TabPanel value="overview">
+            <div v-if="tab === 'overview'" class="space-y-6">
+              <div class="grid gap-6 lg:grid-cols-2">
+                <section class="panel">
+                  <h2 class="panel-title"><i class="pi pi-globe text-sm"></i>URLs</h2>
+                  <p v-if="environment.exposures.length === 0" class="text-sm text-slate-500">Known once the environment is deployed.</p>
+                  <ul v-else class="space-y-3">
+                    <li v-for="exposure in environment.exposures" :key="exposure.name" class="flex flex-wrap items-center justify-between gap-2">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span class="font-medium text-slate-900 dark:text-white">{{ exposure.name }}</span>
+                        <span
+                          v-if="exposure.entrypoint"
+                          class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300"
+                          >entrypoint</span
+                        >
+                        <span v-if="exposure.auth === 'none'" class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                          >public</span
+                        >
+                        <span class="text-xs text-slate-500 font-mono">{{ exposure.service }}:{{ exposure.port }}</span>
+                      </div>
+                      <a :href="environment.urls[exposure.name]" target="_blank" rel="noopener" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all">{{
+                        environment.urls[exposure.name]
+                      }}</a>
+                    </li>
+                  </ul>
+                </section>
+
+                <section class="panel">
+                  <h2 class="panel-title"><i class="pi pi-code-branch text-sm"></i>Sources</h2>
+                  <p v-if="environment.sources.length === 0" class="text-sm text-slate-500">Known once the code is fetched.</p>
+                  <ul v-else class="space-y-3">
+                    <li v-for="source in environment.sources" :key="source.name" class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <span class="font-medium text-slate-900 dark:text-white">{{ source.name }}</span>
+                      <span v-if="source.origin === 'upload'" class="text-slate-500">
+                        <i class="pi pi-upload text-xs mr-1"></i>uploaded worktree, uncommitted changes included
+                        <span class="font-mono">{{ source.digest?.slice(0, 12) }}</span>
+                        <template v-if="source.sizeBytes"> · {{ formatSize(source.sizeBytes) }}</template>
+                      </span>
+                      <span v-else class="text-slate-500 font-mono break-all">
+                        {{ source.ref }}<template v-if="source.commit"> @ {{ source.commit.slice(0, 7) }}</template>
+                      </span>
+                    </li>
+                  </ul>
+                  <p v-if="environment.sources.some((source) => !source.onDisk)" class="field-hint mt-3">
+                    The code of {{ environment.sources.filter((source) => !source.onDisk).map((source) => source.name).join(', ') }} was removed after the build, which alone
+                    needed it: the next deploy brings it back.
+                  </p>
+                </section>
               </div>
-            </div>
 
-            <!-- Branches -->
-            <Card class="mb-6" v-if="environment.branches">
-              <template #title>Branches</template>
-              <template #content>
-                <div class="flex flex-wrap gap-2">
-                  <Chip v-for="(branch, name) in environment.branches" :key="name" :label="`${name}: ${branch}`"
-                    icon="pi pi-code-branch" />
+              <section class="panel">
+                <h2 class="panel-title"><i class="pi pi-box text-sm"></i>Services</h2>
+                <p v-if="services.length === 0" class="text-sm text-slate-500">{{ deleted ? 'The containers are gone.' : 'No container yet.' }}</p>
+                <div v-else class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead class="text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th class="py-2 pr-4">Service</th>
+                        <th class="py-2 pr-4">State</th>
+                        <th class="py-2 pr-4">Health</th>
+                        <th class="py-2 pr-4">Restarts</th>
+                        <th class="py-2 pr-4">Out of memory</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
+                      <tr v-for="service in services" :key="service.name">
+                        <td class="py-2 pr-4 font-medium">{{ service.name }}</td>
+                        <td class="py-2 pr-4">
+                          <span :class="service.state === 'running' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">{{ service.state }}</span>
+                          <span v-if="service.exitCode !== null && service.state !== 'running'" class="text-slate-500"> (exit {{ service.exitCode }})</span>
+                        </td>
+                        <td class="py-2 pr-4">
+                          <span :class="service.health === 'unhealthy' ? 'text-red-600 dark:text-red-400' : service.health === 'healthy' ? 'text-green-600 dark:text-green-400' : 'text-slate-500'">{{
+                            service.health ?? '-'
+                          }}</span>
+                        </td>
+                        <td class="py-2 pr-4" :class="service.restartCount > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : ''">{{ service.restartCount }}</td>
+                        <td class="py-2 pr-4">
+                          <span v-if="service.oomKilled" class="text-red-600 dark:text-red-400 font-semibold">yes</span><span v-else class="text-slate-500">-</span>
+                        </td>
+                        <td class="py-2 text-right whitespace-nowrap">
+                          <Button label="Logs" size="small" text @click="showLogs(service.name)" />
+                          <Button
+                            v-if="manageable && !deleted"
+                            label="Terminal"
+                            size="small"
+                            text
+                            :disabled="service.state !== 'running'"
+                            @click="openTerminal(service.name)"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
-              </template>
-            </Card>
+              </section>
 
-            <!-- Resources Quick View -->
-            <Card>
-              <template #title>Resources ({{ environment.resources?.length || 0 }})</template>
-              <template #content>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div
-                    v-for="resource in environment.resources"
-                    :key="resource.id"
-                    class="p-4 rounded-lg bg-slate-100 dark:bg-dark-700 border border-slate-300 dark:border-purple-800/30"
-                  >
-                    <div class="flex items-center gap-2 mb-2">
-                      <i class="pi pi-box text-blue-500"></i>
-                      <span class="font-semibold text-slate-900 dark:text-white">{{ resource.resourceName }}</span>
-                    </div>
-                    <Tag :value="resource.resourceType" severity="info" size="small" />
-                  </div>
-                </div>
-              </template>
-            </Card>
-          </div>
-        </div>
-
-        <!-- Stats Tab -->
-        <div v-if="activeTab === 'stats'">
-          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Performance Metrics</h3>
-          <StatsChart :environment-id="environment.id" />
-        </div>
-
-        <!-- Resources Tab -->
-        <div v-if="activeTab === 'resources'">
-          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Resources</h3>
-          <Card>
-
-            <template #content>
-              <DataTable :value="environment.resources" stripedRows responsiveLayout="scroll">
-                <Column field="resourceName" header="Name" sortable style="min-width: 200px">
-                  <template #body="{ data }: { data: EnvironmentResource }">
+              <div class="grid gap-6 lg:grid-cols-2">
+                <section v-if="manageable && !deleted && environment.exposures.length > 0" class="panel">
+                  <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <h2 class="panel-title !mb-0"><i class="pi pi-share-alt text-sm"></i>Share</h2>
                     <div class="flex items-center gap-2">
-                      <span class="font-semibold">{{ data.resourceName }}</span>
-                      <Chip v-if="data.isEntryPoint" label="Entry Point" icon="pi pi-home" class="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" size="small" />
+                      <Select v-model="shareHours" :options="shareDurations" option-label="label" option-value="value" size="small" class="w-32" />
+                      <Button label="Create a link" icon="pi pi-link" size="small" :loading="sharing" @click="share" />
                     </div>
-                  </template>
-                </Column>
-
-                <Column field="resourceType" header="Type" sortable style="min-width: 120px">
-                  <template #body="{ data }: { data: EnvironmentResource }">
-                    <Tag :value="data.resourceType" severity="info" icon="pi pi-box" />
-                  </template>
-                </Column>
-
-                <Column field="branch" header="Branch" style="min-width: 150px">
-                  <template #body="{ data }: { data: EnvironmentResource }">
-                    <Chip v-if="data.branch" :label="data.branch" icon="pi pi-code-branch" />
-                    <span v-else class="opacity-50">-</span>
-                  </template>
-                </Column>
-
-                <Column field="url" header="URL" style="min-width: 250px">
-                  <template #body="{ data }: { data: EnvironmentResource }">
-                    <a v-if="data.url" :href="data.url" target="_blank"
-                      class="text-blue-500 hover:text-blue-600 flex items-center gap-2">
-                      {{ data.url }}
-                      <i class="pi pi-external-link text-xs"></i>
-                    </a>
-                    <span v-else class="opacity-50">-</span>
-                  </template>
-                </Column>
-
-                <Column header="Actions" style="min-width: 200px">
-                  <template #body="{ data }: { data: EnvironmentResource }">
-                    <div class="flex gap-2">
-                      <Button icon="pi pi-file" severity="secondary" outlined rounded @click="viewLogs(data.resourceName)"
-                        v-tooltip.top="'View Logs'" />
-                      <Button v-if="data.resourceType !== 'mysql-db'" icon="pi pi-desktop" severity="success" outlined rounded
-                        @click="openTerminal(data.resourceName)" v-tooltip.top="'Open Terminal'" />
-                      <Button icon="pi pi-video" severity="info" outlined rounded @click="viewLiveLogs(data.resourceName)"
-                        v-tooltip.top="'Live Logs'" />
+                  </div>
+                  <p class="field-hint mb-3">The team opens the URLs once logged in. A link lets someone without an account in, until it expires.</p>
+                  <Message v-if="sharedLink" severity="success" :closable="true" class="mb-3" @close="sharedLink = null">
+                    <p class="mb-2">Copy this link now: it will not be shown again. It works until {{ new Date(sharedLink.expiresAt).toLocaleString() }}.</p>
+                    <div class="flex items-center gap-2">
+                      <code class="flex-1 break-all text-xs bg-white/60 dark:bg-black/20 rounded px-2 py-1">{{ sharedLink.url }}</code>
+                      <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(sharedLink.url)" />
                     </div>
-                  </template>
-                </Column>
-              </DataTable>
-            </template>
-          </Card>
-        </div>
+                  </Message>
+                  <ul v-if="shares.length > 0" class="divide-y divide-slate-200 dark:divide-purple-800/30">
+                    <li v-for="link in shares" :key="link.id" class="flex items-center justify-between gap-3 py-2 text-sm">
+                      <span>Link by {{ link.createdBy ?? 'the installation token' }}, {{ timeAgo(link.createdAt) }}, expires {{ timeLeft(link.expiresAt) }}</span>
+                      <Button icon="pi pi-times" severity="danger" text rounded size="small" v-tooltip.top="'Revoke'" @click="revokeShare(link.id)" />
+                    </li>
+                  </ul>
+                </section>
 
-        <!-- Build Logs Tab -->
-        <div v-if="activeTab === 'build-logs'">
-          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Build Logs</h3>
-          <Card>
-            <template #content>
-              <ScrollPanel style="width: 100%; height: 60vh" class="border rounded" ref="buildLogsContainer">
-                <div class="p-4 font-mono text-sm whitespace-pre-wrap">
-                  <div v-for="(line, index) in buildLogsLines" :key="index" :class="getBuildLogLineClass(line)">
-                    {{ line }}
-                  </div>
-                  <div v-if="buildLogsLines.length === 0" class="opacity-50">
-                    No logs available. Logs will appear when you create or update this environment.
-                  </div>
-                </div>
-              </ScrollPanel>
-            </template>
-          </Card>
-        </div>
+                <section v-if="!deleted" class="panel">
+                  <h2 class="panel-title"><i class="pi pi-database text-sm"></i>Disk</h2>
+                  <DiskPanel :environment-id="environment.id" />
+                </section>
+              </div>
+            </div>
+          </TabPanel>
 
-        <!-- Settings Tab -->
-        <div v-if="activeTab === 'settings'">
-          <h3 class="text-2xl font-bold mb-4 text-slate-900 dark:text-white">Settings</h3>
-          <Card>
-            <template #content>
-              <p class="opacity-70">Coming soon: Environment configuration options</p>
-            </template>
-          </Card>
-        </div>
+          <TabPanel value="logs">
+            <section v-if="tab === 'logs'" class="panel">
+              <LogViewer
+                :key="logsKey"
+                :environment-id="environment.id"
+                :services="serviceNames"
+                :archived="deleted"
+                :initial-service="logService"
+                :initial-errors="logErrors"
+              />
+            </section>
+          </TabPanel>
 
-        <!-- Danger Zone Tab -->
-        <div v-if="activeTab === 'danger'">
-          <h3 class="text-2xl font-bold mb-4 text-red-600 dark:text-red-400">Danger Zone</h3>
-          <Card>
-            <template #content>
-              <h4 class="text-xl font-semibold mb-4">Delete Environment</h4>
-              <Message severity="warn" :closable="false" class="mb-6">
-                Deleting this environment will stop all containers, remove volumes, and delete all data.
-                This action cannot be undone.
-              </Message>
-              <Button label="Delete Environment" icon="pi pi-trash" severity="danger" size="large" @click="handleDelete"
-                :disabled="deleting" />
-            </template>
-          </Card>
-        </div>
-      </div>
-    </div>
+          <TabPanel value="resources">
+            <section v-if="tab === 'resources'" class="panel">
+              <ResourcePanel :environment-id="environment.id" />
+            </section>
+          </TabPanel>
 
-    <!-- Logs Dialog -->
-    <Dialog v-model:visible="showLogsModal" :header="`Logs: ${currentLogsResource}`" :modal="true"
-      :style="{ width: '80vw' }" :maximizable="true">
-      <ScrollPanel style="width: 100%; height: 60vh" class="border rounded">
-        <pre class="p-4 text-sm font-mono whitespace-pre-wrap">{{ logs }}</pre>
-      </ScrollPanel>
-    </Dialog>
+          <TabPanel value="timeline">
+            <section v-if="tab === 'timeline'" class="panel">
+              <TimelinePanel :environment-id="environment.id" :live="!deleted" @logs="(name: string) => showLogs(name, true)" @job="showJob" />
+            </section>
+          </TabPanel>
 
-    <!-- Terminal Dialog -->
-    <Dialog
-      v-model:visible="showTerminalModal"
-      :header="`Terminal: ${currentTerminalResource}`"
-      :modal="true"
-      :style="{ width: '90vw', height: '85vh' }"
-      :maximizable="true"
-    >
-      <XtermTerminal
-        v-if="showTerminalModal && environment"
-        :environment-id="environment.id"
-        :resource-name="currentTerminalResource"
-      />
-    </Dialog>
+          <TabPanel value="jobs">
+            <section v-if="tab === 'jobs'" class="panel">
+              <JobsPanel :environment-id="environment.id" :last-job-id="environment.lastJob?.id" :focus-job="focusJob" @finished="refresh" />
+            </section>
+          </TabPanel>
 
-    <!-- Live Logs Dialog -->
-    <Dialog v-model:visible="showLiveLogsModal" :header="`Live Logs: ${currentLiveLogsResource}`" :modal="true"
-      :style="{ width: '80vw' }" :maximizable="true" @hide="closeLiveLogs">
-      <ScrollPanel style="width: 100%; height: 60vh" ref="liveLogsContainer" class="border rounded">
-        <pre class="p-4 text-sm font-mono whitespace-pre-wrap">{{ liveLogs || 'Connecting to live logs...' }}</pre>
-      </ScrollPanel>
-    </Dialog>
-
-    <!-- Update Logs Dialog -->
-    <Dialog
-      v-model:visible="showUpdateLogsModal"
-      :header="`Updating Environment: ${environment?.name}`"
-      :modal="true"
-      :closable="updateComplete"
-      :style="{ width: '90vw', maxWidth: '1200px' }"
-      :maximizable="true"
-    >
-      <div v-if="!updateComplete" class="flex items-center gap-2 mb-4">
-        <ProgressSpinner style="width: 20px; height: 20px" />
-        <span class="font-semibold">Updating environment...</span>
-      </div>
-      <div v-else class="flex items-center gap-2 mb-4">
-        <i v-if="updateSuccess" class="pi pi-check-circle text-green-500 text-2xl"></i>
-        <i v-else class="pi pi-times-circle text-red-500 text-2xl"></i>
-        <span class="font-semibold" :class="updateSuccess ? 'text-green-600' : 'text-red-600'">
-          {{ updateSuccess ? 'Update successful!' : 'Update failed' }}
-        </span>
-      </div>
-
-      <ScrollPanel style="width: 100%; height: 60vh" class="border rounded" ref="updateLogsContainer">
-        <div class="p-4 font-mono text-sm whitespace-pre-wrap">
-          <div v-for="(line, index) in updateLogsLines" :key="index" :class="getUpdateLogLineClass(line)">
-            {{ line }}
-          </div>
-          <div v-if="updateLogsLines.length === 0" class="opacity-50">
-            Connecting to server...
-          </div>
-        </div>
-      </ScrollPanel>
-
-      <template #footer>
-        <Button
-          label="Close"
-          severity="secondary"
-          outlined
-          @click="closeUpdateLogsModal"
-          :disabled="!updateComplete"
-        />
-      </template>
-    </Dialog>
-
-    <!-- Delete Progress Dialog -->
-    <Dialog v-model:visible="showDeleteModal" header="Deleting Environment" :modal="true" :closable="false"
-      :style="{ width: '450px' }">
-      <div class="text-center py-4">
-        <ProgressSpinner class="mb-4" />
-        <p class="mb-4 text-lg font-semibold">{{ deletionStep }}</p>
-        <ProgressBar :value="deletionProgress" :showValue="false" />
-        <p class="opacity-60 text-sm mt-4">
-          This may take up to 15 seconds...
-        </p>
-      </div>
-    </Dialog>
+          <TabPanel v-if="manageable && !deleted" value="terminal">
+            <section v-if="tab === 'terminal'" class="panel">
+              <div class="flex flex-wrap items-center gap-2 mb-4">
+                <span class="text-sm text-slate-500">Service</span>
+                <Select v-model="terminalService" :options="runningServices" class="w-48" size="small" placeholder="Choose a service" />
+                <span class="field-hint !mt-0">Sessions are recorded for the admins, close after 15 minutes without input, and last 4 hours at most.</span>
+              </div>
+              <XtermTerminal v-if="terminalService" :key="terminalService" :environment-id="environment.id" :resource-name="terminalService" />
+              <p v-else class="text-sm text-slate-500">No running service.</p>
+            </section>
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, onBeforeUnmount, computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { environmentApi } from '../services/api';
-import type { EnvironmentDetail, EnvironmentResource } from '../types';
 import Button from 'primevue/button';
-import Card from 'primevue/card';
-import DataTable from 'primevue/datatable';
-import Column from 'primevue/column';
-import Tag from 'primevue/tag';
-import Chip from 'primevue/chip';
-import Dialog from 'primevue/dialog';
-import ScrollPanel from 'primevue/scrollpanel';
+import Menu from 'primevue/menu';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
-import ProgressBar from 'primevue/progressbar';
-import { useNotification } from '../composables/useNotification';
+import Select from 'primevue/select';
+import SplitButton from 'primevue/splitbutton';
+import Tab from 'primevue/tab';
+import TabList from 'primevue/tablist';
+import TabPanel from 'primevue/tabpanel';
+import TabPanels from 'primevue/tabpanels';
+import Tabs from 'primevue/tabs';
+import DiskPanel from '../components/DiskPanel.vue';
+import EnvironmentStatus from '../components/EnvironmentStatus.vue';
+import JobsPanel from '../components/JobsPanel.vue';
+import LogViewer from '../components/LogViewer.vue';
+import ResourcePanel from '../components/ResourcePanel.vue';
+import TimelinePanel from '../components/TimelinePanel.vue';
 import XtermTerminal from '../components/XtermTerminal.vue';
-import StatsChart from '../components/StatsChart.vue';
+import { useNotification } from '../composables/useNotification';
+import { useAuthStore } from '../stores/auth';
+import { environmentsApi, errorMessage } from '../services/api';
+import type { CrashLoop, CreatedShareLink, Environment, JobAccepted, ServiceState, ShareLink } from '../types';
+import { canManage, isBusy, ownerLabel, redeployRequest } from '../utils/environment';
+import { timeAgo, timeLeft } from '../utils/format';
+import { formatSize } from '../utils/palette';
+
+const POLL_MS = 3000;
+const SERVICES_POLL_MS = 15_000;
+const TABS = ['overview', 'logs', 'resources', 'timeline', 'jobs', 'terminal'];
+const KEPT_DAYS = 7;
 
 const route = useRoute();
 const router = useRouter();
-const { showSuccess, showError } = useNotification();
+const { showError, showSuccess, confirmAction, confirmDelete } = useNotification();
 
-const environment = ref<EnvironmentDetail | null>(null);
+const environment = ref<Environment | null>(null);
+const services = ref<ServiceState[]>([]);
+const crashLoops = ref<CrashLoop[]>([]);
 const loading = ref(true);
-const deleting = ref(false);
-const loadingAction = ref(false);
-const error = ref('');
-const showLogsModal = ref(false);
-const currentLogsResource = ref('');
-const logs = ref('');
+const loadError = ref('');
+const acting = ref(false);
+const tab = ref(TABS.includes(String(route.query.tab)) ? String(route.query.tab) : 'overview');
+const logService = ref<string | null>(null);
+const logErrors = ref(false);
+const logsKey = ref(0);
+const focusJob = ref<string | null>(null);
+const terminalService = ref<string | null>(null);
+const extendMenu = ref<InstanceType<typeof Menu> | null>(null);
+let poll: ReturnType<typeof setInterval> | null = null;
+let servicesPoll: ReturnType<typeof setInterval> | null = null;
 
-const showDeleteModal = ref(false);
-const deletionStep = ref('');
-const deletionProgress = ref(0);
+const id = computed(() => route.params.id as string);
+const deleted = computed(() => Boolean(environment.value?.deletedAt));
+const busy = computed(() => (environment.value ? isBusy(environment.value.status) : false));
+const serviceNames = computed(() => {
+  const names = new Set(services.value.map((service) => service.name));
+  environment.value?.exposures.forEach((exposure) => names.add(exposure.service));
+  return [...names].sort();
+});
+const runningServices = computed(() => services.value.filter((service) => service.state === 'running').map((service) => service.name));
+const keptUntil = computed(() =>
+  environment.value?.deletedAt ? new Date(new Date(environment.value.deletedAt).getTime() + KEPT_DAYS * 86_400_000).toLocaleString() : '',
+);
 
-const showTerminalModal = ref(false);
-const currentTerminalResource = ref('');
+const authStore = useAuthStore();
+const manageable = computed(() => (environment.value ? canManage(authStore.user, environment.value) : false));
 
-const showLiveLogsModal = ref(false);
-const currentLiveLogsResource = ref('');
-const liveLogs = ref('');
-const liveLogsContainer = ref<HTMLPreElement | null>(null);
-
-const buildLogsEventSource = ref<EventSource | null>(null);
-const buildLogsText = ref('');
-const buildLogsContainer = ref<any>(null);
-
-const showUpdateLogsModal = ref(false);
-const updateLogsText = ref('');
-const updateComplete = ref(false);
-const updateSuccess = ref(false);
-const updateEventSource = ref<EventSource | null>(null);
-const updateLogsContainer = ref<any>(null);
-
-const activeTab = ref('overview');
-
-const tabs = [
-  { value: 'overview', label: 'Overview', icon: 'pi pi-home' },
-  { value: 'stats', label: 'Performance', icon: 'pi pi-chart-line' },
-  { value: 'resources', label: 'Resources', icon: 'pi pi-box' },
-  { value: 'build-logs', label: 'Build Logs', icon: 'pi pi-file' },
-  { value: 'settings', label: 'Settings', icon: 'pi pi-cog' },
-  { value: 'danger', label: 'Danger Zone', icon: 'pi pi-exclamation-triangle' },
-];
-
-onMounted(async () => {
-  await loadEnvironment();
+watch(tab, (value) => {
+  router.replace({ query: { ...route.query, tab: value === 'overview' ? undefined : value } });
 });
 
-async function loadEnvironment() {
+function showLogs(service: string | null, errors = false) {
+  logService.value = service;
+  logErrors.value = errors;
+  logsKey.value++;
+  tab.value = 'logs';
+}
+
+function showJob(jobId: string) {
+  focusJob.value = jobId;
+  tab.value = 'jobs';
+}
+
+function openTerminal(service: string) {
+  terminalService.value = service;
+  tab.value = 'terminal';
+}
+
+const shareDurations = [
+  { label: '1 hour', value: 1 },
+  { label: '1 day', value: 24 },
+  { label: '1 week', value: 168 },
+];
+const shareHours = ref(24);
+const shares = ref<ShareLink[]>([]);
+const sharedLink = ref<CreatedShareLink | null>(null);
+const sharing = ref(false);
+
+async function loadShares() {
+  shares.value = manageable.value && !deleted.value ? await environmentsApi.shares(id.value).catch(() => []) : [];
+}
+
+async function share() {
+  sharing.value = true;
   try {
-    loading.value = true;
-    error.value = '';
-    const id = route.params.id as string;
-    environment.value = await environmentApi.getOne(id);
-  } catch (err: any) {
-    error.value = err.response?.data?.message || 'Failed to load environment';
-    showError(error.value);
+    sharedLink.value = await environmentsApi.share(id.value, shareHours.value);
+    await loadShares();
+  } catch (err) {
+    showError(errorMessage(err, 'The link could not be created'));
+  } finally {
+    sharing.value = false;
+  }
+}
+
+function revokeShare(shareId: string) {
+  confirmAction('Revoke this link? Whoever uses it loses access at once.', async () => {
+    try {
+      await environmentsApi.revokeShare(id.value, shareId);
+      await loadShares();
+    } catch (err) {
+      showError(errorMessage(err, 'The link could not be revoked'));
+    }
+  });
+}
+
+async function copy(value: string) {
+  await navigator.clipboard.writeText(value);
+  showSuccess('Copied');
+}
+
+const extendOptions = [
+  { label: 'Keep 1 more day', command: () => extend('24h') },
+  { label: 'Keep 3 more days', command: () => extend('72h') },
+  { label: 'Keep 1 more week', command: () => extend('168h') },
+];
+
+async function extend(ttl: string) {
+  acting.value = true;
+  try {
+    const updated = await environmentsApi.extend(id.value, ttl);
+    environment.value = updated;
+    showSuccess(`Expires ${timeLeft(updated.expiresAt)}`);
+  } catch (err) {
+    showError(errorMessage(err, 'The expiry could not be postponed'));
+  } finally {
+    acting.value = false;
+  }
+}
+
+const redeployBlocked = computed(() =>
+  environment.value && !redeployRequest(environment.value) ? 'Deployed from a local worktree: redeploy it with the CLI' : null,
+);
+
+const redeployOptions = [
+  { label: 'Redeploy and replay the seed', icon: 'pi pi-database', command: () => redeploy({ reseed: true }) },
+  {
+    label: 'Redeploy from scratch (deletes the data)',
+    icon: 'pi pi-exclamation-triangle',
+    command: () =>
+      confirmAction(
+        'The containers and volumes of this environment are removed, then it is rebuilt and seeded again. Its data is lost.',
+        () => redeploy({ fresh: true }),
+        undefined,
+        'Redeploy from scratch',
+      ),
+  },
+];
+
+async function refresh() {
+  try {
+    environment.value = await environmentsApi.get(id.value);
+    loadError.value = '';
+  } catch (err) {
+    loadError.value = errorMessage(err, 'The environment could not be loaded');
   } finally {
     loading.value = false;
   }
+  await Promise.all([loadServices(), loadShares(), loadCrashLoops()]);
 }
 
-async function viewLogs(resourceName: string) {
-  try {
-    currentLogsResource.value = resourceName;
-    const id = route.params.id as string;
-    const result = await environmentApi.getLogs(id, resourceName);
-    logs.value = result.logs;
-    showLogsModal.value = true;
-  } catch (err: any) {
-    error.value = err.response?.data?.message || 'Failed to load logs';
-    showError(error.value);
+async function loadServices() {
+  services.value = await environmentsApi.services(id.value).catch(() => []);
+  if (!terminalService.value || !runningServices.value.includes(terminalService.value)) {
+    terminalService.value = runningServices.value[0] ?? null;
   }
 }
 
-function openTerminal(resourceName: string) {
-  currentTerminalResource.value = resourceName;
-  showTerminalModal.value = true;
+async function loadCrashLoops() {
+  crashLoops.value = deleted.value ? [] : await environmentsApi.events(id.value).then((result) => result.crashLoops).catch(() => []);
 }
 
-async function viewLiveLogs(resourceName: string) {
-  currentLiveLogsResource.value = resourceName;
-  liveLogs.value = '';
-  showLiveLogsModal.value = true;
+function accepted(result: { environment: Environment; job: JobAccepted['job'] | null }) {
+  environment.value = { ...result.environment, lastJob: result.job ?? result.environment.lastJob };
+}
 
+/** "2 hours", "45 minutes". */
+function formatIdle(seconds: number): string {
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600} hour${seconds === 3600 ? '' : 's'}`;
+  }
+  return `${Math.round(seconds / 60)} minutes`;
+}
+
+async function act(action: 'stop' | 'start' | 'sleep' | 'wake') {
+  acting.value = true;
   try {
-    const id = route.params.id as string;
-
-    const pollLogs = async () => {
-      if (!showLiveLogsModal.value) return;
-
-      try {
-        const result = await environmentApi.getLogs(id, resourceName);
-        liveLogs.value = result.logs;
-
-        if (liveLogsContainer.value) {
-          liveLogsContainer.value.scrollTop = liveLogsContainer.value.scrollHeight;
-        }
-      } catch (err) {
-      }
-
-      if (showLiveLogsModal.value) {
-        setTimeout(pollLogs, 2000);
-      }
-    };
-
-    pollLogs();
-  } catch (err: any) {
-    error.value = err.response?.data?.message || 'Failed to start live logs';
-    showError(error.value);
+    accepted(await environmentsApi[action](id.value));
+  } catch (err) {
+    showError(errorMessage(err, `The environment could not ${action}`));
+  } finally {
+    acting.value = false;
   }
 }
 
-function closeLiveLogs() {
-  showLiveLogsModal.value = false;
-  liveLogs.value = '';
+async function redeploy(options: { fresh?: boolean; reseed?: boolean }) {
+  const deploy = environment.value && redeployRequest(environment.value);
+  if (!deploy) {
+    return;
+  }
+  acting.value = true;
+  try {
+    accepted(await environmentsApi.update(id.value, deploy, options));
+  } catch (err) {
+    showError(errorMessage(err, 'The environment could not be redeployed'));
+  } finally {
+    acting.value = false;
+  }
 }
 
-async function handleDelete() {
-  if (!environment.value) return;
-
-  const envName = environment.value.name;
-
-  const { confirmDelete } = useNotification();
+function confirmRemove() {
+  const current = environment.value;
+  if (!current) {
+    return;
+  }
   confirmDelete(
-    envName,
+    current.slug,
     async () => {
       try {
-        deleting.value = true;
-        showDeleteModal.value = true;
-        error.value = '';
-
-        deletionStep.value = 'Stopping containers...';
-        deletionProgress.value = 20;
-
-        const deletePromise = environmentApi.delete(environment.value!.id);
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        deletionStep.value = 'Removing volumes...';
-        deletionProgress.value = 40;
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        deletionStep.value = 'Removing networks...';
-        deletionProgress.value = 60;
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        deletionStep.value = 'Cleaning up files...';
-        deletionProgress.value = 80;
-
-        await deletePromise;
-
-        deletionStep.value = 'Complete!';
-        deletionProgress.value = 100;
-
-        await new Promise(resolve => setTimeout(resolve, 500));
-        showSuccess(`Environment "${envName}" deleted successfully`);
-        router.push('/');
-      } catch (err: any) {
-        showDeleteModal.value = false;
-        error.value = err.response?.data?.message || 'Failed to delete environment';
-        showError(error.value);
-      } finally {
-        deleting.value = false;
+        await environmentsApi.remove(current.id);
+        showSuccess(`${current.slug} is being deleted`);
+        router.push({ path: '/environments', query: { project: current.project } });
+      } catch (err) {
+        showError(errorMessage(err, 'The environment could not be deleted'));
       }
-    }
+    },
+    'Its containers, volumes and data are removed for good; its timeline and last logs stay readable for 7 days.',
   );
 }
 
-function getStatusSeverity(status: string): string {
-  switch (status) {
-    case 'running':
-      return 'success';
-    case 'creating':
-      return 'info';
-    case 'failed':
-      return 'danger';
-    case 'deleting':
-      return 'warning';
-    default:
-      return 'secondary';
-  }
-}
-
-function formatDateShort(dateStr: string | Date): string {
-  const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-async function pauseEnvironment() {
-  if (!environment.value) return;
-  try {
-    loadingAction.value = true;
-    await environmentApi.pause(environment.value.id);
-    showSuccess(`Environment "${environment.value.name}" paused successfully`);
-    await loadEnvironment();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to pause environment');
-  } finally {
-    loadingAction.value = false;
-  }
-}
-
-async function resumeEnvironment() {
-  if (!environment.value) return;
-  try {
-    loadingAction.value = true;
-    await environmentApi.resume(environment.value.id);
-    showSuccess(`Environment "${environment.value.name}" resumed successfully`);
-    await loadEnvironment();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to resume environment');
-  } finally {
-    loadingAction.value = false;
-  }
-}
-
-async function restartEnvironment() {
-  if (!environment.value) return;
-  try {
-    loadingAction.value = true;
-    await environmentApi.restart(environment.value.id);
-    showSuccess(`Environment "${environment.value.name}" restarted successfully`);
-    await loadEnvironment();
-  } catch (err: any) {
-    showError(err.response?.data?.message || 'Failed to restart environment');
-  } finally {
-    loadingAction.value = false;
-  }
-}
-
-async function updateEnvironment() {
-  if (!environment.value) return;
-  try {
-    showUpdateLogsModal.value = true;
-    updateLogsText.value = '';
-    updateComplete.value = false;
-    updateSuccess.value = false;
-
-    connectToUpdateSSE(environment.value.id);
-
-    loadingAction.value = true;
-    await environmentApi.update(environment.value.id);
-  } catch (err: any) {
-    console.error('Error updating environment:', err);
-    showUpdateLogsModal.value = false;
-    showError(err.response?.data?.message || 'Failed to update environment');
-  } finally {
-    loadingAction.value = false;
-  }
-}
-
-const updateLogsLines = computed(() => {
-  return updateLogsText.value.split('\n').filter(line => line.trim());
+onMounted(() => {
+  refresh();
+  // Follows the status while a job works on the environment, and the services otherwise.
+  poll = setInterval(() => {
+    if (busy.value) {
+      environmentsApi
+        .get(id.value)
+        .then((value) => (environment.value = value))
+        .catch(() => undefined);
+    }
+  }, POLL_MS);
+  servicesPoll = setInterval(() => {
+    if (!deleted.value && tab.value === 'overview') {
+      void loadServices();
+      void loadCrashLoops();
+    }
+  }, SERVICES_POLL_MS);
 });
 
-function getUpdateLogLineClass(line: string): string {
-  if (line.includes('[OK]')) {
-    return 'text-green-600';
-  } else if (line.includes('[ERR]') || line.includes('[ERROR]')) {
-    return 'text-red-600';
-  } else if (line.includes('[WARN]')) {
-    return 'text-orange-600';
-  }
-  return 'opacity-70';
-}
-
-function scrollUpdateLogsToBottom() {
-  setTimeout(() => {
-    if (updateLogsContainer.value?.$el) {
-      const scrollableContent = updateLogsContainer.value.$el.querySelector('.p-scrollpanel-content');
-      if (scrollableContent) {
-        scrollableContent.scrollTop = scrollableContent.scrollHeight;
-      }
-    }
-  }, 50);
-}
-
-function connectToUpdateSSE(environmentId: string) {
-  updateEventSource.value = new EventSource(`/api/environments/update-logs/${environmentId}`);
-
-  updateEventSource.value.onmessage = (event) => {
-    const log = JSON.parse(event.data);
-    if (log.message && log.message.trim()) {
-      const timestamp = new Date(log.timestamp).toLocaleTimeString();
-      let prefix = '';
-      if (log.level === 'success') prefix = '[OK]';
-      else if (log.level === 'error') prefix = '[ERR]';
-      else if (log.level === 'warning') prefix = '[WARN]';
-      else prefix = '[INFO]';
-
-      updateLogsText.value += `${timestamp} ${prefix} ${log.message}\n`;
-      scrollUpdateLogsToBottom();
-    }
-
-    if (log.level === 'success' && log.message.includes('updated successfully')) {
-      updateComplete.value = true;
-      updateSuccess.value = true;
-      updateEventSource.value?.close();
-      loadEnvironment();
-    }
-    if (log.level === 'error' && (log.message.includes('failed') || log.message.includes('Failed'))) {
-      updateComplete.value = true;
-      updateSuccess.value = false;
-      updateEventSource.value?.close();
-    }
-  };
-
-  updateEventSource.value.onerror = (err) => {
-    console.error('Update logs SSE connection error:', err);
-    updateComplete.value = true;
-    updateSuccess.value = false;
-    updateEventSource.value?.close();
-  };
-}
-
-function closeUpdateLogsModal() {
-  showUpdateLogsModal.value = false;
-  if (updateEventSource.value) {
-    updateEventSource.value.close();
-    updateEventSource.value = null;
-  }
-}
-
-const buildLogsLines = computed(() => {
-  return buildLogsText.value.split('\n').filter(line => line.trim());
+watch(id, () => {
+  loading.value = true;
+  environment.value = null;
+  refresh();
 });
 
-function getBuildLogLineClass(line: string): string {
-  if (line.includes('[OK]')) {
-    return 'text-green-600';
-  } else if (line.includes('[ERR]') || line.includes('[ERROR]')) {
-    return 'text-red-600';
-  } else if (line.includes('[WARN]')) {
-    return 'text-orange-600';
-  }
-  return 'opacity-70';
-}
-
-function scrollBuildLogsToBottom() {
-  setTimeout(() => {
-    if (buildLogsContainer.value?.$el) {
-      const scrollableContent = buildLogsContainer.value.$el.querySelector('.p-scrollpanel-content');
-      if (scrollableContent) {
-        scrollableContent.scrollTop = scrollableContent.scrollHeight;
-      }
-    }
-  }, 50);
-}
-
-function connectToBuildLogsSSE(environmentId: string) {
-  if (buildLogsEventSource.value) {
-    buildLogsEventSource.value.close();
-  }
-
-  const endpoint = environment.value?.status === 'creating'
-    ? `/api/environments/creation-logs/${environmentId}`
-    : `/api/environments/update-logs/${environmentId}`;
-
-  buildLogsEventSource.value = new EventSource(endpoint);
-
-  buildLogsEventSource.value.onmessage = (event) => {
-    const log = JSON.parse(event.data);
-    if (log.message && log.message.trim()) {
-      const timestamp = new Date(log.timestamp).toLocaleTimeString();
-      let prefix = '';
-      if (log.level === 'success') prefix = '[OK]';
-      else if (log.level === 'error') prefix = '[ERR]';
-      else if (log.level === 'warning') prefix = '[WARN]';
-      else prefix = '[INFO]';
-
-      buildLogsText.value += `${timestamp} ${prefix} ${log.message}\n`;
-      scrollBuildLogsToBottom();
-    }
-
-    if (log.level === 'success' && (log.message.includes('created successfully') || log.message.includes('updated successfully'))) {
-      buildLogsEventSource.value?.close();
-    }
-    if (log.level === 'error' && (log.message.includes('failed') || log.message.includes('Failed'))) {
-      buildLogsEventSource.value?.close();
-    }
-  };
-
-  buildLogsEventSource.value.onerror = (err) => {
-    console.error('Build logs SSE connection error:', err);
-    buildLogsEventSource.value?.close();
-  };
-}
-
-const entryPointUrl = computed(() => {
-  if (!environment.value?.resources) {
-    return null;
-  }
-  const entryPoint = environment.value.resources.find(r => r.isEntryPoint);
-  return entryPoint?.url || null;
-});
-
-watch(activeTab, (newTab) => {
-  if (newTab === 'build-logs' && environment.value) {
-    const status = environment.value.status;
-    if (status === 'creating' || status === 'updating') {
-      connectToBuildLogsSSE(environment.value.id);
-    }
-  } else {
-    if (buildLogsEventSource.value) {
-      buildLogsEventSource.value.close();
-      buildLogsEventSource.value = null;
-    }
+watch(busy, (now, before) => {
+  if (before && !now) {
+    void refresh();
   }
 });
+
 onBeforeUnmount(() => {
-  if (buildLogsEventSource.value) {
-    buildLogsEventSource.value.close();
+  if (poll) {
+    clearInterval(poll);
   }
-  if (updateEventSource.value) {
-    updateEventSource.value.close();
+  if (servicesPoll) {
+    clearInterval(servicesPoll);
   }
 });
 </script>

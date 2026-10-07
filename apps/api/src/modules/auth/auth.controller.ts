@@ -1,111 +1,161 @@
-import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import { Request, Response } from 'express';
-import { ConfigService } from '@nestjs/config';
-import { SessionAuthGuard } from './guards/session-auth.guard';
-import { AuthService } from './auth.service';
-import { AuthTokenService } from './auth-token.service';
-import type { User } from '@prisma/client';
+import { Body, Controller, Get, HttpCode, Post, Query, Req, Res } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
+import type { Request, Response } from "express";
+import type { Actor } from "../../common/actor";
+import { CurrentActor, Public, Scopes } from "../../common/auth.guard";
+import { PrismaService } from "../../common/prisma.service";
+import { SettingsService } from "../settings/settings.service";
+import { DeviceService } from "./device.service";
+import { GithubLoginService } from "./github-login.service";
+import { PasskeysService } from "./passkeys.service";
+import { presentUser, safeNext } from "./present";
+import { SessionsService } from "./sessions.service";
+import { WsTicketsService } from "./ws-tickets.service";
 
-@Controller('auth')
+@Controller("v1/auth")
 export class AuthController {
   constructor(
-    private configService: ConfigService,
-    private authService: AuthService,
-    private authTokenService: AuthTokenService,
+    private readonly sessions: SessionsService,
+    private readonly passkeys: PasskeysService,
+    private readonly github: GithubLoginService,
+    private readonly settings: SettingsService,
+    private readonly tickets: WsTicketsService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  @Get('github')
-  @UseGuards(AuthGuard('github'))
-  githubLogin() {
-    // Initiates GitHub OAuth flow
+  /**
+   * Who is logged in, and the login methods available.
+   */
+  @Public()
+  @Get("session")
+  async session(@Req() request: Request) {
+    const user = request.actor?.via === "session" && request.actor.user ? await this.prisma.user.findUnique({ where: { id: request.actor.user.id } }) : null;
+    return { user: user ? presentUser(user) : null, methods: { passkey: true, github: (await this.settings.github()) !== null } };
   }
 
-  @Get('github/callback')
-  @UseGuards(AuthGuard('github'))
-  async githubCallback(@Req() req: Request, @Res() res: Response) {
-    const user = req.user as User;
-
-    // Manually call req.login to serialize user into session
-    return new Promise((resolve, reject) => {
-      req.login(user, async (err) => {
-        if (err) {
-          console.error('OAuth login error:', err);
-          return reject(err);
-        }
-
-        // Force session save to ensure cookie is sent
-        req.session.save((saveErr) => {
-          if (saveErr) {
-            console.error('Session save error:', saveErr);
-            return reject(saveErr);
-          }
-
-          // Log login action
-          this.authService.logAction(
-            user.id,
-            'LOGIN',
-            { method: 'github', username: user.username },
-            req.ip,
-            req.headers['user-agent'],
-          ).then(() => {
-            // Redirect to frontend
-            const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:8080';
-            res.redirect(frontendUrl);
-            resolve(true);
-          });
-        });
-      });
-    });
+  @Post("logout")
+  @HttpCode(204)
+  logout(@Req() request: Request) {
+    return this.sessions.logout(request);
   }
 
-  @Get('logout')
-  @UseGuards(SessionAuthGuard)
-  async logout(@Req() req: Request, @Res() res: Response) {
-    const user = req.user as User;
-
-    // Log logout action
-    await this.authService.logAction(
-      user.id,
-      'LOGOUT',
-      { username: user.username },
-      req.ip,
-      req.headers['user-agent'],
-    );
-
-    req.logout((err) => {
-      if (err) {
-        return res.status(500).json({ error: 'Logout failed' });
-      }
-      req.session.destroy((err) => {
-        if (err) {
-          return res.status(500).json({ error: 'Session destroy failed' });
-        }
-        res.clearCookie('connect.sid');
-        const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:8080';
-        res.redirect(`${frontendUrl}/login`);
-      });
-    });
-  }
-
-  @Get('me')
-  @UseGuards(SessionAuthGuard)
-  getMe(@Req() req: Request) {
-    return req.user;
-  }
-
-  @Get('status')
-  getStatus(@Req() req: Request) {
+  /**
+   * Who makes the request, with what scopes, and through which token: what
+   * `spawner whoami` shows.
+   */
+  @Get("whoami")
+  async whoami(@CurrentActor() actor: Actor) {
+    const [user, token] = await Promise.all([
+      actor.user ? this.prisma.user.findUnique({ where: { id: actor.user.id } }) : null,
+      actor.tokenId ? this.prisma.apiToken.findUnique({ where: { id: actor.tokenId }, include: { project: true } }) : null,
+    ]);
     return {
-      authenticated: req.isAuthenticated(),
-      user: req.user || null,
+      via: actor.via,
+      user: user ? presentUser(user) : null,
+      scopes: actor.scopes,
+      token: token
+        ? { id: token.id, name: token.name, hint: `spn_${token.prefix}_...`, project: token.project?.slug ?? null, expiresAt: token.expiresAt }
+        : null,
     };
   }
 
-  @Get('ws-token')
-  @UseGuards(SessionAuthGuard)
-  getWsToken(@Req() req: Request) {
-    const user = req.user as User;
-    return this.authTokenService.generateWsToken(user.id, user.username);
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60_000 } })
+  @Post("passkey/options")
+  passkeyOptions(@Req() request: Request) {
+    return this.passkeys.loginOptions(request);
+  }
+
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60_000 } })
+  @Post("passkey")
+  async passkeyLogin(@Req() request: Request, @Body() body: { credential?: unknown }) {
+    const user = await this.passkeys.verifyLogin(request, body?.credential);
+    await this.sessions.login(request, user, "passkey");
+    return { user: presentUser(user) };
+  }
+
+  /**
+   * Sends the browser to GitHub. With link=true, the GitHub account is linked
+   * to the logged-in user instead.
+   */
+  @Public()
+  @Get("github")
+  async githubStart(@Req() request: Request, @Res() response: Response, @Query("next") next?: string, @Query("link") link?: string) {
+    try {
+      response.redirect(await this.github.start(request, safeNext(next), link === "true" && Boolean(request.actor?.user)));
+    } catch (error) {
+      response.redirect(`/login?error=${encodeURIComponent((error as Error).message)}`);
+    }
+  }
+
+  @Public()
+  @Get("github/callback")
+  async githubCallback(@Req() request: Request, @Res() response: Response, @Query("code") code?: string, @Query("state") state?: string) {
+    try {
+      const result = await this.github.finish(request, code, state, request.actor?.via === "session" ? (request.actor.user?.id ?? null) : null);
+      if (!result.linked) {
+        await this.sessions.login(request, result.user, "github");
+      }
+      response.redirect(result.next ?? (result.linked ? "/account" : "/"));
+    } catch (error) {
+      response.redirect(`/login?error=${encodeURIComponent((error as Error).message)}`);
+    }
+  }
+
+  /**
+   * A one-time ticket to open a terminal over the WebSocket.
+   */
+  @Post("ws-ticket")
+  @Scopes("envs:exec")
+  wsTicket(@CurrentActor() actor: Actor) {
+    return this.tickets.issue(actor);
   }
 }
+
+/**
+ * Login of the CLI by device code (RFC 8628).
+ */
+@Controller("v1/auth/device")
+export class DeviceController {
+  constructor(private readonly device: DeviceService) {}
+
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60_000 } })
+  @Post()
+  start(@Body() body: { clientName?: unknown }) {
+    return this.device.start(body?.clientName);
+  }
+
+  @Public()
+  @Throttle({ short: { limit: 30, ttl: 60_000 } })
+  @Post("token")
+  token(@Body() body: { deviceCode?: unknown }) {
+    return this.device.poll(body?.deviceCode);
+  }
+
+  @Get(":userCode")
+  describe(@CurrentActor() actor: Actor, @Req() request: Request) {
+    return this.device.describe(actor, request.params.userCode);
+  }
+
+  @Post("approve")
+  approve(@CurrentActor() actor: Actor, @Body() body: { userCode?: unknown; approve?: unknown }) {
+    return this.device.decide(actor, body?.userCode, body?.approve === true);
+  }
+}
+
+/**
+ * The GitHub callback of Spawner before v1, still registered in existing
+ * OAuth apps: forwards to the v1 route with the same code and state.
+ */
+@Controller("auth")
+export class LegacyGithubCallbackController {
+  @Public()
+  @Get("github/callback")
+  forward(@Req() request: Request, @Res() response: Response) {
+    const query = request.originalUrl.includes("?") ? request.originalUrl.slice(request.originalUrl.indexOf("?")) : "";
+    response.redirect(302, `/api/v1/auth/github/callback${query}`);
+  }
+}
+

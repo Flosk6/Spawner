@@ -1,4 +1,12 @@
-version: '3.9'
+# Local stack: Postgres, Traefik and Spawner, over plain HTTP.
+#
+# Environments get URLs under localtest.me, a public domain whose every
+# subdomain resolves to 127.0.0.1, so no DNS setup is needed:
+#   dashboard    http://spawner.localtest.me
+#   environment  http://<env>--<project>.localtest.me
+#
+# SPAWNER_DATA_DIR is mounted at the same path in the container, so the paths
+# Spawner writes in compose files are the same for the Docker daemon.
 
 services:
   postgres:
@@ -12,83 +20,76 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - spawner-network
+      - spawner-core
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-spawner}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  spawner-api:
+  traefik:
+    image: traefik:v3.5
+    container_name: spawner-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--log.level=INFO"
+    ports:
+      - "${SPAWNER_HTTP_PORT:-80}:80"
+    volumes:
+      - ${SPAWNER_DATA_DIR:?set SPAWNER_DATA_DIR to an absolute path}/traefik:/etc/traefik/dynamic:ro
+    networks:
+      - spawner-core
+
+  spawner:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: spawner-api
+      dockerfile: Dockerfile
+    container_name: spawner
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "8080:3000"
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       - PORT=3000
-      # PostgreSQL Configuration
+      # PostgreSQL
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=${DB_USER:-spawner}
       - DB_PASSWORD=${DB_PASSWORD:-spawner}
       - DB_NAME=${DB_NAME:-spawner}
-      # Application Paths
-      - PROJECT_CONFIG_PATH=/opt/spawner/project.config.yml
-      - GIT_KEYS_PATH=/opt/spawner/git-keys
-      - REPOS_PATH=/opt/spawner/repos
-      - ENVS_PATH=/opt/spawner/envs
+      - DATABASE_URL=postgresql://${DB_USER:-spawner}:${DB_PASSWORD:-spawner}@postgres:5432/${DB_NAME:-spawner}
+      # Engine
+      - SPAWNER_DATA_DIR=${SPAWNER_DATA_DIR}
+      - SPAWNER_PREVIEW_DOMAIN=${SPAWNER_PREVIEW_DOMAIN:-localtest.me}
+      - SPAWNER_TLS=off
+      - SPAWNER_TRAEFIK_CONTAINER=spawner-traefik
+      - SPAWNER_DASHBOARD_UPSTREAM=http://spawner:3000
+      - SPAWNER_BOOTSTRAP_TOKEN=${SPAWNER_BOOTSTRAP_TOKEN:-}
       - DOCKER_SOCKET=/var/run/docker.sock
-      # OAuth Configuration
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - GITHUB_CALLBACK_URL=${GITHUB_CALLBACK_URL}
-      - GITHUB_ORG=${GITHUB_ORG}
-      - GITHUB_TEAM=${GITHUB_TEAM}
-      # Session Configuration
-      - SESSION_SECRET=${SESSION_SECRET}
+      # GitHub OAuth
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-unset}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-unset}
+      - GITHUB_ORG=${GITHUB_ORG:-unset}
+      - GITHUB_TEAM=${GITHUB_TEAM:-unset}
+      # Session
+      - SESSION_SECRET=${SESSION_SECRET:-}
       - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400000}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
+      - FRONTEND_URL=${FRONTEND_URL:-http://spawner.localtest.me}
     volumes:
-      - /opt/spawner:/opt/spawner
+      - ${SPAWNER_DATA_DIR}:${SPAWNER_DATA_DIR}
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - spawner-network
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/auth/status', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
-
-  spawner-web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    container_name: spawner-web
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    depends_on:
-      - spawner-api
-    networks:
-      - spawner-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+      - spawner-core
 
 networks:
-  spawner-network:
-    driver: bridge
+  spawner-core:
+    name: spawner-core
 
 volumes:
   postgres-data:

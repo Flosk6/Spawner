@@ -1,0 +1,6 @@
+# expect: compose.invalid services.api
+services:
+  api:
+    command: sleep 1
+  front:
+    image: nginx:alpine

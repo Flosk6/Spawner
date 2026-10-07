@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.labels["dev.spawner.env"]
+services:
+  api:
+    build: ..
+    labels: ["dev.spawner.env=another-env"]
+  front:
+    image: nginx:alpine

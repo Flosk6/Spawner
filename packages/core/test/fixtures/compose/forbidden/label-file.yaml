@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.label_file
+services:
+  api:
+    build: ..
+    label_file: /etc/passwd
+  front:
+    image: nginx:alpine

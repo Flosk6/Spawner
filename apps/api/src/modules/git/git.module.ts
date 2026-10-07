@@ -1,11 +1,9 @@
-import { Module } from '@nestjs/common';
-import { GitController } from './git.controller';
-import { GitService } from './git.service';
-import { GitKeysService } from './git-keys.service';
+import { Module } from "@nestjs/common";
+import { EngineModule } from "../engine/engine.module";
+import { GitController } from "./git.controller";
 
 @Module({
+  imports: [EngineModule],
   controllers: [GitController],
-  providers: [GitService, GitKeysService],
-  exports: [GitService, GitKeysService],
 })
 export class GitModule {}

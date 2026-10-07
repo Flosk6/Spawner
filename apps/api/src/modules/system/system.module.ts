@@ -1,20 +1,11 @@
-import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
-import { UpdateService } from './update.service';
-import { SchedulerService } from './scheduler.service';
-import { SystemController } from './system.controller';
-import { WebhookController } from './webhook.controller';
-import { DockerService } from '../../common/docker.service';
-import { PrismaService } from '../../common/prisma.service';
-import { StatsModule } from '../stats/stats.module';
+import { Module } from "@nestjs/common";
+import { SystemStatsService } from "./system-stats.service";
 
+/**
+ * The memory guard of builds.
+ */
 @Module({
-  imports: [
-    ScheduleModule.forRoot(),
-    StatsModule,
-  ],
-  controllers: [SystemController, WebhookController],
-  providers: [UpdateService, SchedulerService, DockerService, PrismaService],
-  exports: [UpdateService, SchedulerService],
+  providers: [SystemStatsService],
+  exports: [SystemStatsService],
 })
 export class SystemModule {}

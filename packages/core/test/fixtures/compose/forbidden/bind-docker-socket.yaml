@@ -1,0 +1,7 @@
+# expect: compose.path_outside_sources services.api.volumes[0]
+services:
+  api:
+    build: ..
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+  front:
+    image: nginx:alpine

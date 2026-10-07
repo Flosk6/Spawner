@@ -5,6 +5,28 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .field-label {
+    @apply block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5;
+  }
+
+  .field-hint {
+    @apply text-xs text-slate-500 dark:text-slate-400 mt-1.5;
+  }
+
+  .primary-action {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100;
+  }
+
+  .panel {
+    @apply rounded-xl bg-white dark:bg-dark-800 border border-slate-200 dark:border-purple-800/30 p-6;
+  }
+
+  .panel-title {
+    @apply text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2;
+  }
+}
+
 @layer utilities {
   .bg-primary-spawner {
     background-color: #574B89;

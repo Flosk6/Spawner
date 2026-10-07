@@ -37,9 +37,9 @@
     </div>
 
     <div v-else-if="repos.length === 0" class="text-center py-12 bg-white rounded-lg shadow-md">
-      <p class="text-gray-600 dark:text-slate-400 mb-4">No Git repositories found in your projects</p>
+      <p class="text-gray-600 dark:text-slate-400 mb-4">No Git repository yet</p>
       <router-link to="/projects" class="text-blue-600 hover:text-blue-700 dark:text-purple-400 font-medium">
-        Create a project with Git resources first
+        Add a project first
       </router-link>
     </div>
 
@@ -68,17 +68,13 @@
             </td>
             <td class="px-6 py-4">
               <div class="text-sm text-gray-700 dark:text-slate-300">
-                <div v-for="usage in repo.usedBy" :key="usage.resourceId" class="mb-1">
-                  <span class="font-medium">{{ usage.projectName }}</span>
-                  <span class="text-gray-500 dark:text-slate-500 mx-1">/</span>
-                  <span>{{ usage.resourceName }}</span>
-                </div>
+                <div v-for="usage in repo.usedBy" :key="usage" class="mb-1 font-mono">{{ usage }}</div>
               </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
               <span v-if="repo.keyExists"
                 class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                ✓ Key exists
+                Key exists
               </span>
               <span v-else
                 class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 dark:text-slate-200">
@@ -110,11 +106,7 @@
             <p class="text-xs text-gray-500 dark:text-slate-500 mt-2 font-mono">{{ selectedRepo.gitRepo }}</p>
             <div class="mt-3 text-sm text-gray-700 dark:text-slate-300">
               <p class="font-medium text-gray-600 dark:text-slate-400 mb-1">Used by:</p>
-              <div v-for="usage in selectedRepo.usedBy" :key="usage.resourceId" class="ml-2">
-                <span class="font-medium">{{ usage.projectName }}</span>
-                <span class="text-gray-500 dark:text-slate-500 mx-1">/</span>
-                <span>{{ usage.resourceName }}</span>
-              </div>
+              <div v-for="usage in selectedRepo.usedBy" :key="usage" class="ml-2 font-mono">{{ usage }}</div>
             </div>
           </div>
           <button @click="selectedRepo = null" class="text-gray-400 hover:text-gray-600 dark:text-slate-400 text-2xl leading-none ml-4">
@@ -174,7 +166,7 @@
           {{ confirmRegenerateRepo.gitRepo }}
         </p>
         <p class="text-sm text-red-600 mb-6">
-          ⚠️ You will need to update the Deploy Key on this repository.
+          You will need to update the Deploy Key on this repository.
         </p>
         <div class="flex gap-3">
           <button @click="confirmRegenerateRepo = null"
@@ -193,7 +185,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
+import { gitApi } from '../services/api';
 
 const loading = ref(true);
 const repos = ref([]);
@@ -205,8 +197,7 @@ const copied = ref(false);
 async function loadRepos() {
   try {
     loading.value = true;
-    const response = await axios.get('/api/git/keys/repos');
-    repos.value = response.data;
+    repos.value = await gitApi.repos();
   } catch (error) {
     console.error('Error loading repos:', error);
     alert('Failed to load repositories');
@@ -218,9 +209,7 @@ async function loadRepos() {
 async function generateKeyForRepo(repo) {
   try {
     generatingRepoUrl.value = repo.gitRepo;
-    const response = await axios.post('/api/git/keys/generate', {
-      gitRepo: repo.gitRepo,
-    });
+    const { publicKey } = await gitApi.generateRepoKey(repo.gitRepo);
 
     // Update the repo in the list
     const index = repos.value.findIndex(r => r.gitRepo === repo.gitRepo);
@@ -228,7 +217,7 @@ async function generateKeyForRepo(repo) {
       repos.value[index] = {
         ...repos.value[index],
         keyExists: true,
-        publicKey: response.data.publicKey,
+        publicKey,
       };
     }
 

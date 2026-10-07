@@ -1,0 +1,111 @@
+# Operations
+
+Running a Spawner server day to day: where things are, backups, restores, upgrades, disk, monitoring. [Install](install.md) covers the installation itself.
+
+## Where things are
+
+| Path | What it holds |
+|---|---|
+| `/opt/spawner/compose.yaml` | The stack: `spawner`, `spawner-postgres`, `spawner-traefik`. Written by the installer; rerun it rather than editing this file |
+| `/opt/spawner/.env` | Version, domain, and the secrets: `SPAWNER_SECRET`, `POSTGRES_PASSWORD`, `SPAWNER_BOOTSTRAP_TOKEN` |
+| `/opt/spawner/dns.env` | Credentials of the DNS provider, for Traefik |
+| `/opt/spawner/spawner.env` | Settings of your own (below); the installer never overwrites it |
+| `/opt/spawner/backups/` | Database backups taken by upgrades |
+| `/var/lib/spawner/` | Data: repository mirrors (`mirrors/`), sources and rendered compose files of the environments (`envs/`), Traefik routes (`traefik/`), job logs (`jobs/`), archived logs (`archives/`), terminal recordings (`terminals/`), deploy keys (`keys/`) |
+| Docker volumes `spawner_postgres-data`, `spawner_traefik-certs` | Spawner's database and the certificates |
+
+The data directory is mounted at the same path inside the `spawner` container: the compose files Spawner renders use these paths. Never edit what is under it by hand.
+
+```bash
+cd /opt/spawner
+docker compose --env-file .env ps                 # the stack
+docker logs -f spawner                            # Spawner's own logs
+docker logs spawner-traefik                       # certificates, routing errors
+docker ps --filter label=dev.spawner.env          # the containers of the environments
+```
+
+## Settings
+
+Most limits change from the dashboard (System, Settings): lifetimes, sleep, quota per person, memory per environment, build guards. GitHub login is configured there too. Other settings go to `/opt/spawner/spawner.env`, one `VARIABLE=value` per line, then:
+
+```bash
+docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up -d
+```
+
+| Variable | Default | |
+|---|---|---|
+| `SPAWNER_BUILD_CONCURRENCY` | 1 below 8 GiB of memory, 2 above | Builds at once |
+| `SPAWNER_UPLOAD_MAX`, `SPAWNER_UPLOAD_MAX_FILES`, `SPAWNER_UPLOAD_MAX_EXTRACTED` | `100m`, 50000, `1g` | Limits of a worktree upload |
+| `SPAWNER_START_TIMEOUT_SECONDS`, `SPAWNER_JOB_TIMEOUT_SECONDS` | 300, 1800 | How long services may take to start, and a whole job |
+| `SESSION_MAX_AGE` | 86400000 (24 hours) | Dashboard sessions, in milliseconds |
+| `ENABLE_MEMORY_CHECK` | `true` | The memory guard before builds |
+
+## Backups
+
+Environments are disposable: they come back from their branches, so they are not part of a backup. What matters is Spawner's database (projects, accounts, passkeys, tokens, settings, audit) and its secrets.
+
+1. **The database**, every day. In `/etc/cron.d/spawner-backup`:
+
+   ```text
+   15 3 * * * root docker exec spawner-postgres pg_dump -U spawner -d spawner | gzip > /opt/spawner/backups/daily-$(date +\%a).sql.gz
+   ```
+
+   This keeps one backup per day of the week. Upgrades add their own (`spawner-<date>-<version>.sql.gz`, the 5 most recent kept).
+2. **`/opt/spawner/.env`**, once, and after each change: without `SPAWNER_SECRET`, a restored database cannot decrypt the settings (GitHub login) and the secret variables of the projects.
+3. **Off the server**: copy `/opt/spawner/backups/` and `.env` elsewhere (`rsync`, `rclone`, your provider's backup service). A backup on the same disk does not survive the disk.
+
+Deploy keys (`/var/lib/spawner/keys/`) can be generated again from the dashboard, but each must then be added again to its repository: copy that directory too if you have many.
+
+## Restoring
+
+On the same server:
+
+```bash
+docker stop spawner
+docker exec spawner-postgres psql -U spawner -d postgres -c 'DROP DATABASE spawner WITH (FORCE)' -c 'CREATE DATABASE spawner'
+gunzip -c /opt/spawner/backups/daily-Mon.sql.gz | docker exec -i spawner-postgres psql -q -U spawner -d spawner
+docker start spawner
+```
+
+Spawner applies the migrations of its version at startup, so a backup of an older version restores into a newer one (not the other way round).
+
+On a new server: copy the old `/opt/spawner/.env` and `dns.env` to `/opt/spawner/` first, then run the installer (it keeps the secrets and the domain it finds), restore the database as above, and point the DNS record to the new server. Environments of the old server are listed as failed, their containers being gone: redeploy them (`spawner up`) or delete them.
+
+## Upgrading
+
+```bash
+curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh | sudo bash -s -- --upgrade
+```
+
+The installer backs the database up, downloads the new images and restarts Spawner; environments keep running. Read the [release notes](https://github.com/Flosk6/Spawner/releases) first. To go back, install the previous version with `--upgrade --version <previous>` and restore the backup the upgrade took: migrations only go forward.
+
+## Disk
+
+The System page shows what takes the disk: images (what each environment shares and what is its own), build cache, volumes, sources, logs. Spawner keeps it in check by itself:
+
+- the image an update replaces is removed at once, and the code of a source once the build no longer needs it;
+- Docker's build cache stays under 15 % of the disk (`builder.gc`, set by the installer);
+- containers write compressed logs, 30 MB at most each;
+- every minute, Spawner removes what deleted environments left behind; the cleanup panel (System) lists the rest it owns and no longer uses (repository mirrors, files of unknown environments), to remove by hand.
+
+**Never run `docker system prune` or `docker container prune` on a Spawner server.** Sleeping and stopped environments are stopped containers: a prune deletes them, and their images and networks, and they cannot wake up any more. Use the cleanup panel, which only touches what Spawner owns.
+
+When the disk fills up anyway: delete the environments nobody uses any more, shorten their lifetime (Settings), or grow the disk. Spawner refuses builds below 10 GiB free.
+
+## Monitoring
+
+- `https://spawner.<domain>/api/v1/healthz` answers `{"status":"ok"}` while Spawner runs; `/api/v1/readyz` checks its database too. Point an uptime monitor at it.
+- The System page raises alerts: disk above 80 %, memory below what builds need, environments crashing in a loop, out-of-memory kills.
+- `docker stats` shows the containers live; the System page keeps 30 days of history.
+
+## Accounts
+
+- A new admin link when nobody can log in: `docker exec -u node spawner node dist/admin.js invite --role admin` (valid one hour; `--hours N` for longer).
+- Someone lost their passkeys: an admin sends them a link for a new one (Team, the key button of the person: "Link for a new passkey").
+- Someone leaves: deactivate them (Team). Their sessions and tokens stop working at once, their preview cookies within a minute; their environments stay until they expire or an admin deletes them.
+
+## Secrets
+
+- **The bootstrap token** (`SPAWNER_BOOTSTRAP_TOKEN` in `.env`) has every scope, for scripts of the installation: change it in `.env`, then `docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up -d`.
+- **The master secret** (`SPAWNER_SECRET`) signs sessions and tokens and encrypts settings and secret variables. Changing it logs everyone out, invalidates every personal token and makes the encrypted settings and secret variables unreadable: do it only if it leaked, then set the GitHub login and the secret variables again.
+- **The database password** (`POSTGRES_PASSWORD`) never leaves the server; the database is not reachable from outside the stack.

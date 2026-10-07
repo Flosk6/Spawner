@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    volumes:
+      - type: volume
+        source: cache
+        target: /cache
+      - type: tmpfs
+        target: /tmp/work
+        tmpfs:
+          size: 10485760
+      - type: bind
+        source: ../docker/nginx.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+      - ../docker:/docker:ro
+      - /var/lib/anonymous
+    env_file:
+      - ../.env.preview
+      - path: ../.env.optional
+        required: false
+  front:
+    image: nginx:alpine
+
+volumes:
+  cache:

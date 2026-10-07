@@ -1,18 +1,13 @@
 # @spawner/types
 
-Shared TypeScript types and interfaces for the Spawner monorepo.
-
-## Usage
+The shapes the Spawner API returns, shared by the web interface and the CLI.
 
 ```typescript
-import type { Environment, ResourceType, ProjectConfig } from '@spawner/types';
+import type { Environment, Job, Project } from '@spawner/types';
 ```
 
-## Exports
-
-- **ResourceType**: `'laravel-api' | 'nextjs-front' | 'mysql-db'`
-- **EnvironmentStatus**: `'creating' | 'running' | 'failed' | 'deleting'`
-- **ProjectConfig**: Project configuration interface
-- **Environment**: Environment entity interface
-- **EnvironmentResource**: Environment resource interface
-- And more...
+- **Projects**: `Project`, `ProjectSummary` (with its count of live environments), `ProjectInput`
+- **Environments**: `Environment`, `EnvironmentStatus`, `Exposure`, `EnvironmentSource`, `ServiceState`, `UsagePoint`, `ExecResult`
+- **Jobs**: `Job`, `JobType`, `JobStatus`, `JobPhase`, `JobAccepted` (the answer to every request that changes an environment)
+- **Accounts and access**: `User`, `Role`, `Scope`, `AuthSession`, `Account`, `TeamMember`, `Invite`, `ApiTokenInfo`, `DeviceRequest`, `ShareLink`, `PreviewToken`, `GithubSettings`, `AuditEvent`
+- **Git**: `GitKeyInfo`, `GitTestResult`, `RepoKeyInfo`

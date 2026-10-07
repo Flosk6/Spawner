@@ -4,27 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Spawner is a self-hosted environment management system for creating and managing preview environments based on Git branches. It enables teams to quickly spin up complete development environments containing multiple services (Laravel APIs, Next.js frontends, MySQL databases) with automatic Docker orchestration and Git repository management via SSH deploy keys.
+Spawner is a self-hosted preview environment manager. It runs one copy of a project per branch on a VPS, each with its own URL, so a team (and the coding agents working for it) can test any branch in real time.
+
+A project is a git repository holding a `.spawner/` directory: a manifest (`spawner.yaml`) and a Docker Compose file. Spawner checks out the code (or receives it as an archive from a local worktree), validates the compose file against a security policy, builds and starts it as a compose project, seeds it, and routes its URLs through Traefik.
 
 **Key Features:**
-- GitHub OAuth authentication with team-based access control
-- Multi-project support with isolated environments
-- Interactive browser-based terminal access to containers
-- Dockerode library for secure Docker operations (no shell command injection)
-- Audit logging for all user actions
-- Real-time build progress and container logs
+- Environments from a git branch, tag or commit, or from an uploaded worktree (`tar.gz`)
+- Compose as the environment format, validated against an allowlist (no host mounts, no privileged mode, no host network...)
+- One Docker network per environment; Traefik routes through its `file` provider, without the Docker socket
+- Job queue in Postgres: create, update, stop, start and delete run as jobs with streamed logs
+- API (`/api/v1`) for the dashboard, scripts and the CLI: logs, exec in a service, resource usage
+- `spawner` CLI and MCP server (`apps/cli`), for people and coding agents: `up` from a worktree (uncommitted changes included, checked locally first), `--json` everywhere, stable exit codes; served by each server at `/api/v1/cli/spawner`
+- Browser terminal into any service, closed when idle and recorded for the admins
+- Supervision: CPU and memory of every container every 30 seconds (charts up to 30 days), disk per environment, a timeline of crashes, out-of-memory kills, health changes and jobs, crash loop alerts, and the room left for more environments; memory guard before builds
+- Lifecycle: an environment sleeps after 2 hours without activity (its containers stop, its URLs show a waiting page that wakes it up), expires after 72 hours; quotas per person and room checks before creating or waking one; build guards on memory and disk; reconciliation with Docker every minute and a targeted cleanup of what Spawner owns
+- Logs of a deleted environment archived and readable 7 days
+- Project variables for the compose files (secrets encrypted, masked in job logs); public URLs (`auth: none`) only where an admin allows them
+- Accounts without passwords: invitation links, then passkeys; GitHub login optional
+- Personal API tokens with scopes, and a device flow to log the CLI in
+- Protected previews: Traefik asks Spawner before each request (forwardAuth); share links for guests; Spawner's cookies never reach the applications
+- One-command installer (`install.sh`): Docker and its settings, a wildcard certificate through the DNS provider, the stack from the images on GHCR, upgrades with a database backup, removal
+- Audit trail of logins, tokens, environments, commands and terminals
 
 ## Monorepo Architecture
 
 This is a **pnpm + Turborepo** monorepo:
 
-- **apps/api**: NestJS backend (port 3000) with Prisma + PostgreSQL
-- **apps/web**: Vue.js 3 frontend (port 5173 in dev) with Vite + Tailwind CSS
-- **packages/types**: Shared TypeScript type definitions
-- **packages/config**: Constants, defaults, validation patterns
-- **packages/utils**: Utility functions (validation, URL generation, security)
+- **apps/api**: NestJS backend (port 3000) with Prisma + PostgreSQL; also serves the built interface in production
+- **apps/web**: Vue 3 interface (Vite + Tailwind CSS + PrimeVue)
+- **apps/cli**: the `spawner` CLI and MCP server, bundled by esbuild into one CommonJS file (`dist/spawner.cjs`) with no runtime dependency
+- **packages/core**: Manifest, interpolation, compose policy and rendering, log error filter, capacity. Pure functions (no I/O but `realpath`), shared by the API and the CLI
+- **packages/types**: Shapes returned by the API, shared by the interface and the CLI
+- **packages/utils**: Validators for git inputs (repository URLs, refs)
 
-All packages use `workspace:*` dependencies. **Shared packages must be built before running apps.**
+All packages use `workspace:*` dependencies. **Shared packages must be built before running apps** (`pnpm build`; Turborepo builds dependencies first).
 
 ## Documentation
 
@@ -37,17 +50,32 @@ Project documentation is stored in `/.ai/docs/`:
 
 **Note:** This is different from user-facing documentation (like README.md) which remains in the project root.
 
+### v1 rewrite
+
+The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens on the `v1` branch, milestone by milestone (M0 to M6). Read the spec before changing the environment engine, auth, routing or the installer.
+
+- M0 (done): cleanup, CI, single image, test harness
+- M1 (done): environment engine, `/api/v1`, interface on the new API
+- M2 (done): accounts (invitations, passkeys, optional GitHub), roles, tokens, device flow, protected previews, share links, CSRF, audit
+- M3 (done): the CLI (upload, `--json`, exit codes, logs with an error filter, stats, init and the agent instructions) and the MCP server
+- M4 (done): supervision (metrics, timeline, disk, capacity, alerts), archived logs, terminal limits and recordings, project variables and public URLs, the screens of spec 11.5
+- M5 (done): sleep and wake-up, expiry, quotas and room checks, build guards, limits an admin can change, reconciliation, targeted cleanup, density (replaced images removed, sources removed after the build, Dockerfile layer warnings)
+- M6 (done): `install.sh` (checks, Docker settings, zram, wildcard certificate by DNS-01, `spawner.env`, upgrades with a backup, removal), images on GHCR and the CLI on npm (`spawner-cli`) from a tag, `examples/laravel-next-mysql`, the installer's end-to-end test (two branches at once), the capacity counting the build guards, Spawner's cookies kept from the applications, the public docs
+
+Public documentation is in `docs/` (in English): `install.md`, `concepts.md`, `manifest.md` (`.spawner/` and the compose rules), `cli.md` (commands, JSON outputs, exit codes, MCP), `agents.md`, `security.md`, `operations.md` (backups, restores, disk), `density.md`, `comparison.md`. Releases are described in `CHANGELOG.md`.
+
 ## Code Style
 
 ### Important Rules
 
 - **NO EMOJIS**: Never use emojis in code, comments, error messages, or any output.
-- **NEVER modify files in `local-data/repos/`**: These are Git repositories cloned by Spawner. If you find a bug:
-  1. STOP - Do not modify the cloned repo
+- **NEVER modify files under the data directory** (`SPAWNER_DATA_DIR`, `local-data/` in development): it holds the git mirrors and worktrees Spawner checked out. If you find a bug in a project's code:
+  1. STOP - Do not modify the checked out copy
   2. INFORM the user about the issue and required fix
-  3. LET THE USER make changes in their real repository and push to GitHub
+  3. LET THE USER make changes in their real repository and push
 
-  **Rationale**: Prevents divergence between real codebase and Spawner's local copies.
+  **Rationale**: Prevents divergence between the real codebase and Spawner's copies.
+- **No shell**: external programs (git, docker compose, ssh-keygen) run through `run()` in `apps/api/src/modules/engine/process.ts`, with an argument array and a minimal environment. Never build a command string.
 
 ### Comment Guidelines
 
@@ -60,14 +88,16 @@ Project documentation is stored in `/.ai/docs/`:
 
 ```typescript
 /**
- * Creates isolated Docker environment with network, volumes, and containers.
+ * Brings a worktree of the repository to the given ref, from a shared
+ * partial mirror. Two environments of the same repository never share a
+ * working copy.
  *
- * @param envName - Environment identifier (e.g., "feature-123")
- * @param projectName - Project identifier for namespacing
- * @param resources - Array of project resources to include
- * @returns Environment creation result with container details
+ * @param repoUrl - Repository to read from (SSH or HTTPS)
+ * @param ref - Branch, tag or commit
+ * @param target - Worktree directory of the environment's source
+ * @returns The commit checked out
  */
-async createEnvironment(envName: string, projectName: string, resources: ProjectResource[]) {
+async checkout(repoUrl: string, ref: string, target: string, onLine: Log): Promise<{ commit: string }> {
   // Implementation without inline comments
 }
 ```
@@ -86,8 +116,11 @@ pnpm build                # Build all packages (required!)
 ```bash
 pnpm dev                  # Start API + Web in parallel
 pnpm api:dev              # Start only backend (watch mode)
-pnpm web:dev              # Start only frontend (Vite dev server)
+pnpm web:dev              # Start only frontend (Vite dev server, port 8080, proxies /api and the terminal to VITE_API_URL)
+pnpm --filter @spawner/cli build   # Bundle the CLI: apps/cli/dist/spawner.cjs (link it into your PATH as spawner)
 ```
+
+The full stack (Postgres, Traefik, Spawner) runs with `docker compose up -d --build` from the root, with `SPAWNER_DATA_DIR` set to an absolute path (see `.env.example`). The dashboard is then at `http://spawner.localtest.me` and environments at `http://<env>--<project>.localtest.me` (every subdomain of localtest.me resolves to 127.0.0.1).
 
 ### Building & Quality
 
@@ -95,9 +128,15 @@ pnpm web:dev              # Start only frontend (Vite dev server)
 pnpm build                # Build all (uses Turborepo cache)
 pnpm api:build            # Build backend only
 pnpm web:build            # Build frontend only
-pnpm lint                 # Lint all code
+pnpm lint                 # Lint all code (read-only; use `pnpm --filter @spawner/api lint:fix` to fix)
+pnpm typecheck            # Type-check every package
+pnpm test                 # Run the test suites (Vitest)
 pnpm format               # Format with Prettier
 pnpm clean                # Clean build artifacts + node_modules
+scripts/e2e-engine.sh     # End-to-end test of the engine (needs Docker; KEEP=1 leaves the stack up)
+scripts/e2e-installer.sh  # End-to-end test of install.sh (a throwaway Ubuntu machine with sudo: CI)
+scripts/capacity-check.sh # Fills a real server up to its announced capacity, then cleans up
+scripts/release.sh 2.1.0  # Versions, commit and tag of a release (write its CHANGELOG.md section first)
 ```
 
 ### Adding Dependencies
@@ -106,8 +145,25 @@ pnpm clean                # Clean build artifacts + node_modules
 pnpm add -w -D <package>                    # Root (build tools only)
 pnpm --filter @spawner/api add <package>    # Backend
 pnpm --filter @spawner/web add <package>    # Frontend
-pnpm --filter @spawner/types add <package>  # Shared package
+pnpm --filter @spawner/core add <package>   # Shared package
 ```
+
+## Testing
+
+- Vitest, tests named `*.spec.ts` next to the code they cover (`apps/api/src`, `packages/*/src`).
+- `packages/core/test/fixtures/compose/`: compose files the policy must refuse (`forbidden/`, each starting with `# expect: <code> <path>`) or accept (`allowed/`). Add a fixture with every policy change.
+- Engine services are tested against real programs where it matters: `git-mirror.service.spec.ts` uses local `file://` repositories, `upload.service.spec.ts` builds hostile archives by hand.
+- Passkeys are tested for real: `src/testing/soft-authenticator.ts` is a software authenticator (P-256, attestation "none") whose answers go through the actual WebAuthn verification. `src/testing/` is not built.
+- Specs are excluded from builds through `tsconfig.build.json`.
+- CLI (`apps/cli`): archives and workspaces are tested on real git repositories (`src/testing/repo.ts`); operations, the commands and the MCP server run against `fakeFetch` (`src/testing/fake-api.ts`), which answers routes such as `"GET /envs/:id"`; MCP tools are called by the SDK's client over an in-memory transport. `src/testing/` is not bundled (only what `src/main.ts` imports is).
+- API specs load `reflect-metadata` (see `apps/api/vitest.config.mts`); instantiate services directly rather than through the Nest container when possible.
+- Lifecycle: `lifecycle.service.spec.ts` (sleep after the idle time, expiry), `reconcile.service.spec.ts` (degraded, ready again, failed without containers), `cleanup.service.spec.ts` (what deleted environments left goes automatically; resources of unknown environments and unused mirrors wait for an admin), `limits.service.spec.ts`, `wake-page.spec.ts`, room and quota checks in `usage.spec.ts`; `packages/core` tests `dockerfileLayerWarnings`, `alwaysOnIssues` and `runtimeSources`.
+- Supervision is tested on its pure parts: `samples.spec.ts` (CPU and memory from Docker stats, minute buckets, a fake `/proc`), `docker-events.spec.ts` (`interpretDockerEvent`: a die during a job, the exit 137 that follows an OOM kill; `detectCrashLoops`), `disk.spec.ts` (`attributeDisk` on a `docker system df` answer), `usage.spec.ts` (ranges, downsampling), `retention.spec.ts` (rollups and purges, with a fake Prisma and data directory). The collectors do not start under `NODE_ENV=test`; the end-to-end test covers them.
+- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard; it also approves the login of the real CLI. Then an agent's turn: the CLI downloaded from the server, logged in as the teammate, runs `up --wait --json` from a git worktree with an uncommitted change (and two project variables, one secret, which must be masked in the job log), calls the protected URL with `url --with-token`, `exec` (stdin, exit codes), `logs`, `status`, `stats`, `ls`, `share`, a compose file refused before upload (exit 7); then supervision: the terminal session recorded, the jobs in the timeline, three out-of-memory kills that the timeline, `spawner status` and the system alerts report as a crash loop, minute metrics of each service, the disk of the environment, `spawner capacity` and the project usage; then `logout`; `scripts/e2e/mcp.mjs` drives `spawner mcp` over stdio (status, url, exec, logs with errors_only after breaking the database, up with progress, down), after which the deleted environment stays listed with its archived logs (the error found through MCP) and its timeline. Before MCP, the lifecycle: a service stopped with `docker stop` makes the environment degraded until it runs again; `spawner sleep` stops it and a visit gets the waiting page and wakes it up, data kept; with the idle time set to a minute it sleeps by itself and `spawner exec` wakes it up first; with a quota of one, a second `spawner up` exits with 6. With `scripts/e2e-fixtures/bind-mount` (a project allowed public URLs), the capacity is announced at 0 and the creation refused (503) while an environment costs 512 GiB, then back; once its expiry is moved to the past (psql in the Postgres container), the environment disappears without leftovers; a volume labelled for it is removed by the automatic cleanup while an unlabelled one stays; it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
+- The engine e2e also checks that an application receives its own cookies and never Spawner's (a `/cookies` route added to the agent's worktree).
+- `packages/core/src/examples.spec.ts` checks that every `examples/*/.spawner/` passes the compose policy and that their Dockerfiles share their dependencies (no layer warning).
+- `scripts/e2e-installer.sh` runs `install.sh --tls off --domain localtest.me --image spawner:ci` on the CI runner, deploys `examples/node-postgres` with the CLI the server serves and asks `spawner mcp` its status (`scripts/e2e/mcp-status.mjs`); then two agents deploy `examples/laravel-next-mysql` from two branches of one repository at once and update both at once (each serves its own branch from its own MySQL, behind a token; `exec` in MySQL; the data survives), and the disk view must show that each environment's own part holds neither `vendor` nor `node_modules`; then `--upgrade` (a backup, the secrets, `spawner.env` and the environments kept), a second run without options, and `--uninstall --purge` (nothing left).
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build, the engine end-to-end test and the installer end-to-end test on every pull request and on pushes to `master` and `v1`. A tag `v*` runs `.github/workflows/release.yml`: multi-arch images on GHCR, the CLI on npm (when the `NPM_TOKEN` secret is set), a GitHub release with `install.sh`, the CLI bundle and their checksums.
 
 ## Backend Architecture (apps/api)
 
@@ -115,426 +171,426 @@ NestJS application with feature modules:
 
 ### Module Structure
 
-- **auth**: GitHub OAuth, session management, audit logging, WebSocket tokens
-- **projects**: Multi-project CRUD (database-backed)
-- **project**: Legacy single project (reads from project.config.yml)
-- **git**: SSH key generation and repository testing
-- **environment**: Environment lifecycle (create, list, view, delete, logs)
-- **terminal**: WebSocket gateway for interactive container terminals
+- **engine**: the environment engine (no controllers)
+  - `pipeline.service.ts`: what each job does, phase by phase: deploys (build guards, Dockerfile layer warnings, replaced images removed, sources removed after the build unless mounted or holding an env_file), stop, start, sleep, wake (containers recreated from their images if gone), delete
+  - `job-queue.service.ts`: the queue in the `jobs` table, concurrency, recovery after a restart
+  - `git-mirror.service.ts`: partial bare mirrors and one detached worktree per environment source
+  - `upload.service.ts`: checks and extracts uploaded worktrees
+  - `compose-runner.service.ts`: `docker compose` up, recreate, stop, start, down
+  - `router.service.ts`: Traefik `file` provider routes, preview protection middlewares, network attachment; sleeping and stopped environments are routed to Spawner's waiting page (`publishPlaceholder`)
+  - `job-logs.service.ts`: one log file per job, followed live over SSE; the queue keeps the logs of the last 5 jobs of each environment
+  - `log-archive.service.ts`: at deletion, the last 1 MiB of each service's output, compressed, readable 7 days through the logs routes
+  - `git-keys.service.ts`: SSH deploy keys, per repository or global
+  - `storage.service.ts`: layout of the data directory
+- **auth**: who makes each request (`actor.middleware.ts`), dashboard sessions, passkey login (WebAuthn), optional GitHub login, the CLI device flow, terminal tickets
+- **team**: invitations, users and roles, each user's account (passkeys, linked GitHub), the first admin
+- **tokens**: personal API tokens
+- **previews**: forwardAuth decisions for Traefik, the preview cookie, preview tokens for agents, share links; `wake.controller.ts` serves the waiting page of sleeping and stopped environments and wakes them up (`wake-page.ts`)
+- **settings**: settings changed from the interface (GitHub login, secrets encrypted); `limits.service.ts` applies the limits an admin changed (lifetimes, sleep, quota, memory, build guards) onto `SpawnerConfig`
+- **audit**: the audit trail (global), 90 days
+- **projects**: `/api/v1/projects`
+- **environments**: `/api/v1/envs` and `/api/v1/jobs`
+- **git**: deploy keys and repository access test (admins)
+- **terminal**: WebSocket gateway, a TTY exec session in a service through the Docker API (bash when the image has it), closed after 15 minutes without input or 4 hours; `terminal-sessions.service.ts` records what each session shows (2 MiB at most) for the admins
+- **timeline** (global): `TimelineService`, the events of an environment (crash, oom, unhealthy, healthy, job started, succeeded or failed, extended) and crash loops (3 crashes or OOM kills in 10 minutes)
+- **supervision**:
+  - `metrics-collector.service.ts`: every 30 seconds, one-shot Docker stats of every container (environments, Spawner's own compose project, other containers) and the host from `/proc`; one point per minute and scope in `metric_points`; the last sample in memory for the pages
+  - `docker-events.service.ts`: the Docker events of environment containers (die, oom, health_status) into the timeline, reconnecting with `since`
+  - `disk.service.ts`: `docker system df` every 15 minutes and after each job, attributed to the environments (`disk.ts`)
+  - `usage.service.ts`: charts (1h to 30d, from points or rollups), the system overview and its alerts, capacity, project usage
+  - `retention.service.ts`: 15-minute rollups, purges (points 48 hours; rollups, disk, events, terminals 30 days; deleted environments 7 days)
+- **system**: the memory and disk guards used before builds
+- **lifecycle** (global): `activity.service.ts` (last activity, at most one write a minute), `lifecycle.service.ts` (every minute: sleep after the idle time, delete once expired), `reconcile.service.ts` (startup and every minute: degraded, ready again, failed), `cleanup.service.ts` (targeted cleanup, `/api/v1/system/cleanup`)
+- **health**: `/api/v1/healthz` and `/api/v1/readyz`
+- **meta**: `/api/v1/info` (version, domain, limits: what the CLI checks locally with) and the CLI download
 
 ### Key Files
 
-- **app.module.ts**: Root module with TypeORM, session setup
+- **app.module.ts**: Root module (config, throttling, schedule, feature modules)
 - **main.ts**: Bootstrap, CORS, session middleware, Passport
-- **entities/**: User, AuditLog, Setting, Environment, EnvironmentResource, Project, ProjectResource
-- **common/docker.service.ts**: Dockerode integration for all Docker operations
-- **common/docker-compose.generator.ts**: Container configuration generation
-- **modules/terminal/terminal.gateway.ts**: WebSocket terminal with security constraints
+- **web-app.ts**: Serves the built web interface from `WEB_DIST_PATH` (production image)
+- **common/actor.ts**: the actor of a request, roles, scopes, and who may act on an environment
+- **common/auth.guard.ts**: global guard; routes are authenticated unless marked `@Public()`, and need the scopes of `@Scopes()`
+- **common/secrets.service.ts**: the master secret and the keys derived from it (signed tokens, encrypted settings, session)
+- **common/spawner.config.ts**: settings from the environment
+- **common/docker.service.ts**: Dockerode: containers by environment label, exec (with stdin), logs (structured, followed, by time range), usage and one-shot stats samples, networks
+- **common/docker-logs.ts**: decodes the Docker logs stream (multiplexed frames or TTY text) into lines with stream and time
+- **prisma/schema.prisma**: Database schema; migrations in `prisma/migrations/`
 
 ### Database (PostgreSQL + Prisma)
 
 Connection configured via `DATABASE_URL` environment variable.
 
 **Tables:**
-- `User`: GitHub OAuth accounts (githubId, username, email, role, lastLoginAt)
-- `AuditLog`: Action tracking (action, details, ipAddress, userAgent, timestamp)
-- `Session`: Express session storage (managed by connect-pg-simple)
-- `Environment`: Environment metadata (name, status, config_json, project_id)
-- `EnvironmentResource`: Resource details per environment (branch, URL, status)
-- `Project`: Multi-project support (name, baseDomain, config)
-- `ProjectResource`: Resources per project
-- `Setting`: Key-value store for SSH keys and paths
+- `users`: name, role (`admin` or `member`), active flag, WebAuthn user handle
+- `identities`: external logins of a user (GitHub)
+- `passkeys`: WebAuthn credentials (public key, counter)
+- `invites`: one-time links, by SHA-256; with `user_id`, a new passkey for an existing user
+- `api_tokens`: personal tokens (prefix, SHA-256, scopes, project, expiry, revocation)
+- `device_codes`: CLI logins waiting for approval
+- `share_links`: guest links to an environment's previews, by SHA-256
+- `audit_events`: the audit trail
+- `sessions`: Express session storage (managed by connect-pg-simple)
+- `projects`: slug, name, repository, default branch, `rootDir` (where `.spawner/` is, for monorepos), `allowPublic` (exposures with `auth: none`), `allowAlwaysOn` (`idle: never`)
+- `project_variables`: variables of the project's compose files; secret values encrypted with the master secret
+- `environments`: slug, status, phase and error of the last failure, owner and token name, manifest, expiry, last activity; a deleted environment keeps its row (`deleted_at`), and its slug is unique among live environments through a partial index
+- `environment_sources`: what each source runs (git ref and commit, or upload digest and size), and whether its code is still on disk (`onDisk`)
+- `exposures`: name, service, port, host and entrypoint of each URL
+- `jobs`: the queue and its history (type, status, phase, error, error code for machines, payload, who asked)
+- `environment_events`: the timeline of each environment, 30 days
+- `metric_points`: CPU and memory per minute, for an environment (with each service in `details`), Spawner, the other containers or the host; 48 hours
+- `metric_rollups`: 15-minute averages and maxima of the points, 30 days
+- `disk_snapshots`: disk measures and their breakdown per environment, 30 days
+- `terminal_sessions`: who opened a terminal where, how it ended, the size of its recording; 30 days
+- `settings`: Key-value store
 
 ### Environment Variables
 
-**OAuth & Session:**
-- `GITHUB_CLIENT_ID`: GitHub OAuth Client ID (required)
-- `GITHUB_CLIENT_SECRET`: GitHub OAuth Client Secret (required)
-- `GITHUB_CALLBACK_URL`: OAuth callback (e.g., http://localhost:3000/api/auth/github/callback)
-- `GITHUB_ORG`: Organization name for access control (required)
-- `GITHUB_TEAM`: Team slug for access control (required)
-- `SESSION_SECRET`: Session encryption secret (`openssl rand -base64 32`)
+**Access:**
+- `FRONTEND_URL`: Dashboard URL (default: `<scheme>://spawner.<preview domain>`). It must be a host of the preview domain: the dashboard sets the preview cookie on that domain
+- `SPAWNER_SECRET`: master secret, from which signing and encryption keys derive; generated into `<data dir>/secret.key` when not set
+- `SESSION_SECRET`: Session signing secret (default: derived from the master secret)
 - `SESSION_MAX_AGE`: Session duration in ms (default: 86400000 = 24h)
-- `FRONTEND_URL`: Frontend URL for redirects (default: http://localhost:8080)
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_ORG`, `GITHUB_TEAM`: GitHub login until it is configured from the settings page; `GITHUB_CALLBACK_URL` overrides `<dashboard>/api/v1/auth/github/callback`
 
 **Application:**
 - `PORT`: API server port (default: 3000)
-- `DATABASE_URL`: PostgreSQL connection string (e.g., postgresql://user:password@localhost:5432/spawner)
-- `GIT_KEYS_PATH`: SSH keys directory (default: /opt/spawner/git-keys)
-- `REPOS_PATH`: Git clones (default: /opt/spawner/repos)
-- `ENVS_PATH`: Environment files (default: /opt/spawner/envs)
+- `DATABASE_URL`: PostgreSQL connection string
 - `DOCKER_SOCKET`: Docker socket (default: /var/run/docker.sock)
+- `WEB_DIST_PATH`: Built web interface served by the API (set to `/app/web` in the image; unset in development)
+- `SPAWNER_CLI_PATH`: CLI bundle served at `/api/v1/cli/spawner` (set to `/app/cli/spawner` in the image; `apps/cli/dist/spawner.cjs` in development)
+- `SPAWNER_VERSION`: version reported by `/api/v1/info`, set in the image by the release build (default: the version of `apps/api/package.json`)
+
+**Engine:**
+- `SPAWNER_DATA_DIR`: Data directory (default: /var/lib/spawner). Must be mounted at the same path in the Spawner container: the compose files Spawner renders use these paths
+- `GIT_KEYS_PATH`: Deploy keys (default: `<data dir>/keys`)
+- `SPAWNER_PREVIEW_DOMAIN`: Domain of the previews (default: localtest.me)
+- `SPAWNER_TLS`: `letsencrypt` or `off` (default: off); `SPAWNER_TLS_RESOLVER`: Traefik resolver name (default: letsencrypt)
+- `SPAWNER_TLS_WILDCARD`: `true` when Traefik gets one wildcard certificate by DNS-01 (set by the installer with a DNS provider): routes then ask for `*.<preview domain>` rather than a certificate per host
+- `SPAWNER_TRAEFIK_ENTRYPOINT`: Traefik entrypoint of the routes (default: `web`, or `websecure` with TLS)
+- `SPAWNER_TRAEFIK_CONTAINER`: Traefik container, attached to each environment network (default: spawner-traefik)
+- `SPAWNER_DASHBOARD_HOST`, `SPAWNER_DASHBOARD_UPSTREAM`: dashboard route (default: `spawner.<preview domain>` to `http://spawner:3000`)
+- `SPAWNER_BOOTSTRAP_TOKEN`: Bearer token of the installation, with every scope and no user, for scripts and CI
+- `SPAWNER_BUILD_CONCURRENCY`: Builds at once (default: 1 below 8 GiB of RAM, 2 above)
+- `SPAWNER_ENV_TTL`, `SPAWNER_ENV_TTL_MAX`: Lifetime of an environment (default: 72h, at most 14d)
+- `SPAWNER_ENV_IDLE`: time without activity before an environment sleeps (default: 2h; `never` turns sleeping off)
+- `SPAWNER_ENVS_PER_USER`: live environments a person may own, sleeping ones included (default: 5; 0 for no limit)
+- `SPAWNER_ENV_MEMORY`, `SPAWNER_ENV_MEMORY_MAX`: Memory of an environment (default: 2g, at most 4g)
+- `SPAWNER_START_TIMEOUT_SECONDS` (300), `SPAWNER_JOB_TIMEOUT_SECONDS` (1800)
+- `SPAWNER_UPLOAD_MAX` (100m), `SPAWNER_UPLOAD_MAX_FILES` (50000), `SPAWNER_UPLOAD_MAX_EXTRACTED` (1g)
+- `SPAWNER_ALLOW_LOCAL_REPOS`: accept `file://` repositories (tests only)
+
+**Memory Safety:**
+- `MIN_REQUIRED_FREE_MEMORY_GB`: Minimum free RAM required before builds (default: 2)
+- `MIN_REQUIRED_FREE_DISK_GB`: Minimum free disk required before builds (default: 10); a build waits up to two minutes for both, then fails (code `capacity`)
+- The settings page (`PUT /api/v1/settings/limits`) overrides the lifetimes, idle time, quota, memory and build guards; these variables are then the defaults
+- `ENABLE_MEMORY_CHECK`: Enable memory safety checks (default: true)
 
 ## Frontend Architecture (apps/web)
 
-Vue.js 3 with Composition API, Vue Router 4, Tailwind CSS.
+Vue 3 with Composition API, Vue Router 4, Tailwind CSS and PrimeVue.
 
 ### Key Views
 
-- **Login.vue**: GitHub OAuth login
-- **ProjectList.vue**: Multi-project dashboard
-- **ProjectForm.vue**: Create/edit project configuration
-- **EnvironmentList.vue**: Environments for a project
-- **EnvironmentNew.vue**: Create environment with branch selection
-- **EnvironmentDetail.vue**: Resource status, URLs, terminal, logs, delete
-- **GitSettings.vue**: SSH key generation and testing
-- **Dashboard.vue**: Legacy single-project view
+- **Home.vue**: counts, room left, recent environments
+- **ProjectList.vue**: projects, created and edited by admins in `ProjectDialog.vue` (with "Allow public URLs")
+- **ProjectDetail.vue**: what the project uses, what one environment costs, the room left for it, its variables (admins)
+- **EnvironmentList.vue**: environments by owner, project and status (ready, degraded, sleeping, in progress, stopped, failed), deleted ones of the last 7 days; created in `EnvironmentDialog.vue`, which reads `spawner.yaml` to offer a branch per source
+- **EnvironmentDetail.vue**: a crash loop banner above tabs: overview (URLs, sources, services, share links, disk in `DiskPanel.vue`; during a job, a link to its live log), logs (`LogViewer.vue`: services, errors, search, follow, download), resources (`ResourcePanel.vue`, `UsageChart.vue`), timeline (`TimelinePanel.vue`), jobs (`JobsPanel.vue`, the live log in `JobLog.vue`), terminal; redeploy, extend, stop, start, delete; a deleted environment opens read-only, with its archived logs
+- **Login.vue**: passkey login, GitHub when configured
+- **InviteAccept.vue**: an invitation link: name, then a passkey
+- **DeviceApproval.vue**: approves a CLI login (`/device?code=`)
+- **Account.vue**: name, passkeys, linked GitHub, how to install the CLI and the MCP server, API tokens
+- **Team.vue** (admin): members, roles, deactivation, links for a new passkey, invitations
+- **Settings.vue**, **Audit.vue**, **GitSettings.vue** (admin): limits (`LimitsSettings.vue`), GitHub login, audit trail and terminal sessions with their recordings, deploy keys
+- **SystemOverview.vue** (admin): alerts, host now and over time, disk breakdown (`BreakdownBar.vue`), capacity per project, every container
 
 ### Architecture Patterns
 
 - **Composition API**: All components use `<script setup>`
-- **State**: Pinia store for authentication (`stores/auth.ts`)
-- **API**: Centralized in `services/api.ts`
+- **API**: `services/api.ts`, typed with `@spawner/types`; it adds the `X-Spawner-Client` header the API requires on changes made without a bearer token
+- **State**: Pinia store for the session (`stores/auth.ts`); pages poll while a job runs
+- **Passkeys**: `@simplewebauthn/browser` (`startRegistration`, `startAuthentication`)
+- **Permissions**: the interface hides what the API would refuse (`canManage` in `utils/environment.ts`); the API decides
 - **Routing**: Navigation guards for authentication
-- **WebSocket**: Socket.IO client in `components/XtermTerminal.vue`
+- **WebSocket**: Socket.IO client in `components/XtermTerminal.vue`, on the dashboard origin
 
-### Environment Variables
+## Environments
 
-- `VITE_API_URL`: Backend URL (defaults to `/api` for proxying)
+### Manifest
+
+`.spawner/spawner.yaml` in the project repository (in `rootDir` for a monorepo). See `examples/node-postgres`:
+
+```yaml
+version: 1
+project: example          # must match the project slug in Spawner
+name: app                 # name of this repository's source (default: app)
+compose: compose.yaml     # relative to .spawner/ (default)
+sources:                  # other repositories, checked out next to this one
+  front: { repo: git@github.com:acme/front.git, default_ref: main }
+exposures:                # the first one is the entrypoint unless one sets entrypoint: true
+  - { name: web, service: app, port: 3000 }
+seed:                     # run once after the first start (argument arrays, no shell)
+  - { service: app, run: [node, seed.js] }
+ttl: 24h
+idle: 2h                  # sleep after this long without activity (at least 10m; never needs the project's permission)
+limits: { memory: 2g }
+```
+
+The compose file may use only Spawner variables, `${SPAWNER_URL}`, `${SPAWNER_URL_<EXPOSURE>}`, `${SPAWNER_HOST_<EXPOSURE>}`, `${SPAWNER_SRC_<SOURCE>}`, `${SPAWNER_PROJECT}`, `${SPAWNER_ENV}`, and the project's variables (set by admins on the project page; secret values are masked in job logs); any other `${...}` is an error, and every remaining `$` is escaped in the rendered file, so the host environment never leaks into it.
+
+### Naming
+
+- Compose project: `spn-<project>--<env>`; containers, volumes and the `default` network follow Compose naming
+- Labels on every service: `dev.spawner.env` (environment id), `dev.spawner.project`, `dev.spawner.env-name`, `dev.spawner.service`
+- Hosts: the entrypoint is `<env>--<project>.<preview domain>`, the other exposures `<exposure>--<env>--<project>.<preview domain>`
+- Slugs: projects up to 20 characters, environments up to 29, exposures up to 10
+
+### Data directory
+
+```
+<SPAWNER_DATA_DIR>/
+  mirrors/<hash>/            bare partial mirror of a repository (--filter=blob:none), shared
+  envs/<id>/src/_primary/    the project repository: git worktree or extracted upload
+  envs/<id>/src/<source>/    the other sources
+  envs/<id>/compose.rendered.yaml
+  traefik/<id>.yaml          routes of the environment; traefik/_spawner.yaml for the dashboard
+  jobs/<id>.log              job logs (the last 5 jobs of each environment)
+  archives/<id>/<service>.jsonl.gz   last 1 MiB of each service's output, after a delete (7 days)
+  terminals/<session>.log    terminal recordings (30 days)
+  uploads/                   archives waiting for their job
+  keys/                      deploy keys and known_hosts
+```
+
+### Jobs
+
+Every change is a job, run in order per environment, at most one at a time per environment. Builds (create, update) are limited by `SPAWNER_BUILD_CONCURRENCY`; stop, start, sleep, wake and delete run alongside. A create or update goes through:
+
+1. **preparing**: memory and disk guards (a build waits up to two minutes), sources (git worktree at the ref, or upload checked entry by entry: no absolute paths, `..`, links leaving the archive, devices or hard links)
+2. **validating**: manifest, public exposures and `idle: never` (refused unless the project allows them), compose policy, interpolation (with the project's variables), limits; the issues found are logged with their path and a hint
+3. **building**: `docker compose up -d --build --wait` (with `fresh`, `down --volumes` first); on an update, the services that mount files of a source are then recreated, since Compose keeps them on the replaced directory
+4. **seeding**: on create, or with `fresh` or `reseed`
+5. **routing**: Traefik joins the environment network, the routes file is written
+
+The environment ends `ready` (with an expiry) or `failed` (with the phase and the error, and an expiry if it had none); the timeline records the start and the end of each job with its duration. After a successful deploy, the images an update replaced are removed, and so is the code of the sources no service mounts and no env_file lives in: only the build needed it, and every rebuild checks out or receives the sources again.
+
+**Lifecycle**: every minute, an awake environment (`ready` or `degraded`) whose last activity (a request let through by forwardAuth, a deploy, start, wake-up, command, logs read, terminal, preview token) is older than its idle time gets a `sleep` job: its status is `sleeping` from the start, its URLs lead to Spawner's waiting page (Traefik's `replacePath` to `/api/v1/wake`, still behind forwardAuth), then its containers stop. A visit to a team URL queues a `wake` job (when the server has the memory) and gets a page that reloads by itself once the environment answers; public URLs (`auth: none`) do not wake it up. Stopped environments lead to a page too. Every minute, expired environments are deleted (actor "Spawner (expired)"). Creating an environment needs the person's quota (409, code `quota`) and room for a typical environment of the project (503, code `capacity`); starting and waking need the memory.
+
+**Reconciliation**, at startup and every minute: an awake environment whose service is exited, restarting or unhealthy is `degraded` (with the reason), `ready` again once all run; one whose containers are gone, or left in a transitional status without a job, fails. Then the automatic cleanup removes what deleted environments left (containers, volumes, networks, images, routes, directories), images of previous builds no container runs, and uploads older than a day; resources labelled for environments this installation does not know, and unused git mirrors, wait for an admin (`POST /api/v1/system/cleanup`). Spawner never runs a global prune. A delete archives the services' logs, then removes the routes, `compose down --volumes`, the project's images, the worktrees and the environment directory. Files that services wrote as root into a mounted source are removed through a short-lived root container of Spawner's own image (`StorageService.removeTree`), since Spawner runs as `node`.
 
 ## Authentication & Security
 
-### GitHub OAuth Flow
+### Accounts and roles
 
-1. User clicks "Login with GitHub" → `/api/auth/github`
-2. GitHub authorization → callback to `/api/auth/github/callback`
-3. Backend validates organization and team membership
-4. Session created in PostgreSQL, user redirected to frontend
-5. All API requests authenticated via session cookie (`connect.sid`)
+- No passwords. The first access goes through an invitation link (one use, 24 hours by default), which creates the account with a passkey; then the user logs in with a passkey. An admin can send a user who lost their passkeys a link for a new one. Without TLS (local install), browsers refuse passkeys on any host but localhost, so an invitation logs in without one.
+- GitHub login is optional, configured from the settings page (the client secret is stored encrypted). With an organization set, its members (of the team, when one is set) can log in and get a member account; membership is checked at every login.
+- The first admin: while no active admin exists, each start of Spawner prints an invitation valid one hour in its logs. `node dist/admin.js invite --role admin` prints one on demand (in the container: `docker exec -u node spawner node dist/admin.js invite --role admin`).
+- Roles: `admin` does everything; `member` creates environments, manages, shares, runs commands and opens terminals in their own, and reads everyone's environments, logs and resources. Projects, team, settings, deploy keys and audit are for admins.
 
-**Endpoints:**
-- `GET /api/auth/github` - Initiate OAuth
-- `GET /api/auth/github/callback` - OAuth callback
-- `GET /api/auth/logout` - Destroy session
-- `GET /api/auth/me` - Current user
-- `GET /api/auth/status` - Auth status
-- `GET /api/auth/ws-token` - Temporary WebSocket token (60s expiration)
+### Requests
 
-### Security Features
+- Each request has an actor (`ActorMiddleware`): a bearer token (personal token, or the bootstrap token of the installation) or the dashboard session. The global `AuthGuard` requires one unless the route is `@Public()`, plus the scopes listed with `@Scopes()`.
+- Scopes: `envs:read`, `envs:write`, `envs:exec`, `preview`, `admin`. A session has all the scopes of its role; a token has those it was given, never more than its user's role allows (a demoted admin's tokens lose `admin` at once), and may be restricted to one project.
+- Personal tokens: `spn_<prefix>_<secret>`, shown once; only their SHA-256 is stored. 90 days by default, revocable, last use recorded. A token creates tokens of at most its own scopes.
+- CLI login (device flow, RFC 8628): the CLI gets a code, its user approves it at `/device` from a dashboard session, and the CLI receives a token named after the machine.
+- CSRF: every request that changes something without a bearer token must carry `X-Spawner-Client`, which a page on another origin cannot add without a CORS preflight that only the dashboard origin passes. The session cookie is `__Host-spawner_session` over HTTPS, so previews can neither receive nor overwrite it.
+- Rate limits apply per user (per IP without one), tighter on the login routes.
+- Terminal: the WebSocket needs a one-time ticket (`POST /api/v1/auth/ws-ticket`, 30 seconds) that keeps the scopes and project of the token that asked for it, and the dashboard origin when the client sends an Origin (browsers always do; the CLI does not); it opens only where the user may run commands, and is audited.
 
-**Authentication & Sessions:**
-- GitHub OAuth with org/team validation
-- Encrypted sessions, HttpOnly cookies
-- Configurable session expiration (default 24h)
-- Audit logging (LOGIN, LOGOUT, CREATE_ENV, DELETE_ENV, terminal commands)
+### Previews
 
-**Terminal Security:**
-- Non-root execution (www-data for Laravel, node for Next.js)
-- Blocked commands: `rm -rf /`, `mkfs`, `dd`, fork bombs, `wget`, `curl`, `nc`
-- Restricted directories: `/root`, `/etc`, `/sys`, `/proc`, `/boot`, `/dev`, `/bin`, `/sbin`
-- Max 3 concurrent terminals per user
-- Max command length: 1000 characters
-- 30 second timeout per command
-- All commands logged with userId
+Before each request to an exposure with `auth: team` (the default), Traefik asks `GET /api/v1/auth/verify` (forwardAuth, with only the Accept, Cookie and X-Spawner-Preview headers). It lets through, in this order: CORS preflights; the `X-Spawner-Preview` header (a one-hour token for one environment, from `POST /api/v1/envs/:id/preview-token`, removed before the request reaches the application); a share link (`?__spawner_share=`), answered by a redirect without the parameter and a cookie valid for that environment only; the team cookie `spawner_preview` (12 hours, for active users); a share cookie. Otherwise a browser goes to `<dashboard>/api/v1/auth/preview?next=`, which sets the team cookie on the preview domain for a logged-in user (or sends them to log in first), and other clients get a 401. Each request let through records the environment's last activity (at most once a minute). Exposures with `auth: none` are public; they need the project's `allowPublic`, set by an admin. The routes of the applications use `spawner-preview-gate` (`spawner-public-gate` for public ones, through `GET /api/v1/auth/verify-public`, which lets everything through): Spawner answers with the request's cookies without `spawner_preview` and the share cookies, and Traefik (`authResponseHeaders: Cookie`) passes those on instead, so an application never sees what opens the other previews. While an environment sleeps or is stopped, its routes keep `spawner-preview-auth` (team URLs, cookies left in place) and lead to the waiting page (`GET /api/v1/wake`, which checks access again: the preview header is not removed there).
 
-**Docker Security:**
-- Dockerode library (not shell commands) prevents injection
-- All user input sanitized via `sanitizeShellArg()`
-- Resource limits enforced (CPU, memory)
-- Isolated networks per environment
+### Audit
 
-**WebSocket Authentication:**
-- Temporary JWT tokens (60s expiration)
-- Token validation before connection
-- User identification for audit trail
+Logins, invitations, users, tokens, device approvals, passkeys, projects, project variables (names only), environment actions, commands (truncated), terminals, refused compose files and settings changes go to `audit_events`, kept 90 days and listed for admins. Terminal sessions are also recorded (`terminal_sessions` and their output in `terminals/`), 30 days.
+
+### Isolation
+
+- Compose policy (`packages/core/src/compose/validate.ts`): allowlist of keys; no host bind mounts outside the sources, privileged mode, capabilities, devices, host namespaces, ports published on the host, external networks or Docker socket; limits on memory, CPU and processes
+- Every service gets `no-new-privileges`, resource limits, a restart policy and capped local logs
+- One network per environment; Traefik has no Docker socket and joins each network
+- Rendered paths are checked with `realpath` against the sources
+- Git runs with `GIT_TERMINAL_PROMPT=0`, no system config, `ssh:https` protocols only, `BatchMode` SSH with a known_hosts file; repository URLs come after `--` and refs are validated (`@spawner/utils`)
+- Logs of the environments' services are served as `text/plain` with `nosniff`
 
 ## API Endpoints
 
-Base: `/api`
+Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` header.
 
-### Projects
+### Access (`/api/v1/auth`)
 
-- `GET /api/projects` - List all projects
-- `POST /api/projects` - Create project
-- `GET /api/projects/:id` - Get project
-- `PUT /api/projects/:id` - Update project
-- `DELETE /api/projects/:id` - Delete project and environments
+- `GET /session` - The logged-in user and the login methods available (public)
+- `GET /whoami` - Who makes the request: `{ via, user, scopes, token }` (any actor; what `spawner whoami` shows)
+- `POST /logout`
+- `POST /passkey/options`, `POST /passkey` - Passkey login (public)
+- `GET /github`, `GET /github/callback` - GitHub login, or `?link=true` to link GitHub to the account (`/api/auth/github/callback`, the route before v1, forwards to it)
+- `POST /device` (public) - Starts a CLI login: `{ "clientName": "claude-laptop" }` gives `{ deviceCode, userCode, verificationUri, interval }`
+- `POST /device/token` (public) - Polled by the CLI: `{ "deviceCode": "..." }`, a 400 `{ error: "authorization_pending" | "slow_down" | "access_denied" | "expired_token" }` until it gives the token
+- `GET /device/:userCode`, `POST /device/approve` - Approval from the dashboard: `{ "userCode": "BCDF-GHJK", "approve": true }`
+- `POST /ws-ticket` - One-time ticket for the terminal WebSocket
+- `GET /verify` - forwardAuth of Traefik (public, internal); answers 200 with the request's cookies without Spawner's
+- `GET /verify-public` - forwardAuth of the public exposures: 200 with the request's cookies without Spawner's (public, internal)
+- `GET /preview?next=<preview URL>` - Sets the preview cookie for a logged-in user (public)
 
-### Git Management
+### Team and account
 
-- `GET /api/git/key` - Get public SSH key
-- `POST /api/git/key/generate` - Generate ed25519 SSH key pair
-- `POST /api/git/test` - Test repository access (body: `{ "resourceName": "main-api" }`)
+- `POST /api/v1/invites` (admin) - `{ "role": "member", "note": "Grace", "ttlHours": 24 }`, or `{ "userId": 3 }` for a new passkey; answers the link once
+- `GET /api/v1/invites`, `DELETE /api/v1/invites/:id` (admin) - Pending invitations
+- `GET /api/v1/invites/open/:token`, `POST .../passkey-options`, `POST .../accept` (public) - Using an invitation: `{ "name": "Grace", "credential": <registration>, "passkeyName": "MacBook" }`
+- `GET /api/v1/users`, `PATCH /api/v1/users/:id` (admin) - `{ "role": "admin" }`, `{ "isActive": false }`
+- `GET /api/v1/me`, `PATCH /api/v1/me` - The account; `POST /me/passkeys/options`, `POST /me/passkeys`, `DELETE /me/passkeys/:id`, `DELETE /me/identities/:id`
+- `GET /api/v1/tokens` (`?all=true` for admins), `POST /api/v1/tokens`, `DELETE /api/v1/tokens/:id` - `{ "name": "ci", "scopes": ["envs:read"], "expiresInDays": 30, "project": "blog" }`; the token is answered once
+- `GET /api/v1/settings/github`, `PUT /api/v1/settings/github` (admin)
+- `GET /api/v1/settings/limits`, `PUT /api/v1/settings/limits` (admin) - `{ values, defaults, overridden }`; `{ "idleSeconds": "30m", "envsPerUser": 3, "envMemoryBytes": "1g" }`, null for the default of the server
+- `GET /api/v1/audit?before=<id>&action=env.` (admin)
 
-### Environments
+### Projects (`/api/v1/projects`)
 
-- `GET /api/environments` - List environments (optional `?projectId=X`)
-- `POST /api/environments` - Create environment
-  - Body: `{ "name": "feature-123", "branches": { "main-api": "feature/auth" }, "projectId": 1 }`
-  - Name validation: `^[a-z0-9-]+$`
-- `GET /api/environments/:id` - Get environment details
-- `DELETE /api/environments/:id` - Destroy environment
-- `GET /api/environments/:id/logs/:resourceName` - Container logs
+- `GET /` - List, with the count of live environments
+- `GET /:slug` - Get, with the names of its variables
+- `GET /:slug/branches?source=front` - Branches of the project repository, or of another source of its manifest
+- `GET /:slug/manifest?ref=` - `spawner.yaml` at a ref (the default branch otherwise): name, sources with their default branches, exposures, issues
+- `GET /:slug/usage` - Environments by status, memory and disk now, and what one environment typically costs (memory, disk, build time)
+- `GET /:slug/variables`, `PUT /:slug/variables/:name`, `DELETE /:slug/variables/:name` (admin) - `{ "value": "sk_test", "secret": true }`; secret values are never answered again
+- `POST /` (admin) - Create: `{ "slug": "blog", "name": "Blog", "repoUrl": "git@github.com:acme/blog.git", "defaultRef": "main", "rootDir": ".", "allowPublic": false }`
+- `PATCH /:slug`, `DELETE /:slug` (admin) - Update, delete (refused while it has live environments)
+
+### Environments (`/api/v1/envs`)
+
+- `GET /` - List (`?project=blog`, `?project=blog&slug=feat-login`, `?mine=true`, `?deleted=true` for the environments deleted in the last 7 days)
+- `GET /:id` - Get: status, owner and token, URLs, exposures, sources, last job, CPU and memory of the last sample (`usage`), when it sleeps (`idleSeconds`, `sleepsAt`); a deleted environment stays readable 7 days (`deletedAt`), with its logs, timeline and metrics
+- `POST /` - Create (multipart, answers 202 with `{ environment, job }`):
+  - fields `project`, `env`, `createdVia` (`ui`, `cli`, `mcp`, `api`), `ttl` (lifetime such as `24h`, instead of the manifest's)
+  - `primary`: JSON `{ "ref": "feat/login" }` to deploy the project repository from git (default branch when absent)
+  - `sources`: JSON `{ "front": { "ref": "develop" } }` for the other sources taken from git
+  - files `primary` and `source:<name>`: gzip tar archives of worktrees, instead of git
+- `POST /:id/update` - Redeploy (same fields, plus `fresh=true` to drop the data, `reseed=true` to replay the seed)
+- `POST /:id/stop`, `POST /:id/start`, `DELETE /:id` - Jobs (202)
+- `POST /:id/sleep`, `POST /:id/wake` - Put to sleep now, wake up (202); `job: null` when there is nothing to do; starting and waking answer 503 (`code: "capacity"`) without the memory
+- `POST /:id/extend` - `{ "ttl": "24h" }`: the environment now expires 24 hours from now (10 minutes to the maximum)
+- `POST /:id/exec` - `{ "service": "db", "argv": ["psql", "-c", "select 1"], "timeoutSec": 120, "stdin": "<base64>" }`, answers `{ exitCode, stdout, stderr, truncated, timedOut }`; stdin is optional (1 MiB), JSON bodies may reach 2 MiB
+- `GET /:id/services` - Containers: state, health, restarts, out-of-memory kill, exit code; `?usage=true` adds CPU, memory (without reclaimable cache), limit and writable layer size, measured right now
+- `GET /:id/logs?service=api,db&tail=200&since=<ISO>&until=<ISO>&grep=users&errors=true` - Output of the services as `{ lines: [{ service, stream, time, text }] }`, merged in time order; with filters, the last matches among the last 5000 lines of each service, and with `errors=true` an error cut by the tail is kept from its first line. `follow=true` streams server-sent events (one line per event, `: keep-alive` comments every 15 s, `event: end` when every service stopped). The error filter is `isErrorLine` in `packages/core/src/logs.ts`. `format=text` downloads them as a text file. A deleted environment answers from its archive
+- `GET /:id/logs/:service?tail=200` - Service output (text), for the dashboard
+- `GET /:id/events?limit=50&before=<id>` - Timeline, newest first, and the crash loops of the last 10 minutes: `{ events, crashLoops }`
+- `GET /:id/metrics?range=24h` - CPU and memory of the environment and of each service (`1h`, `6h`, `24h`, `7d`, `30d`; 360 points at most)
+- `GET /:id/disk` - Images, volumes, writable layers and sources of the environment, at the last measure
+- `GET /:id/jobs` - The last jobs, newest first, with who asked
+- `POST /:id/preview-token` - `{ header: "X-Spawner-Preview", token, expiresAt }`, for agents calling a protected preview
+- `POST /:id/share` (`{ "ttlHours": 24 }`), `GET /:id/shares`, `DELETE /:id/shares/:shareId` - Share links
+
+Changing an environment, sharing it, running commands in it and opening its terminal need its owner or an admin.
+
+### Jobs (`/api/v1/jobs`)
+
+- `GET /:id` - Status, phase, error, `errorCode` for machines (`invalid`, `capacity`, `upload`, `interrupted`), `actor`
+- `GET /:id/logs` - Log (text)
+- `GET /:id/logs/stream` - Log as server-sent events, one line per event, until the job ends; a `ping` event every 15 s
+
+### Git (`/api/v1/git`, admins)
+
+- `GET /key`, `POST /key/generate` - Global deploy key
+- `GET /keys/repos`, `POST /keys/generate` - Keys per repository (`{ "gitRepo": "..." }`)
+- `POST /test` - Test access to a repository (`{ "gitRepo": "..." }`)
+
+### System and health
+
+- `GET /api/v1/system` (admin) - Host now (CPU, memory, disk), every container (environments, Spawner, others), disk breakdown, alerts (disk above 80 % with less than 50 GiB free, or below the 10 GiB reserve; memory below the build guard; crash loops; OOM kills of the last hour)
+- `GET /api/v1/system/metrics?range=24h` (admin) - The host, Spawner and the other containers over time
+- `GET /api/v1/system/cleanup`, `POST /api/v1/system/cleanup` (admin) - What Spawner owns and no longer needs (`automatic` items go every minute anyway), then remove it all
+- `GET|POST... /api/v1/wake` (public, internal) - The waiting page of a sleeping or stopped environment, reached through its routes (`?__spawner_wake=status` answers its state)
+- `GET /api/v1/system/capacity` - How many more environments of each project fit, within the reader's quota (`quota: { limit, used, remaining }`): `min((available memory - 1 GiB) / typical memory, (free disk - 10 GiB) / typical disk, quota)`, each environment also having to find the build guards free before its build (`buildGuards`), and what limits it
+- `GET /api/v1/terminals`, `GET /api/v1/terminals/:id/recording` (admin) - Terminal sessions and what they showed (text, escape codes included)
+- `GET /api/v1/healthz`, `GET /api/v1/readyz` (public)
+- `GET /api/v1/info` - Version, dashboard URL, preview domain, scheme, and the limits the CLI checks a deploy with (compose, upload, ttl, exec, share)
+- `GET /api/v1/cli/spawner` (public) - The CLI bundle, to save as `spawner`
 
 ### Terminal (WebSocket)
 
 **Namespace:** `/terminal`
-**Auth:** WS token in query params
+**Auth:** a ticket from `POST /api/v1/auth/ws-ticket` in the `token` query parameter, and the dashboard origin when an Origin header is sent
 
 **Events:**
-- Client → `start-terminal`: `{ environmentId, resourceName }`
+- Client → `start-terminal`: `{ environmentId, resourceName, cols, rows }` (`resourceName` is the compose service)
 - Client → `terminal-input`: `{ input, resourceName }`
+- Client → `terminal-resize`: `{ resourceName, cols, rows }`
 - Client → `stop-terminal`: `{ resourceName }`
-- Server → `terminal-output`: Terminal output data
-- Server → `terminal-error`: Error message
-- Server → `terminal-exit`: Exit code
+- Server → `terminal-output`, `terminal-error`, `terminal-exit`
 
-## Environment Creation Workflow
+## CLI Architecture (apps/cli)
 
-When `POST /api/environments` is called:
+One bundle, `dist/spawner.cjs` (esbuild, CommonJS so that it runs saved without an extension, minified: the MCP SDK brings three variants of zod). Everything is a dev dependency: nothing is installed at runtime.
 
-1. **Validate** input (name regex, branches for git resources)
-2. **Database** - Create `environments` record with `status="creating"`
-3. **Directory** - Create `/opt/spawner/envs/<projectName>-<envName>/`
-4. **Git** - Clone or fetch/checkout branches to `/opt/spawner/repos/`
-5. **Network** - Create Docker network via dockerode: `net-<projectName>-<envName>`
-6. **Volumes** - Create volumes for databases
-7. **Containers** - For each resource:
-   - Build image via dockerode (if Dockerfile exists)
-   - Create container with env vars, networks, volumes, resource limits
-   - Start container
-   - Wait for dependencies (databases first)
-8. **Database** - Populate `environment_resources` table
-9. **Status** - Update environment to "running" or "failed"
-10. **Audit** - Log CREATE_ENV action with user details
+- `src/main.ts`, `src/cli.ts`: commander program; each action gets `{ output, cwd, ctx }` first, returns its exit code, and never calls `process.exit`
+- `src/context.ts` `ensureAwake`: exec, shell, url and logs --follow wake a sleeping environment up first
+- `src/ops/`: the operations, shared by the commands and the MCP server: `up.ts` (local check with the project's public URL permission and variables, packing, create or update, wait), `envs.ts` (status with the timeline and crash loops, list, stats, capacity, url, share, stop/start/down, extend), `logs.ts`, `exec.ts`, `auth.ts` (device login, whoami, logout, tokens), `init.ts`, `shell.ts` (Socket.IO terminal)
+- `src/mcp.ts`: `spawner mcp`, the nine tools of the specification on the same operations, stdio transport
+- `src/context.ts`: the server connection, target resolution (project from `spawner.yaml` or `--project`, environment from the branch), waiting for jobs
+- `src/archive.ts`: what is sent (`git ls-files`, default excludes, `upload.include`) and the tar.gz (no hard links, symlinks checked)
+- `src/check.ts`: `spawner.yaml` and the compose file validated with `@spawner/core` and the server's limits (`GET /info`)
+- `src/config.ts`: `~/.config/spawner/credentials.json` (0600), `SPAWNER_URL` and `SPAWNER_TOKEN`
+- `src/errors.ts`: `CliError` and the exit codes (0 ok, 1 error, 2 usage, 3 auth, 4 environment failed, 5 timeout, 6 quota or capacity, 7 refused)
 
-**Files:** [environment.service.ts](apps/api/src/modules/environment/environment.service.ts), [docker.service.ts](apps/api/src/common/docker.service.ts)
-
-## Docker Container Configuration
-
-**Naming Convention:**
-- Container: `<resource>-<env>` (e.g., `main-api-test`, `main-app-test`, `psql-bdd-test`)
-- Network: `net-<project>-<env>` (e.g., `net-myapp-feature-123`)
-- Volume: `<resource>-<env>-data` (e.g., `main-db-feature-123-data`)
-- URL: `<resource>.<env>.<baseDomain>` (e.g., `main-api.feature-123.preview.example.com`)
-
-**Example Laravel API Container:**
-
-```javascript
-{
-  name: 'main-api-test',
-  buildContext: '/opt/spawner/repos/main-api',
-  environment: {
-    DB_HOST: 'psql-bdd-test',
-    DB_DATABASE: 'myapp',
-    DB_USERNAME: 'spawner',
-    DB_PASSWORD: '<generated>'
-  },
-  networks: ['net-myapp-feature-123'],
-  labels: {
-    'traefik.enable': 'true',
-    'traefik.http.routers.main-api-feature-123.rule': 'Host(`main-api.feature-123.preview.example.com`)'
-  },
-  resourceLimits: {
-    cpus: '2',           // Max: 8
-    memory: '1G',        // Max: 16G
-    cpuReservation: '0.25',     // Max: 4
-    memoryReservation: '256M'   // Max: 8G
-  }
-}
-```
-
-## Project Configuration
-
-### YAML Format (legacy single project mode)
-
-```yaml
-baseDomain: "preview.example.com"
-
-resources:
-  - name: "main-api"
-    type: "laravel-api"
-    gitRepo: "git@github.com:org/main-api.git"
-    defaultBranch: "develop"
-    dbResource: "main-db"
-    resourceLimits:              # Optional
-      cpu: "4"
-      memory: "2G"
-      cpuReservation: "1"
-      memoryReservation: "1G"
-
-  - name: "main-front"
-    type: "nextjs-front"
-    gitRepo: "git@github.com:org/main-front.git"
-    defaultBranch: "develop"
-    apiResource: "main-api"
-
-  - name: "main-db"
-    type: "mysql-db"
-```
-
-### Resource Types
-
-- **laravel-api**: Requires `gitRepo`, `defaultBranch`, `dbResource`
-- **nextjs-front**: Requires `gitRepo`, `defaultBranch`, `apiResource`
-- **mysql-db**: No git repository required
-
-### Resource Limits
-
-Defaults defined in `packages/config/src/index.ts`. Override per-resource with:
-- `cpu`: CPU cores (e.g., "2", "0.5"). Max: 8
-- `memory`: RAM (e.g., "1G", "512M"). Max: 16G
-- `cpuReservation`: Guaranteed min CPUs. Max: 4
-- `memoryReservation`: Guaranteed min RAM. Max: 8G
-
-## Docker Management via Dockerode
-
-All Docker operations use the [dockerode](https://github.com/apocas/dockerode) library instead of shell commands.
-
-**Benefits:**
-- Eliminates command injection vulnerabilities
-- Structured error responses from Docker API
-- Real-time progress streams for builds
-- Programmatic control of Docker daemon
-
-**Operations:**
-- Network/volume creation and deletion
-- Image building with progress streams
-- Container lifecycle (create, start, stop, remove)
-- Command execution inside containers
-- Log retrieval and container inspection
-
-**Implementation:** [docker.service.ts](apps/api/src/common/docker.service.ts)
-
-## Interactive Terminal Feature
-
-Browser-based terminal access to running containers.
-
-**Stack:**
-- Backend: `node-pty` for PTY allocation
-- Frontend: `xterm.js` for terminal emulation
-- Transport: Socket.IO WebSocket
-- Auth: Temporary JWT tokens
-
-**Flow:**
-1. User clicks "Open Terminal" on environment detail
-2. Frontend fetches WS token: `GET /api/auth/ws-token`
-3. Connect to `/terminal` namespace with token
-4. Backend spawns: `docker exec -it -u <user> <container> /bin/sh`
-5. Bidirectional streaming via WebSocket
-6. Commands logged with userId for audit
-7. Security constraints enforced
-
-**Files:** [terminal.gateway.ts](apps/api/src/modules/terminal/terminal.gateway.ts), [XtermTerminal.vue](apps/web/src/components/XtermTerminal.vue)
+Rules: human messages on stderr, results on stdout (only JSON with `--json`); errors carry a stable `code` and a `hint`; external programs (git, open) run through `execFile` with argument arrays.
 
 ## Common Tasks
 
-### Adding a New Resource Type
+### Changing the compose policy
 
-1. Add to `ResourceType` union: `packages/types/src/index.ts`
-2. Add config: `packages/config/src/index.ts` → `RESOURCE_CONFIGS`
-3. Update container creation: `apps/api/src/modules/environment/environment.service.ts`
-4. Update frontend form: `apps/web/src/views/EnvironmentNew.vue`
-5. Rebuild: `pnpm build`
+1. Edit `packages/core/src/compose/validate.ts` (and `render.ts` if the rendered file changes)
+2. Add fixtures to `packages/core/test/fixtures/compose/forbidden/` or `allowed/`
+3. `pnpm --filter @spawner/core test`, then `scripts/e2e-engine.sh`
 
-### Setting Up GitHub OAuth (Development)
-
-1. **Create OAuth App** on GitHub:
-   - Organization → Settings → Developer settings → OAuth Apps
-   - Homepage: `http://localhost:8080`
-   - Callback: `http://localhost:3000/api/auth/github/callback`
-   - Save Client ID and Secret
-
-2. **Configure** `apps/api/.env`:
-   ```env
-   GITHUB_CLIENT_ID=your_client_id
-   GITHUB_CLIENT_SECRET=your_client_secret
-   GITHUB_CALLBACK_URL=http://localhost:3000/api/auth/github/callback
-   GITHUB_ORG=your_org_name
-   GITHUB_TEAM=your_team_slug
-   SESSION_SECRET=$(openssl rand -base64 32)
-   FRONTEND_URL=http://localhost:8080
-   ```
-
-3. **Create team** in GitHub organization, add members
-
-4. **Test** at `http://localhost:8080`
-
-### Debugging Environment Creation
+### Debugging an environment
 
 ```bash
-# Check database (using psql or Prisma Studio)
-npx prisma studio
-# Or directly with psql:
-# psql $DATABASE_URL -c "SELECT * FROM \"Environment\" WHERE name = '<env-name>';"
-# psql $DATABASE_URL -c "SELECT * FROM \"EnvironmentResource\" WHERE \"environmentId\" = '<id>';"
+# Job log and status
+curl -H "Authorization: Bearer $SPAWNER_BOOTSTRAP_TOKEN" http://localhost:8080/api/v1/jobs/<job id>/logs
 
-# Check Docker
-docker ps -a --filter "label=com.docker.compose.project=env-<env-name>"
-docker logs <container-name>
-docker network inspect net-<project>-<env>
+# Containers of an environment
+docker ps -a --filter "label=dev.spawner.env=<environment id>"
+docker compose -p spn-<project>--<env> -f <data dir>/envs/<id>/compose.rendered.yaml ps
 
-# Check API logs
-docker logs spawner-api
+# Routes and Spawner logs
+cat <data dir>/traefik/<id>.yaml
+docker logs spawner
 ```
 
-**Code inspection:**
-- [environment.service.ts](apps/api/src/modules/environment/environment.service.ts) - `createEnvironment()`
-- [docker.service.ts](apps/api/src/common/docker.service.ts) - Docker operations
+### First login (development)
 
-### Debugging Authentication
-
-```bash
-# Check session and audit logs
-npx prisma studio
-# Or with psql:
-# psql $DATABASE_URL -c "SELECT * FROM \"Session\";"
-# psql $DATABASE_URL -c "SELECT * FROM \"AuditLog\" ORDER BY \"createdAt\" DESC LIMIT 10;"
-
-# Test API
-curl http://localhost:3000/api/auth/status -H "Cookie: connect.sid=<cookie>"
-
-# Check browser
-# Verify connect.sid cookie exists
-# Check browser console for errors
-```
-
-- Verify user in correct GitHub org/team
-- Check API logs for OAuth errors
-- Ensure `SESSION_SECRET` is set
+1. `docker compose up -d --build`, then `docker logs spawner` shows a link to create the first admin (or run `docker exec -u node spawner node dist/admin.js invite --role admin`)
+2. Over plain HTTP, browsers allow passkeys on localhost only: open the link on `http://spawner.localtest.me` to log in without a passkey (local install), or on `http://localhost:8080` to create one
+3. GitHub login, if wanted: create an OAuth App with the callback `http://spawner.localtest.me/api/v1/auth/github/callback`, then fill the settings page (System, Settings)
 
 ## Infrastructure
 
 ### Deployment Requirements
 
-- Ubuntu 22.04+ VPS
-- Docker and Docker Compose installed
-- Node.js 20+ with pnpm 8+
-- Access to `/var/run/docker.sock`
-- Wildcard DNS:
-  - `spawner.yourdomain.com` → VPS IP
-  - `*.preview.yourdomain.com` → VPS IP
+- A server dedicated to previews: Ubuntu 22.04 or 24.04, Debian 12, amd64 or arm64; 2 GiB of memory at least (8 advised), 20 GiB of free disk, ports 80 and 443
+- A DNS record `*.preview.yourdomain.com` pointing to it (the dashboard is `spawner.preview.yourdomain.com`), and for a wildcard certificate an API token of the DNS provider
+- `install.sh` installs Docker if needed; nothing else goes on the host (no Node.js)
+- Node.js 22.x with pnpm 8 for development only (the image bundles its own Node and the Docker CLI)
 
-### Directory Structure
+### Container Image
 
-All data under `/opt/spawner/`:
-- `git-keys/` - SSH deploy keys
-- `repos/` - Git repository clones
-- `envs/` - Environment configuration files
+One image built from the root `Dockerfile` runs the API and serves the web interface on the same origin. It includes git, ssh and the Docker CLI with the compose plugin. The entrypoint gives the `node` user access to the Docker socket and the data directory, applies Prisma migrations, then drops root.
 
-PostgreSQL database runs separately (Docker container or managed service).
+### Stacks
+
+- `docker-compose.yml`: local stack over HTTP (Postgres, Traefik, Spawner), built from the sources, for development and `scripts/e2e-engine.sh`
+- `install.sh`: a server. It writes `/opt/spawner` (`compose.yaml` pinned to a version of `ghcr.io/flosk6/spawner`, `.env` with the secrets, `dns.env` for Traefik, `spawner.env` for the admin's own settings, never overwritten, `backups/`) and `/var/lib/spawner`, adds its settings to `/etc/docker/daemon.json` (local log driver, build cache limit, /24 address pools, live-restore; overlay2 on a Docker it installed), offers zram below 8 GiB, starts the stack and prints the first admin link. `--upgrade` backs the database up first (5 kept); `--uninstall [--purge]`; `--tls off --domain localtest.me` is the local mode the CI tests. Options and environment variables: `install.sh --help` and `docs/install.md`
+
+### Releases
+
+`scripts/release.sh <version>` sets the version of every `package.json` and `DEFAULT_VERSION` in `install.sh`, commits and tags (a prerelease such as `2.1.0-rc.1` only tags). Pushing the tag runs `.github/workflows/release.yml`: it checks the versions, builds `linux/amd64` and `linux/arm64` images to `ghcr.io/flosk6/spawner:<version>` (with `SPAWNER_VERSION`), publishes the CLI to npm as `spawner-cli` with provenance when `NPM_TOKEN` is set (dist-tag `next` for prereleases), and creates the GitHub release with `install.sh`, the `spawner` bundle, `SHA256SUMS` and the notes of the version's `CHANGELOG.md` section. The installer of a release installs that release by default; `https://github.com/Flosk6/Spawner/releases/latest/download/install.sh` is the latest.
 
 ### Reverse Proxy
 
-Use Nginx or Traefik:
-- Main app: `spawner.yourdomain.com` → Spawner UI/API
-- Environments: `*.preview.yourdomain.com` → Dynamic routing
+Traefik v3 reads routes from `<data dir>/traefik/` (file provider, watched). Spawner writes `_spawner.yaml` for the dashboard and the preview protection middlewares, and one file per environment; it attaches Traefik to each environment network, and an environment is ready once Traefik serves its hosts.
 
 ### Turborepo Caching
 
 - `build`: Depends on `^build`, caches `dist/**`
 - `dev`: No cache, persistent
-- `lint`: Depends on `^build`
-
-Second builds are instant due to caching.
-
-## Future Enhancements
-
-Out of scope for v1:
-- Advanced env var templating (secrets management)
-- SQL dump imports for database initialization
-- Webhook integration (GitHub PR comments, Slack)
-- Auto-expiration of old environments
-- Advanced monitoring (Prometheus, Grafana)
-- Multi-node Docker Swarm support
-- Custom Docker registry support
+- `lint`, `typecheck`, `test`: Depend on `^build`

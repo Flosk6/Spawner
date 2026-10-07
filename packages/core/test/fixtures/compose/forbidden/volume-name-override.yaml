@@ -1,0 +1,10 @@
+# expect: compose.forbidden_key volumes.db.name
+services:
+  api:
+    build: ..
+    volumes: ["db:/var/lib/postgresql/data"]
+  front:
+    image: nginx:alpine
+volumes:
+  db:
+    name: spawner_postgres-data

@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.build.context
+services:
+  api:
+    build:
+      context: https://github.com/attacker/repo.git#main
+  front:
+    image: nginx:alpine

@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key services.api.build.additional_contexts
+services:
+  api:
+    build:
+      context: ..
+      additional_contexts:
+        host: /
+  front:
+    image: nginx:alpine

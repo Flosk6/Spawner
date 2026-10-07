@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key services.api.labels["traefik.enable"]
+services:
+  api:
+    build: ..
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.steal.rule: Host(`spawner.preview.test`)
+  front:
+    image: nginx:alpine

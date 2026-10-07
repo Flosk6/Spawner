@@ -1,0 +1,7 @@
+# expect: compose.path_not_found services.api.env_file[0]
+services:
+  api:
+    build: ..
+    env_file: [../.env.missing]
+  front:
+    image: nginx:alpine

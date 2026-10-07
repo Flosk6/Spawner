@@ -1,0 +1,4 @@
+# expect: compose.undefined_reference services.front
+services:
+  api:
+    build: ..

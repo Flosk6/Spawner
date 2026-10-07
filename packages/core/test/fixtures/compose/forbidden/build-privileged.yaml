@@ -1,0 +1,8 @@
+# expect: compose.forbidden_key services.api.build.privileged
+services:
+  api:
+    build:
+      context: ..
+      privileged: true
+  front:
+    image: nginx:alpine

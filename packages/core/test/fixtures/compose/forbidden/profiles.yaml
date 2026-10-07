@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.profiles
+services:
+  api:
+    build: ..
+    profiles: [debug]
+  front:
+    image: nginx:alpine

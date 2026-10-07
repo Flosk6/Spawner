@@ -1,0 +1,10 @@
+# expect: compose.path_outside_sources services.api.volumes[0].source
+services:
+  api:
+    build: ..
+    volumes:
+      - type: bind
+        source: /etc
+        target: /host-etc
+  front:
+    image: nginx:alpine

@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key services.api.post_start
+services:
+  api:
+    build: ..
+    post_start:
+      - command: chown -R 0:0 /data
+        privileged: true
+  front:
+    image: nginx:alpine

@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.provider
+services:
+  api:
+    provider:
+      type: awesomecloud
+  front:
+    image: nginx:alpine

@@ -1,0 +1,7 @@
+# expect: compose.path_outside_sources services.api.volumes[0]
+services:
+  api:
+    build: ..
+    volumes: ["../../../outside:/data"]
+  front:
+    image: nginx:alpine

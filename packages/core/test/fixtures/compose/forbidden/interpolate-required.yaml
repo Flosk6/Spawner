@@ -1,0 +1,8 @@
+# expect: interpolation.required_variable services.api.environment.TOKEN
+services:
+  api:
+    build: ..
+    environment:
+      TOKEN: ${STRIPE_KEY:?set STRIPE_KEY in the project variables}
+  front:
+    image: nginx:alpine

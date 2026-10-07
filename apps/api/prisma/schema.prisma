@@ -7,122 +7,324 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// A member of the team. Accounts have no password: the first access goes
+/// through an invitation, then passkeys, or GitHub when it is configured.
 model User {
-  id          Int        @id @default(autoincrement())
-  githubId    String     @unique @map("githubId") @db.VarChar
-  username    String     @db.VarChar
-  email       String?    @db.VarChar
-  avatarUrl   String?    @map("avatarUrl") @db.VarChar
-  role        String     @default("user") @db.VarChar
-  isActive    Boolean    @default(true) @map("isActive")
-  createdAt   DateTime   @default(now()) @map("createdAt") @db.Timestamp(6)
-  updatedAt   DateTime   @default(now()) @map("updatedAt") @db.Timestamp(6)
-  lastLoginAt DateTime?  @map("lastLoginAt") @db.Timestamp(6)
-  auditLogs   AuditLog[]
+  id           Int               @id @default(autoincrement())
+  name         String            @db.VarChar(60)
+  email        String?           @db.VarChar
+  avatarUrl    String?           @map("avatar_url") @db.VarChar
+  role         String            @default("member") @db.VarChar(10)
+  isActive     Boolean           @default(true) @map("is_active")
+  /// User handle given to authenticators, the same for all the user's passkeys.
+  webauthnId   String?           @unique @map("webauthn_id") @db.VarChar(64)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt  DateTime?         @map("last_login_at") @db.Timestamptz(6)
+  identities   Identity[]
+  passkeys     Passkey[]
+  tokens       ApiToken[]
+  deviceCodes  DeviceCode[]
+  invitesFor   Invite[]          @relation("InviteForUser")
+  invitesSent  Invite[]          @relation("InviteCreatedBy")
+  shareLinks   ShareLink[]
+  auditEvents  AuditEvent[]
+  environments Environment[]
+  jobs         Job[]
+  terminals    TerminalSession[]
 
   @@map("users")
 }
 
-model AuditLog {
-  id        Int      @id @default(autoincrement())
-  userId    Int?     @map("userId")
-  action    String   @db.VarChar
-  details   String?
-  ipAddress String?  @map("ipAddress") @db.VarChar
-  userAgent String?  @map("userAgent") @db.VarChar
-  createdAt DateTime @default(now()) @map("createdAt") @db.Timestamp(6)
-  user      User?    @relation(fields: [userId], references: [id])
+/// A login through an external provider (GitHub), tied to a user.
+model Identity {
+  id        String   @id @default(cuid())
+  userId    Int      @map("user_id")
+  provider  String   @db.VarChar(20)
+  /// The provider's id of the account, which never changes.
+  subject   String   @db.VarChar(100)
+  username  String?  @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("audit_logs")
+  @@unique([provider, subject])
+  @@index([userId])
+  @@map("identities")
+}
+
+/// A WebAuthn credential. Its id is the credential id (base64url).
+model Passkey {
+  id         String    @id @db.VarChar(512)
+  userId     Int       @map("user_id")
+  name       String    @db.VarChar(60)
+  publicKey  Bytes     @map("public_key")
+  counter    BigInt    @default(0)
+  transports String[]  @default([])
+  deviceType String    @map("device_type") @db.VarChar(20)
+  backedUp   Boolean   @default(false) @map("backed_up")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkeys")
+}
+
+/// A one-time link that creates an account with a passkey, or gives an
+/// existing user (userId) a new passkey when they lost theirs.
+model Invite {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique @map("token_hash") @db.VarChar(64)
+  role        String    @db.VarChar(10)
+  note        String?   @db.VarChar(100)
+  userId      Int?      @map("user_id")
+  createdById Int?      @map("created_by_id")
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt      DateTime? @map("used_at") @db.Timestamptz(6)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        User?     @relation("InviteForUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("invites")
+}
+
+/// A personal API key: spn_<prefix>_<secret>. Only the SHA-256 of the whole
+/// token is stored; the prefix finds it.
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     Int       @map("user_id")
+  name       String    @db.VarChar(40)
+  prefix     String    @unique @db.VarChar(16)
+  hash       String    @db.VarChar(64)
+  scopes     String[]
+  projectId  String?   @map("project_id")
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_tokens")
+}
+
+/// A CLI login waiting for its user to approve it in the browser (device
+/// flow): pending, approved, denied, then consumed once the token is issued.
+model DeviceCode {
+  id             String    @id @default(cuid())
+  deviceCodeHash String    @unique @map("device_code_hash") @db.VarChar(64)
+  userCode       String    @unique @map("user_code") @db.VarChar(9)
+  clientName     String    @map("client_name") @db.VarChar(40)
+  status         String    @default("pending") @db.VarChar(10)
+  userId         Int?      @map("user_id")
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastPolledAt   DateTime? @map("last_polled_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("device_codes")
+}
+
+/// Who did what, kept 90 days.
+model AuditEvent {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  userId    Int?     @map("user_id")
+  /// Who acted, as shown: "Florian", "Florian via claude-laptop", "bootstrap token".
+  actor     String   @db.VarChar(100)
+  action    String   @db.VarChar(50)
+  target    String?  @db.VarChar(200)
+  details   Json?
+  ip        String?  @db.VarChar(64)
+  userAgent String?  @map("user_agent") @db.VarChar(300)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("audit_events")
 }
 
 model Project {
-  id           Int               @id @default(autoincrement())
-  name         String            @unique @db.VarChar
-  baseDomain   String            @map("base_domain") @db.VarChar
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+  id           String            @id @default(cuid())
+  slug         String            @unique @db.VarChar(20)
+  name         String            @db.VarChar
+  repoUrl      String            @map("repo_url") @db.VarChar
+  defaultRef   String            @default("main") @map("default_ref") @db.VarChar
+  rootDir      String            @default(".") @map("root_dir") @db.VarChar
+  /// Exposures may be public (auth: none in spawner.yaml) only when an admin allows it.
+  allowPublic  Boolean           @default(false) @map("allow_public")
+  /// Environments may never sleep (idle: never in spawner.yaml) only when an admin allows it.
+  allowAlwaysOn Boolean          @default(false) @map("allow_always_on")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   environments Environment[]
-  resources    ProjectResource[]
+  tokens       ApiToken[]
+  variables    ProjectVariable[]
 
   @@map("projects")
 }
 
-model ProjectResource {
-  id                Int      @id @default(autoincrement())
-  projectId         Int      @map("project_id")
-  name              String   @db.VarChar
-  type              String   @db.VarChar
-  gitRepo           String?  @map("git_repo") @db.VarChar
-  defaultBranch     String?  @map("default_branch") @db.VarChar
-  baseImages        Json     @default("[]") @map("base_images") @db.Json
-  staticEnvVars     Json     @default("{}") @map("static_env_vars") @db.Json
-  postBuildCommands Json     @default("[]") @map("post_build_commands") @db.Json
-  resourceLimits    Json?    @map("resource_limits") @db.Json
-  exposedPort       Int?     @map("exposed_port")
-  isEntryPoint      Boolean  @default(false) @map("is_entry_point")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+/// A variable an admin gives the compose files of a project
+/// (${STRIPE_KEY}). Secret values are encrypted (AES-256-GCM), never shown
+/// again, and masked in job logs.
+model ProjectVariable {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String   @db.VarChar(64)
+  value     String
+  secret    Boolean  @default(false)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@map("project_resources")
+  @@unique([projectId, name])
+  @@map("project_variables")
 }
 
+/// One running copy of a project. A deleted environment keeps its row
+/// (deletedAt set); its slug is unique among live environments only, through
+/// a partial index created in the migration.
 model Environment {
-  id         String                @id @db.VarChar
-  name       String                @unique @db.VarChar
-  projectId  Int?                  @map("project_id")
-  status     String                @db.VarChar
-  configJson String                @map("config_json")
-  createdAt  DateTime              @default(now()) @map("created_at") @db.Timestamp(6)
-  resources  EnvironmentResource[]
-  project    Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id             String              @id @default(cuid())
+  projectId      String              @map("project_id")
+  slug           String              @db.VarChar(29)
+  status         String              @db.VarChar(20)
+  phase          String?             @db.VarChar(20)
+  error          String?
+  ownerId        Int?                @map("owner_id")
+  createdVia     String              @default("api") @map("created_via") @db.VarChar(10)
+  /// Name of the token the environment was created with ("claude-laptop").
+  tokenName      String?             @map("token_name") @db.VarChar(40)
+  manifest       Json?
+  expiresAt      DateTime?           @map("expires_at") @db.Timestamptz(6)
+  /// Last request let through to one of its URLs, or last action on it
+  /// (deploy, start, wake, command, logs, terminal): it sleeps when this is
+  /// older than its idle time.
+  lastActivityAt DateTime?           @map("last_activity_at") @db.Timestamptz(6)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?           @map("deleted_at") @db.Timestamptz(6)
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  owner          User?               @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  sources        EnvironmentSource[]
+  exposures      Exposure[]
+  jobs           Job[]
+  shareLinks     ShareLink[]
+  events         EnvironmentEvent[]
 
+  @@index([projectId, slug])
+  @@index([status])
+  @@index([deletedAt])
   @@map("environments")
 }
 
-model EnvironmentResource {
-  id            String      @id @db.VarChar
-  environmentId String      @map("environment_id") @db.VarChar
-  resourceName  String      @map("resource_name") @db.VarChar
-  resourceType  String      @map("resource_type") @db.VarChar
-  branch        String?     @db.VarChar
-  url           String?     @db.VarChar
-  isEntryPoint  Boolean     @default(false) @map("is_entry_point")
-  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+/// What happened to an environment: services crashing, running out of
+/// memory or turning unhealthy (from Docker events), and its jobs. Kept 30
+/// days, and 7 days after the environment is deleted.
+model EnvironmentEvent {
+  id            BigInt      @id @default(autoincrement())
+  environmentId String      @map("environment_id")
+  time          DateTime    @default(now()) @db.Timestamptz(6)
+  /// crash, oom, unhealthy, healthy, job_started, job_succeeded, job_failed, extended
+  type          String      @db.VarChar(20)
+  service       String?     @db.VarChar(63)
+  message       String
+  details       Json?
   environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
 
-  @@map("environment_resources")
+  @@index([environmentId, time])
+  @@index([time])
+  @@map("environment_events")
 }
 
+model EnvironmentSource {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  name          String      @db.VarChar(20)
+  origin        String      @db.VarChar(10)
+  repoUrl       String?     @map("repo_url") @db.VarChar
+  ref           String?     @db.VarChar
+  commit        String?     @db.VarChar(64)
+  digest        String?     @db.VarChar(64)
+  sizeBytes     BigInt?     @map("size_bytes")
+  /// False once the code was removed after a successful build: it is only
+  /// needed to build, unless a service mounts it.
+  onDisk        Boolean     @default(true) @map("on_disk")
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, name])
+  @@map("environment_sources")
+}
+
+model Exposure {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  name          String      @db.VarChar(10)
+  service       String      @db.VarChar
+  port          Int
+  host          String      @db.VarChar
+  entrypoint    Boolean     @default(false)
+  auth          String      @default("team") @db.VarChar(10)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@unique([environmentId, name])
+  @@map("exposures")
+}
+
+/// An operation on an environment (create, update, stop, start, sleep, wake,
+/// delete). The queue lives in this table; one job runs per environment at a
+/// time.
+model Job {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  type          String      @db.VarChar(20)
+  status        String      @db.VarChar(20)
+  phase         String?     @db.VarChar(20)
+  error         String?
+  /// Why a failed job failed, for machines: invalid (spawner.yaml or the
+  /// compose file refused), capacity (not enough memory), upload (archive
+  /// refused), interrupted (Spawner restarted).
+  errorCode     String?     @map("error_code") @db.VarChar(20)
+  payload       Json?
+  triggeredById Int?        @map("triggered_by_id")
+  /// Who asked for it, as shown in the timeline: "Ada via claude-laptop".
+  actor         String?     @db.VarChar(100)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt     DateTime?   @map("started_at") @db.Timestamptz(6)
+  finishedAt    DateTime?   @map("finished_at") @db.Timestamptz(6)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  triggeredBy   User?       @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([environmentId, createdAt])
+  @@map("jobs")
+}
+
+/// A temporary link to an environment's previews for someone without an
+/// account. Only the SHA-256 of its token is stored.
+model ShareLink {
+  id            String      @id @default(cuid())
+  environmentId String      @map("environment_id")
+  tokenHash     String      @unique @map("token_hash") @db.VarChar(64)
+  createdById   Int?        @map("created_by_id")
+  expiresAt     DateTime    @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime?   @map("revoked_at") @db.Timestamptz(6)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  createdBy     User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([environmentId])
+  @@map("share_links")
+}
+
+/// Settings changed from the interface. Secret values are encrypted
+/// (AES-256-GCM) with a key derived from the server secret.
 model Setting {
   key   String @id @db.VarChar
   value String @db.VarChar
 
   @@map("settings")
-}
-
-model SystemSetting {
-  id          Int      @id @default(autoincrement())
-  key         String   @unique @db.VarChar
-  value       String?
-  description String?
-  createdAt   DateTime @default(now()) @map("createdAt") @db.Timestamp(6)
-  updatedAt   DateTime @default(now()) @map("updatedAt") @db.Timestamp(6)
-
-  @@map("system_settings")
-}
-
-model ServerPatch {
-  id             Int       @id @default(autoincrement())
-  packageName    String    @map("packageName") @db.VarChar
-  currentVersion String    @map("currentVersion") @db.VarChar
-  latestVersion  String    @map("latestVersion") @db.VarChar
-  type           String    @default("feature") @db.VarChar
-  status         String    @default("pending") @db.VarChar
-  changelog      String?
-  appliedAt      DateTime? @map("appliedAt") @db.Timestamp(6)
-  detectedAt     DateTime  @default(now()) @map("detectedAt") @db.Timestamp(6)
-
-  @@map("server_patches")
 }
 
 model Session {
@@ -134,37 +336,82 @@ model Session {
   @@map("sessions")
 }
 
-model Migration {
-  id        Int    @id @default(autoincrement())
-  timestamp BigInt
-  name      String @db.VarChar
+/// One minute of resource usage, averaged from samples every 30 seconds:
+/// of the host (scope "host"), of Spawner's own containers ("spawner"), of
+/// the other containers of the host ("others"), or of an environment
+/// ("env"). Kept 48 hours, then summed up in MetricRollup.
+model MetricPoint {
+  id               BigInt   @id @default(autoincrement())
+  time             DateTime @db.Timestamptz(6)
+  scope            String   @db.VarChar(10)
+  /// No foreign key: the usage of a project outlives its environments.
+  environmentId    String?  @map("environment_id")
+  projectId        String?  @map("project_id")
+  cpuPercent       Float    @map("cpu_percent")
+  memoryBytes      BigInt   @map("memory_bytes")
+  /// The sum of the memory limits of an environment, the memory of the host.
+  memoryLimitBytes BigInt?  @map("memory_limit_bytes")
+  /// Each service of an environment ({ "api": { "cpu": 1.2, "memory": 123 } }),
+  /// or the details of the host (available memory, swap, load).
+  details          Json?
 
-  @@map("migrations")
+  @@index([scope, time])
+  @@index([environmentId, time])
+  @@map("metric_points")
 }
 
-model EnvironmentStats {
-  id            Int      @id @default(autoincrement())
-  time          DateTime @default(now()) @db.Timestamptz(6)
-  environmentId String
-  cpuPercent    Decimal  @db.Decimal(5, 2)
-  memoryUsageGB Decimal  @db.Decimal(8, 2)
-  memoryLimitGB Decimal  @db.Decimal(8, 2)
-  containers    Json
+/// Fifteen minutes of usage, average and maximum. Kept 30 days.
+model MetricRollup {
+  id            BigInt   @id @default(autoincrement())
+  time          DateTime @db.Timestamptz(6)
+  scope         String   @db.VarChar(10)
+  environmentId String?  @map("environment_id")
+  projectId     String?  @map("project_id")
+  cpuAvg        Float    @map("cpu_avg")
+  cpuMax        Float    @map("cpu_max")
+  memoryAvg     BigInt   @map("memory_avg")
+  memoryMax     BigInt   @map("memory_max")
 
-  @@index([environmentId, time(sort: Desc)])
+  @@index([scope, time])
+  @@index([environmentId, time])
+  @@map("metric_rollups")
+}
+
+/// Disk usage of the host and of each environment, measured every 15
+/// minutes and after builds and deletions. Kept 30 days.
+model DiskSnapshot {
+  id         BigInt   @id @default(autoincrement())
+  time       DateTime @default(now()) @db.Timestamptz(6)
+  totalBytes BigInt   @map("total_bytes")
+  freeBytes  BigInt   @map("free_bytes")
+  /// Images, build cache, volumes, writable layers, sources and logs, in
+  /// total and for each environment.
+  details    Json
+
   @@index([time])
+  @@map("disk_snapshots")
 }
 
-model EnvironmentAction {
-  id            String    @id @db.VarChar
-  environmentId String    @map("environment_id") @db.VarChar
-  action        String    @db.VarChar(50)
-  status        String    @default("pending") @db.VarChar(50)
-  metadata      Json?     @db.Json
-  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
-  completedAt   DateTime? @map("completed_at") @db.Timestamp(6)
+/// A terminal opened in a service. Its output is recorded in
+/// <data>/terminals/<id>.log (2 MiB at most) and kept 30 days.
+model TerminalSession {
+  id            String    @id @default(cuid())
+  environmentId String?   @map("environment_id")
+  /// "blog/feat-login": the environment row is gone 7 days after its deletion.
+  environment   String    @db.VarChar(60)
+  service       String    @db.VarChar(63)
+  userId        Int?      @map("user_id")
+  /// Who opened it, as shown: "Ada", "Ada via claude-laptop".
+  actor         String    @db.VarChar(100)
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt       DateTime? @map("ended_at") @db.Timestamptz(6)
+  /// exit, idle, max_duration, closed, error
+  endReason     String?   @map("end_reason") @db.VarChar(20)
+  exitCode      Int?      @map("exit_code")
+  recordedBytes Int       @default(0) @map("recorded_bytes")
+  truncated     Boolean   @default(false)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  @@index([environmentId])
-  @@index([status])
-  @@map("environment_actions")
+  @@index([startedAt])
+  @@map("terminal_sessions")
 }

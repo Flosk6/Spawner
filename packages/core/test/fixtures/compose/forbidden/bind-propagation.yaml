@@ -1,0 +1,12 @@
+# expect: compose.unknown_key services.api.volumes[0].bind.propagation
+services:
+  api:
+    build: ..
+    volumes:
+      - type: bind
+        source: ..
+        target: /src
+        bind:
+          propagation: rshared
+  front:
+    image: nginx:alpine

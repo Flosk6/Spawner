@@ -11,6 +11,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { io, Socket } from 'socket.io-client';
 import 'xterm/css/xterm.css';
+import { authApi } from '../services/api';
 
 interface Props {
   environmentId: string;
@@ -70,24 +71,12 @@ onMounted(() => {
 
 async function connectWebSocket() {
   try {
-    // Get WebSocket authentication token from API
-    const apiUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000';
-    const response = await fetch(`${apiUrl}/api/auth/ws-token`, {
-      credentials: 'include', // Send session cookie
-    });
+    // One-time ticket for the websocket, from a request only the dashboard
+    // can make. The interface and the API share the same origin.
+    const { ticket } = await authApi.wsTicket();
 
-    if (!response.ok) {
-      throw new Error('Failed to get WebSocket token');
-    }
-
-    const { token } = await response.json();
-
-    const wsUrl = apiUrl
-      .replace('http://', 'ws://')
-      .replace('https://', 'wss://');
-
-    socket = io(`${wsUrl}/terminal`, {
-      query: { token }, // Send token in query params
+    socket = io('/terminal', {
+      query: { token: ticket },
       transports: ['polling', 'websocket'],
     });
   } catch (error) {
@@ -105,6 +94,8 @@ async function connectWebSocket() {
     socket!.emit('start-terminal', {
       environmentId: props.environmentId,
       resourceName: props.resourceName,
+      cols: terminal?.cols,
+      rows: terminal?.rows,
     });
   });
 
@@ -144,6 +135,9 @@ async function connectWebSocket() {
 function handleResize() {
   if (fitAddon) {
     fitAddon.fit();
+  }
+  if (socket?.connected && terminal) {
+    socket.emit('terminal-resize', { resourceName: props.resourceName, cols: terminal.cols, rows: terminal.rows });
   }
 }
 

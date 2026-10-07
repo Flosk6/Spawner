@@ -1,0 +1,8 @@
+# expect: compose.path_outside_sources services.api.env_file[0]
+services:
+  api:
+    build: ..
+    env_file:
+      - ../../../outside/secret.txt
+  front:
+    image: nginx:alpine

@@ -1,0 +1,18 @@
+services:
+  api:
+    build: ..
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 768m
+          cpus: "1.5"
+          pids: 256
+  front:
+    image: nginx:alpine
+    mem_limit: 256m
+  worker:
+    image: alpine
+    command: sleep infinity
+  cache:
+    image: redis:7-alpine

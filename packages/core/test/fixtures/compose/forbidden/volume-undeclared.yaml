@@ -1,0 +1,7 @@
+# expect: compose.undefined_reference services.api.volumes[0]
+services:
+  api:
+    build: ..
+    volumes: ["data:/data"]
+  front:
+    image: nginx:alpine

@@ -1,0 +1,7 @@
+# expect: interpolation.invalid services.api.command
+services:
+  api:
+    build: ..
+    command: echo $1
+  front:
+    image: nginx:alpine

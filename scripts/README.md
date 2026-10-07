@@ -1,219 +1,98 @@
-# Scripts Utilitaires Spawner
+# Scripts
 
-Ce dossier contient des scripts pour la maintenance et l'administration de Spawner en production.
+Tests and tools for working on Spawner. Installing, upgrading and removing a
+server is `install.sh`, at the root of the repository; backups and restores
+are described in [docs/operations.md](../docs/operations.md).
 
-## Scripts Disponibles
+| Script | What it does | Where it runs |
+|---|---|---|
+| `e2e-engine.sh` | End-to-end test of the engine, access, the CLI, MCP, supervision and the lifecycle, on a local stack | A developer machine with Docker, and CI |
+| `e2e-installer.sh` | End-to-end test of `install.sh`: install, both examples (two branches at once), upgrade, second run, removal | A throwaway Ubuntu machine with sudo: the CI runner |
+| `capacity-check.sh` | Fills a real server up to the capacity it announces, checks it holds, then cleans up | Any machine with Node.js, against a server you may fill |
+| `release.sh` | Sets the versions, commits and tags a release | A clean checkout |
 
-### 1. backup-db.sh
-**Backup automatique de la base de données PostgreSQL**
-
-```bash
-./scripts/backup-db.sh
-```
-
-**Ce que fait ce script:**
-- Crée un dump compressé de PostgreSQL
-- Sauvegarde dans `/opt/spawner/backups/`
-- Format: `spawner_backup_YYYYMMDD_HHMMSS.sql.gz`
-- Nettoie automatiquement les backups > 30 jours
-- Affiche la taille du backup
-
-**Configuration automatique (cron):**
-```bash
-# Backup quotidien à 2h du matin
-crontab -e
-# Ajouter:
-0 2 * * * /path/to/spawner/scripts/backup-db.sh >> /var/log/spawner-backup.log 2>&1
-```
-
-### 2. restore-db.sh
-**Restauration de la base de données depuis un backup**
+## e2e-engine.sh
 
 ```bash
-./scripts/restore-db.sh /opt/spawner/backups/spawner_backup_20241127_020000.sql.gz
+scripts/e2e-engine.sh           # KEEP=1 leaves the stack running
 ```
 
-**⚠️ ATTENTION:**
-- Cette commande **ÉCRASE** la base de données actuelle
-- Toutes les données non sauvegardées seront **PERDUES**
-- Le script demande confirmation avant d'agir
-- L'API est automatiquement arrêtée puis redémarrée
+Starts Postgres, Traefik and Spawner from the root `docker-compose.yml` (as
+the compose project `spawner-e2e`, data in `local-data/e2e`), then goes through
+what a team does: an environment from an uploaded worktree, its protected URL,
+an invited teammate with a passkey, `exec`, an update that keeps the data, a
+deletion that leaves nothing; an agent with the CLI and the MCP server;
+supervision (out-of-memory kills, timeline, metrics, disk); sleep and wake-up,
+quotas, capacity, expiry and cleanup. The comment at the top of the script
+lists every check.
 
-**Workflow:**
-1. Arrêt de spawner-api
-2. Drop + recreate database
-3. Import du backup
-4. Redémarrage de spawner-api
+It needs Docker with Compose, curl, Node.js, tar, git and python3, and port 80:
+stop the development stack first (`docker compose down`, without `-v` to keep
+its data). It removes only what it created: the compose projects of its own
+environments, its stack and its data directory.
 
-**Usage recommandé:**
-- Tester sur un backup récent d'abord
-- Faire un backup avant de restore un vieux backup
-- Vérifier l'intégrité après restore
+- `e2e/teammate.mjs` plays an invited teammate with Node built-ins only: a
+  software passkey, the device login of the CLI, a preview opened through the
+  dashboard.
+- `e2e/mcp.mjs` plays a coding agent that drives `spawner mcp` over stdio.
+- `e2e-fixtures/bind-mount/` is a project whose service mounts files of its
+  source and writes into them as root.
 
-### 3. health-check.sh
-**Vérification de l'état de santé de Spawner**
+## e2e-installer.sh
 
 ```bash
-./scripts/health-check.sh
+IMAGE=spawner:ci scripts/e2e-installer.sh
 ```
 
-**Ce que vérifie ce script:**
-- ✅ Status des containers Docker
-- ✅ Health checks des services
-- ✅ API health endpoint
-- ✅ Web interface accessible
-- ✅ Connexion PostgreSQL
-- ✅ Utilisation disque (/opt/spawner)
-- ✅ Volumes Docker
-- ✅ Logs récents
+Installs Spawner with `install.sh --tls off --domain localtest.me` and an
+image built beforehand, deploys `examples/node-postgres` with the CLI the
+server serves and asks `spawner mcp` its status (`e2e/mcp-status.mjs`), then
+deploys `examples/laravel-next-mysql` from two branches of the same
+repository at once and updates both at once. It checks that each environment
+serves its own branch and keeps its own data, and that its own part of the
+disk holds neither `vendor` nor `node_modules`. It then upgrades (the
+database must be backed up, the secrets and environments kept), runs the
+installer again without options, and removes everything with `--uninstall
+--purge`.
 
-**Output exemple:**
-```
-======================================
-   Spawner Health Check
-======================================
+It changes the machine: Docker settings, `/opt/spawner`, `/var/lib/spawner`.
+Run it on a throwaway machine only; CI runs it on every pull request.
 
-✓ PostgreSQL Database: Running
-  └─ Health: healthy
-✓ API Server: Running
-  └─ Health: healthy
-✓ Web Interface: Running
-  └─ Health: healthy
-
---- Service Status ---
-API Health Endpoint: OK
-Web Interface: OK
-PostgreSQL Connection: OK
-
---- Disk Usage ---
-[Détails...]
-```
-
-**Configuration monitoring (cron):**
-```bash
-# Health check toutes les 15 minutes
-crontab -e
-# Ajouter:
-*/15 * * * * /path/to/spawner/scripts/health-check.sh >> /var/log/spawner-health.log 2>&1
-```
-
-## Installation
-
-Tous les scripts sont déjà exécutables. Si ce n'est pas le cas :
+## capacity-check.sh
 
 ```bash
-chmod +x scripts/*.sh
+SPAWNER_URL=https://spawner.preview.example.com SPAWNER_TOKEN=<admin token> \
+  scripts/capacity-check.sh [project directory] [--yes]
 ```
 
-## Logs
+The token is an admin's personal token, or the installation's
+`SPAWNER_BOOTSTRAP_TOKEN` (in `/opt/spawner/.env`). Spawner announces how many
+more environments of each project fit (System page, `spawner capacity`). This
+script checks the figure on a real server:
+as long as the capacity announces room, it creates one more environment of
+the project (`examples/node-postgres` by default) and waits until it is
+ready, then checks that the server kept its 1 GiB memory reserve. When the
+capacity says 0, one more environment must be refused (exit code 6). At the
+end, every environment must still be ready, without any out-of-memory kill.
+It deletes everything it created, and puts back the quota it lifts while it
+runs.
 
-**Centraliser les logs des scripts:**
+It takes a while (each environment waits for a new measure of the server)
+and keeps the server full during that time: run it before the team relies on
+the server, or out of hours. `MAX=5` stops after five environments, without
+the refusal check.
+
+## release.sh
 
 ```bash
-# Créer les fichiers de logs
-sudo touch /var/log/spawner-backup.log
-sudo touch /var/log/spawner-health.log
-sudo chown $(whoami):$(whoami) /var/log/spawner-*.log
+scripts/release.sh 2.1.0        # then: git push origin <branch> v2.1.0
+scripts/release.sh 2.1.0-rc.1   # a prerelease: only the tag
 ```
 
-**Rotation des logs (logrotate):**
-
-Créer `/etc/logrotate.d/spawner` :
-
-```
-/var/log/spawner-*.log {
-    daily
-    rotate 30
-    compress
-    delaycompress
-    notifempty
-    create 0644 spawner spawner
-    sharedscripts
-}
-```
-
-## Alerting
-
-**Exemple d'alerting simple par email (requiert mailutils):**
-
-```bash
-#!/bin/bash
-# /path/to/spawner/scripts/health-check-alert.sh
-
-OUTPUT=$(/path/to/spawner/scripts/health-check.sh)
-
-if echo "$OUTPUT" | grep -q "FAIL"; then
-    echo "$OUTPUT" | mail -s "ALERT: Spawner Health Check Failed" admin@example.com
-fi
-```
-
-**Cron:**
-```bash
-*/15 * * * * /path/to/spawner/scripts/health-check-alert.sh
-```
-
-## Troubleshooting Scripts
-
-### backup-db.sh échoue
-
-**Problème:** `Cannot connect to database`
-
-**Solution:**
-```bash
-# Vérifier que PostgreSQL tourne
-docker ps | grep postgres
-
-# Vérifier les logs
-docker logs spawner-postgres
-```
-
-### restore-db.sh échoue
-
-**Problème:** `Restore failed`
-
-**Solution:**
-```bash
-# Vérifier que le backup existe
-ls -lh /opt/spawner/backups/
-
-# Tester l'intégrité du backup
-gunzip -t /opt/spawner/backups/spawner_backup_XXX.sql.gz
-```
-
-### health-check.sh rapporte des erreurs
-
-**Problème:** Certains services ne répondent pas
-
-**Solution:**
-```bash
-# Redémarrer les services
-docker-compose restart
-
-# Vérifier les logs spécifiques
-docker logs spawner-api
-docker logs spawner-postgres
-```
-
-## Best Practices
-
-1. **Backups:**
-   - Toujours avoir au moins 7 jours de backups
-   - Tester restore mensuellement
-   - Stocker backups critiques hors serveur
-
-2. **Health Checks:**
-   - Exécuter régulièrement (15-30 min)
-   - Logger les résultats
-   - Alerter en cas d'échec
-
-3. **Monitoring:**
-   - Surveiller l'espace disque
-   - Surveiller l'utilisation CPU/RAM
-   - Surveiller les erreurs dans les logs
-
-## Support
-
-Pour plus d'informations :
-- [VPS-DEPLOYMENT-GUIDE.md](../VPS-DEPLOYMENT-GUIDE.md)
-- [PRODUCTION-CHECKLIST.md](../PRODUCTION-CHECKLIST.md)
-- [CLAUDE.md](../CLAUDE.md)
+Write the `CHANGELOG.md` section of the version first: the release notes come
+from it. The script sets the version of every `package.json` and the default
+version of `install.sh`, commits, and makes an annotated tag. Pushing the tag
+starts `.github/workflows/release.yml`, which publishes the images on GHCR
+(`linux/amd64`, `linux/arm64`), the CLI on npm (`spawner-cli`, when the
+`NPM_TOKEN` secret is set) and the GitHub release with `install.sh`, the CLI
+bundle and their checksums.
