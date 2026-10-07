@@ -13,8 +13,11 @@ import {
   UseInterceptors,
   DefaultValuePipe,
   Header,
+  Req,
+  Res,
 } from "@nestjs/common";
 import { AnyFilesInterceptor } from "@nestjs/platform-express";
+import type { Request, Response } from "express";
 import * as fs from "fs";
 import type { Actor } from "../../common/actor";
 import { CurrentActor, Scopes } from "../../common/auth.guard";
@@ -26,7 +29,10 @@ interface DeployFields {
   sources?: string;
   fresh?: string;
   reseed?: string;
+  ttl?: string;
 }
+
+const SSE_HEARTBEAT_MS = 15_000;
 
 /**
  * Environments API. Create and update are multipart requests:
@@ -34,6 +40,7 @@ interface DeployFields {
  * - primary: JSON { "ref": "feat/login" } to deploy the project repository from git
  * - sources: JSON { "front": { "ref": "develop" } } for the other sources taken from git
  * - files: "primary" and "source:<name>" (gzip tar archives) for sources sent from a worktree
+ * - ttl: lifetime of the environment ("24h"), instead of the manifest's
  */
 @Controller("v1/envs")
 @Scopes("envs:read")
@@ -104,10 +111,82 @@ export class EnvironmentsController {
     return this.environments.enqueue(actor, id, "start");
   }
 
+  /**
+   * Postpones the expiry: { "ttl": "24h" } makes the environment expire 24
+   * hours from now.
+   */
+  @Post(":id/extend")
+  @Scopes("envs:write")
+  @HttpCode(200)
+  extend(@CurrentActor() actor: Actor, @Param("id") id: string, @Body() body: { ttl?: unknown }) {
+    return this.environments.extend(actor, id, body?.ttl);
+  }
+
+  /**
+   * Runs a command: { service, argv, timeoutSec, stdin }, stdin in base64.
+   */
   @Post(":id/exec")
   @Scopes("envs:exec")
-  exec(@CurrentActor() actor: Actor, @Param("id") id: string, @Body() body: { service?: unknown; argv?: unknown; timeoutSec?: unknown }) {
+  exec(@CurrentActor() actor: Actor, @Param("id") id: string, @Body() body: { service?: unknown; argv?: unknown; timeoutSec?: unknown; stdin?: unknown }) {
     return this.environments.exec(actor, id, body ?? {});
+  }
+
+  /**
+   * Output of the services as JSON lines { service, stream, time, text },
+   * merged in time order. service (comma-separated) narrows the services,
+   * tail the number of lines (200), since a start (ISO 8601), grep a text to
+   * find and errors=true the lines reporting errors. With follow=true, the
+   * answer is a stream of server-sent events, one line per event, until the
+   * services stop.
+   */
+  @Get(":id/logs")
+  async logLines(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Query() raw: { service?: string; tail?: string; since?: string; grep?: string; errors?: string; follow?: string },
+    @Req() request: Request,
+    @Res() response: Response,
+  ) {
+    const query = this.environments.logQuery(raw);
+    if (raw.follow !== "true") {
+      response.json(await this.environments.logLines(actor, id, query));
+      return;
+    }
+
+    const start = await this.environments.followLogLines(actor, id, query);
+    response.status(200);
+    response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    response.setHeader("Cache-Control", "no-cache, no-transform");
+    response.setHeader("X-Accel-Buffering", "no");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.flushHeaders();
+
+    let closed = false;
+    const heartbeat = setInterval(() => response.write(": keep-alive\n\n"), SSE_HEARTBEAT_MS);
+    const end = () => {
+      if (!closed) {
+        closed = true;
+        clearInterval(heartbeat);
+        response.end();
+      }
+    };
+    let stop: (() => void) | null = null;
+    request.on("close", () => {
+      stop?.();
+      end();
+    });
+    stop = await start(
+      (line) => response.write(`data: ${JSON.stringify(line)}\n\n`),
+      () => {
+        if (!closed) {
+          response.write("event: end\ndata: {}\n\n");
+        }
+        end();
+      },
+    );
+    if (closed) {
+      stop();
+    }
   }
 
   /**
@@ -126,9 +205,13 @@ export class EnvironmentsController {
     return this.environments.logs(actor, id, service, tail);
   }
 
+  /**
+   * The containers of the services; usage=true adds their CPU, memory and
+   * disk right now.
+   */
   @Get(":id/services")
-  services(@CurrentActor() actor: Actor, @Param("id") id: string) {
-    return this.environments.services(actor, id);
+  services(@CurrentActor() actor: Actor, @Param("id") id: string, @Query("usage") usage?: string) {
+    return this.environments.services(actor, id, usage === "true");
   }
 
   @Get(":id/stats")
@@ -161,7 +244,7 @@ export class EnvironmentsController {
       }
     }
 
-    return { primary, sources, fresh: body.fresh === "true", reseed: body.reseed === "true" };
+    return { primary, sources, fresh: body.fresh === "true", reseed: body.reseed === "true", ttlSeconds: this.environments.ttlSeconds(body.ttl) };
   }
 
   private json<T>(value: string | undefined, field: string): T {

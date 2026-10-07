@@ -25,6 +25,42 @@ export interface AuthSession {
   methods: { passkey: boolean; github: boolean };
 }
 
+/** Who makes a request (GET /api/v1/auth/whoami). */
+export interface WhoAmI {
+  via: 'session' | 'token' | 'bootstrap';
+  user: User | null;
+  scopes: Scope[];
+  token: { id: string; name: string; hint: string; project: string | null; expiresAt: string | null } | null;
+}
+
+/** What an installation is and the rules it applies (GET /api/v1/info). */
+export interface ServerInfo {
+  version: string;
+  dashboardUrl: string;
+  previewDomain: string;
+  scheme: 'http' | 'https';
+  limits: {
+    /** The compose limits of @spawner/core, plus the most memory an environment may ask for. */
+    compose: {
+      envMemoryBytes: number;
+      serviceMemoryDefaultBytes: number;
+      minServiceMemoryBytes: number;
+      cpusDefault: number;
+      cpusMax: number;
+      pidsDefault: number;
+      pidsMax: number;
+      shmMaxBytes: number;
+      stopGraceMaxSeconds: number;
+      maxServices: number;
+      envMemoryMaxBytes: number;
+    };
+    upload: { maxBytes: number; maxFiles: number; maxExtractedBytes: number };
+    ttl: { defaultSeconds: number; minSeconds: number; maxSeconds: number };
+    exec: { maxSeconds: number; maxOutputBytes: number; maxStdinBytes: number };
+    share: { defaultHours: number; maxHours: number };
+  };
+}
+
 export interface TeamMember extends User {
   isActive: boolean;
   lastLoginAt: string | null;
@@ -237,6 +273,13 @@ export type JobType = 'create' | 'update' | 'delete' | 'stop' | 'start';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+/**
+ * Why a job failed, for machines: invalid (spawner.yaml, the compose file or
+ * its variables refused), capacity (not enough memory to build), upload
+ * (archive refused), interrupted (Spawner restarted during the job).
+ */
+export type JobErrorCode = 'invalid' | 'capacity' | 'upload' | 'interrupted';
+
 export interface Job {
   id: string;
   environmentId: string;
@@ -244,6 +287,7 @@ export interface Job {
   status: JobStatus;
   phase: JobPhase | null;
   error: string | null;
+  errorCode: JobErrorCode | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -272,6 +316,34 @@ export interface ServiceState {
   state: string;
   /** As Docker words it, such as "Up 5 minutes (healthy)". */
   status: string;
+  /** healthy, unhealthy or starting, for a service with a healthcheck. */
+  health: string | null;
+  /** Restarts by the restart policy since the container was created. */
+  restartCount: number;
+  /** The last stop was a kill for lack of memory. */
+  oomKilled: boolean;
+  /** Exit code of a stopped container. */
+  exitCode: number | null;
+  startedAt: string | null;
+}
+
+/** A service with its usage right now (GET /envs/:id/services?usage=true). */
+export interface ServiceUsage extends ServiceState {
+  cpuPercent: number | null;
+  /** Memory in use, without the reclaimable page cache. */
+  memoryBytes: number | null;
+  memoryLimitBytes: number | null;
+  /** Size of the container's writable layer. */
+  diskBytes: number | null;
+}
+
+/** A line of a service's output (GET /envs/:id/logs). */
+export interface LogLine {
+  service: string;
+  stream: 'stdout' | 'stderr';
+  /** ISO 8601, to the millisecond. */
+  time: string;
+  text: string;
 }
 
 export interface ShareLink {

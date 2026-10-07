@@ -15,6 +15,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { EnvironmentsModule } from "./modules/environments/environments.module";
 import { GitModule } from "./modules/git/git.module";
 import { HealthModule } from "./modules/health/health.module";
+import { MetaModule } from "./modules/meta/meta.module";
 import { PreviewsModule } from "./modules/previews/previews.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -58,6 +59,7 @@ config({ path: envPath });
     SystemModule,
     StatsModule,
     HealthModule,
+    MetaModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ActorThrottlerGuard },

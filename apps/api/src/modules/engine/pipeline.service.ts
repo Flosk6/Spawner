@@ -22,7 +22,7 @@ import { AuditService } from "../audit/audit.service";
 import { RouterService } from "./router.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
-import { UploadService } from "./upload.service";
+import { UploadRejectedError, UploadService } from "./upload.service";
 
 /**
  * Directory of the project repository inside an environment. Source names
@@ -45,22 +45,37 @@ export interface DeployPayload {
   sources: Record<string, SourceRequest>;
   fresh?: boolean;
   reseed?: boolean;
+  /** Lifetime asked for with the deploy, instead of the manifest's ttl. */
+  ttlSeconds?: number;
 }
 
 export type JobPhase = "preparing" | "validating" | "building" | "seeding" | "routing" | "deleting" | "stopping" | "starting";
 
 /**
+ * Why a job failed, for machines (the CLI turns it into an exit code):
+ * invalid (spawner.yaml, the compose file or its variables refused),
+ * capacity (not enough memory to build), upload (archive refused),
+ * interrupted (Spawner restarted during the job).
+ */
+export type JobErrorCode = "invalid" | "capacity" | "upload" | "interrupted";
+
+/**
  * A job failure tied to the phase where it happened; validation failures
- * carry the issues found in spawner.yaml or the compose file.
+ * carry the issues found in spawner.yaml or the compose file. Failures of the
+ * validating phase are "invalid" unless another code is given.
  */
 export class PipelineError extends Error {
+  readonly code: JobErrorCode | null;
+
   constructor(
     readonly phase: JobPhase,
     message: string,
     readonly issues: Issue[] = [],
+    code: JobErrorCode | null = null,
   ) {
     super(message);
     this.name = "PipelineError";
+    this.code = code ?? (phase === "validating" ? "invalid" : null);
   }
 }
 
@@ -219,10 +234,9 @@ export class PipelineService {
       }
       await this.router.waitUntilServed(exposures.map((exposure) => exposure.host), log);
 
-      const ttlSeconds = Math.min(manifest.ttl ?? this.config.envTtlSeconds, this.config.envTtlMaxSeconds);
       await this.prisma.environment.update({
         where: { id: env.id },
-        data: { status: "ready", phase: null, error: null, expiresAt: new Date(Date.now() + ttlSeconds * 1000) },
+        data: { status: "ready", phase: null, error: null, expiresAt: this.expiry(env.expiresAt, payload.ttlSeconds ?? null, manifest) },
       });
       exposures.forEach((exposure) => log(`Ready: ${exposure.name} ${this.config.scheme}://${exposure.host}`));
     } catch (error) {
@@ -307,7 +321,7 @@ export class PipelineService {
         log(`Extracted ${result.files} files (${Math.round(result.sizeBytes / 1024)} KiB)`);
         return { name: spec.name, dir: spec.dir, origin: "upload", repoUrl: spec.repoUrl, ref: null, commit: null, digest: result.digest, sizeBytes: result.sizeBytes };
       } catch (error) {
-        throw new PipelineError("preparing", `${label}: ${(error as Error).message}`);
+        throw new PipelineError("preparing", `${label}: ${(error as Error).message}`, [], error instanceof UploadRejectedError ? "upload" : null);
       }
     }
 
@@ -411,8 +425,19 @@ export class PipelineService {
     const check = this.systemStats.checkMemoryAvailability(this.config.minFreeMemoryBytes);
     log(check.message);
     if (!check.available) {
-      throw new PipelineError("preparing", check.message);
+      throw new PipelineError("preparing", check.message, [], "capacity");
     }
+  }
+
+  /**
+   * Expiry of a deployed environment: now plus the lifetime asked for with
+   * the deploy, or the manifest's, or the default, within the maximum. A
+   * deploy without an explicit lifetime never shortens an extension.
+   */
+  private expiry(current: Date | null, requestedSeconds: number | null, manifest: Manifest): Date {
+    const seconds = Math.min(requestedSeconds ?? manifest.ttl ?? this.config.envTtlSeconds, this.config.envTtlMaxSeconds);
+    const expiresAt = new Date(Date.now() + seconds * 1000);
+    return requestedSeconds === null && current && current > expiresAt ? current : expiresAt;
   }
 
   private async saveSources(environmentId: string, records: SourceRecord[]): Promise<void> {

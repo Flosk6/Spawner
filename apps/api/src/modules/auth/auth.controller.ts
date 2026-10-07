@@ -39,6 +39,26 @@ export class AuthController {
     return this.sessions.logout(request);
   }
 
+  /**
+   * Who makes the request, with what scopes, and through which token: what
+   * `spawner whoami` shows.
+   */
+  @Get("whoami")
+  async whoami(@CurrentActor() actor: Actor) {
+    const [user, token] = await Promise.all([
+      actor.user ? this.prisma.user.findUnique({ where: { id: actor.user.id } }) : null,
+      actor.tokenId ? this.prisma.apiToken.findUnique({ where: { id: actor.tokenId }, include: { project: true } }) : null,
+    ]);
+    return {
+      via: actor.via,
+      user: user ? presentUser(user) : null,
+      scopes: actor.scopes,
+      token: token
+        ? { id: token.id, name: token.name, hint: `spn_${token.prefix}_...`, project: token.project?.slug ?? null, expiresAt: token.expiresAt }
+        : null,
+    };
+  }
+
   @Public()
   @Throttle({ short: { limit: 10, ttl: 60_000 } })
   @Post("passkey/options")
@@ -89,7 +109,7 @@ export class AuthController {
   @Post("ws-ticket")
   @Scopes("envs:exec")
   wsTicket(@CurrentActor() actor: Actor) {
-    return this.tickets.issue(actor.user?.id ?? 0);
+    return this.tickets.issue(actor);
   }
 }
 

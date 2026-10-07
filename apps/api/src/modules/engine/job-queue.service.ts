@@ -127,10 +127,11 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
     } catch (error) {
       const message = (error as Error).message ?? String(error);
       const phase = error instanceof PipelineError ? error.phase : null;
+      const errorCode = error instanceof PipelineError ? error.code : null;
       this.logs.append(job.id, `Job ${job.type} failed${phase ? ` during ${phase}` : ""}: ${message}`);
       await this.prisma.job.update({
         where: { id: job.id },
-        data: { status: "failed", phase, error: message.slice(0, 4000), finishedAt: new Date() },
+        data: { status: "failed", phase, error: message.slice(0, 4000), errorCode, finishedAt: new Date() },
       });
       this.logger.warn(`Job ${job.id} (${job.type}) failed: ${message.split("\n")[0]}`);
     } finally {
@@ -147,7 +148,7 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
     for (const job of interrupted) {
       await this.prisma.job.update({
         where: { id: job.id },
-        data: { status: "failed", error: "interrupted by a restart of Spawner", finishedAt: new Date() },
+        data: { status: "failed", error: "interrupted by a restart of Spawner", errorCode: "interrupted", finishedAt: new Date() },
       });
       await this.prisma.environment.updateMany({
         where: { id: job.environmentId, status: { in: TRANSITIONAL_STATUSES } },

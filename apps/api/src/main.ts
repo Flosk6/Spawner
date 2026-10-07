@@ -57,6 +57,9 @@ async function bootstrap() {
     }),
   );
 
+  // Room for the standard input of a command (1 MiB, sent in base64).
+  app.useBodyParser("json", { limit: "2mb" });
+
   app.setGlobalPrefix("api");
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
 

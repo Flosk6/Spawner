@@ -3,6 +3,7 @@ import Docker from "dockerode";
 import * as os from "os";
 import * as path from "path";
 import * as stream from "stream";
+import { decodeLogs, LogDecoder, type RawLogLine } from "./docker-logs";
 
 export interface ExecResult {
   exitCode: number;
@@ -10,6 +11,13 @@ export interface ExecResult {
   stderr: string;
   truncated: boolean;
   timedOut: boolean;
+}
+
+export interface ContainerUsage {
+  cpuPercent: number;
+  /** Memory in use, without the page cache the kernel can reclaim (as docker stats counts it). */
+  memoryBytes: number;
+  memoryLimitBytes: number;
 }
 
 const LABEL_ENV = "dev.spawner.env";
@@ -95,20 +103,25 @@ export class DockerService implements OnModuleInit {
    *
    * @param containerId - Target container
    * @param argv - Command and arguments
-   * @param options - Timeout and output cap
+   * @param options - Timeout, output cap, and what to write to the command's
+   *   standard input before closing it
    */
   async exec(
     containerId: string,
     argv: string[],
-    options: { timeoutMs: number; maxOutputBytes: number }
+    options: { timeoutMs: number; maxOutputBytes: number; stdin?: Buffer }
   ): Promise<ExecResult> {
     const container = this.docker.getContainer(containerId);
-    const exec = await container.exec({ Cmd: argv, AttachStdout: true, AttachStderr: true });
-    const execStream = await exec.start({ hijack: true, stdin: false });
+    const withStdin = options.stdin !== undefined;
+    const exec = await container.exec({ Cmd: argv, AttachStdin: withStdin, AttachStdout: true, AttachStderr: true });
+    const execStream = await exec.start({ hijack: true, stdin: withStdin });
 
     const stdout = new CappedBuffer(options.maxOutputBytes);
     const stderr = new CappedBuffer(options.maxOutputBytes);
     this.docker.modem.demuxStream(execStream, stdout.writable(), stderr.writable());
+    if (withStdin) {
+      execStream.end(options.stdin);
+    }
 
     const timedOut = await new Promise<boolean>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -147,7 +160,7 @@ export class DockerService implements OnModuleInit {
   async execInteractive(
     containerNameOrId: string,
     options: { cmd: string[]; user?: string; workingDir?: string; cols?: number; rows?: number }
-  ): Promise<{ stream: stream.Duplex; exitCode: () => Promise<number> }> {
+  ): Promise<{ stream: stream.Duplex; exitCode: () => Promise<number>; resize: (cols: number, rows: number) => Promise<void> }> {
     const container = this.docker.getContainer(containerNameOrId);
 
     const exec = await container.exec({
@@ -170,7 +183,61 @@ export class DockerService implements OnModuleInit {
     return {
       stream: execStream,
       exitCode: async () => (await exec.inspect()).ExitCode ?? 0,
+      resize: async (cols, rows) => {
+        await exec.resize({ h: rows, w: cols }).catch(() => undefined);
+      },
     };
+  }
+
+  /**
+   * Returns the last lines of a container's output, each with its stream
+   * and time.
+   *
+   * @param options - How many lines from the end, and since when (UNIX seconds)
+   */
+  async logLines(containerId: string, options: { tail: number; since?: number }): Promise<RawLogLine[]> {
+    const container = this.docker.getContainer(containerId);
+    const [info, raw] = await Promise.all([
+      container.inspect(),
+      container.logs({ stdout: true, stderr: true, tail: options.tail, since: options.since, timestamps: true, follow: false }),
+    ]);
+    const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as unknown as string);
+    return decodeLogs(buffer, info.Config.Tty);
+  }
+
+  /**
+   * Follows a container's output from a point in time: calls onLines with
+   * each batch of complete lines, until the container stops or the returned
+   * function is called.
+   *
+   * @param options - Since when (UNIX seconds)
+   * @param onLines - Receives the decoded lines
+   * @param onEnd - Called once the stream is over
+   * @returns A function that stops following
+   */
+  async followLogs(
+    containerId: string,
+    options: { since: number },
+    onLines: (lines: RawLogLine[]) => void,
+    onEnd: () => void,
+  ): Promise<() => void> {
+    const container = this.docker.getContainer(containerId);
+    const info = await container.inspect();
+    const source = (await container.logs({ stdout: true, stderr: true, since: options.since, timestamps: true, follow: true })) as unknown as stream.Readable;
+    const decoder = new LogDecoder(info.Config.Tty);
+    let ended = false;
+    const finish = () => {
+      if (!ended) {
+        ended = true;
+        onLines(decoder.end());
+        onEnd();
+      }
+    };
+    source.on("data", (chunk: Buffer) => onLines(decoder.push(chunk)));
+    source.on("end", finish);
+    source.on("close", finish);
+    source.on("error", finish);
+    return () => source.destroy();
   }
 
   /**
@@ -214,24 +281,38 @@ export class DockerService implements OnModuleInit {
     }
   }
 
+  /**
+   * CPU and memory of a running container right now. Docker samples twice to
+   * compute the CPU, so this takes about a second.
+   *
+   * @returns The usage, or null when the container is gone or stopped
+   */
+  async containerUsage(containerId: string): Promise<ContainerUsage | null> {
+    try {
+      const stats = await this.docker.getContainer(containerId).stats({ stream: false });
+      const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+      const systemDelta = (stats.cpu_stats.system_cpu_usage ?? 0) - (stats.precpu_stats.system_cpu_usage ?? 0);
+      const cpus = stats.cpu_stats.online_cpus || stats.cpu_stats.cpu_usage.percpu_usage?.length || 1;
+      const cpuPercent = systemDelta > 0 && cpuDelta > 0 ? (cpuDelta / systemDelta) * cpus * 100 : 0;
+      const memory = (stats.memory_stats.stats ?? {}) as Record<string, number | undefined>;
+      const reclaimable = memory.inactive_file ?? memory.total_inactive_file ?? 0;
+      return {
+        cpuPercent: Math.round(cpuPercent * 10) / 10,
+        memoryBytes: Math.max(0, (stats.memory_stats.usage ?? 0) - reclaimable),
+        memoryLimitBytes: stats.memory_stats.limit ?? 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async getContainerStats(containerId: string): Promise<{
     cpuPercent: number;
     memoryUsage: number;
     memoryLimit: number;
   } | null> {
-    try {
-      const stats = await this.docker.getContainer(containerId).stats({ stream: false });
-      const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
-      const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
-      const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * stats.cpu_stats.online_cpus * 100 : 0;
-      return {
-        cpuPercent: Math.round(cpuPercent * 10) / 10,
-        memoryUsage: stats.memory_stats.usage || 0,
-        memoryLimit: stats.memory_stats.limit || 0,
-      };
-    } catch {
-      return null;
-    }
+    const usage = await this.containerUsage(containerId);
+    return usage && { cpuPercent: usage.cpuPercent, memoryUsage: usage.memoryBytes, memoryLimit: usage.memoryLimitBytes };
   }
 
   /**

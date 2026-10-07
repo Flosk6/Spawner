@@ -6,8 +6,8 @@ import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
 import { SHARE_PARAM } from "./previews.service";
 
-const SHARE_DEFAULT_HOURS = 24;
-const SHARE_MAX_HOURS = 14 * 24;
+export const SHARE_DEFAULT_HOURS = 24;
+export const SHARE_MAX_HOURS = 14 * 24;
 
 /**
  * Share links: a temporary link to an environment's previews for someone

@@ -1,9 +1,9 @@
 import { Logger } from "@nestjs/common";
-import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
-import type { Socket } from "socket.io";
+import { ConnectedSocket, MessageBody, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
+import type { Namespace, Socket } from "socket.io";
 import { StringDecoder } from "string_decoder";
 import type { Duplex } from "stream";
-import { ROLE_SCOPES, assertCanAct, isRole, sessionActor, type Actor } from "../../common/actor";
+import { ROLE_SCOPES, assertCanAct, isRole, type Actor } from "../../common/actor";
 import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
@@ -18,17 +18,28 @@ interface TerminalSession {
   service: string;
   stream: Duplex;
   userId: number;
+  resize: (cols: number, rows: number) => Promise<void>;
+}
+
+/**
+ * Accepts a terminal size within reason.
+ */
+function dimension(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 10 && value <= 1000 ? value : fallback;
 }
 
 /**
  * Interactive terminals in the services of an environment, over Socket.IO:
- * a TTY exec session through the Docker API. A connection needs the
- * dashboard origin and a one-time ticket; a terminal opens only in an
- * environment the user may run commands in (their own, or any for an
- * admin), and is recorded in the audit trail.
+ * a TTY exec session through the Docker API. A connection needs a one-time
+ * ticket, and the dashboard origin when it comes from a browser (the CLI
+ * sends no Origin; a page always does), both checked during the handshake:
+ * a refused client gets a connect_error and never connects. A terminal
+ * opens only in an environment the user may run commands in (their own, or
+ * any for an admin), within the project of the token that asked for the
+ * ticket, and is recorded in the audit trail.
  */
 @WebSocketGateway({ namespace: "terminal" })
-export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
   private readonly logger = new Logger(TerminalGateway.name);
   private readonly sessions = new Map<string, TerminalSession>();
 
@@ -40,21 +51,45 @@ export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly audit: AuditService,
   ) {}
 
-  async handleConnection(client: Socket): Promise<void> {
+  /**
+   * Authenticates each connection during its handshake, so that no message
+   * arrives before the actor is known (a client may send start-terminal as
+   * soon as it is connected).
+   */
+  afterInit(namespace: Namespace): void {
+    namespace.use((client, next) => {
+      this.authenticate(client).then(
+        (actor) => {
+          client.data.actor = actor;
+          next();
+        },
+        (error: Error) => {
+          this.logger.warn(`Terminal connection refused: ${error.message}`);
+          next(error);
+        },
+      );
+    });
+  }
+
+  private async authenticate(client: Socket): Promise<Actor> {
     const origin = client.handshake.headers.origin;
-    if (!origin || !this.config.dashboardOrigins.includes(origin)) {
-      client.emit("terminal-error", "Terminals open from the dashboard only");
-      client.disconnect(true);
-      return;
+    if (origin && !this.config.dashboardOrigins.includes(origin)) {
+      throw new Error("terminals open from the dashboard or the CLI only");
     }
-    const userId = this.tickets.redeem(client.handshake.query.token ?? client.handshake.auth?.token);
-    const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
-    if (!user?.isActive || !isRole(user.role)) {
-      client.emit("terminal-error", "Unauthorized: invalid or expired ticket");
-      client.disconnect(true);
-      return;
+    const holder = this.tickets.redeem(client.handshake.query.token ?? client.handshake.auth?.token);
+    const user = holder?.userId ? await this.prisma.user.findUnique({ where: { id: holder.userId } }) : null;
+    if (!holder || !user?.isActive || !isRole(user.role)) {
+      throw new Error("Unauthorized: invalid or expired ticket");
     }
-    client.data.actor = sessionActor({ id: user.id, name: user.name, role: user.role });
+    const roleScopes = ROLE_SCOPES[user.role];
+    return {
+      user: { id: user.id, name: user.name, role: user.role },
+      via: holder.via,
+      scopes: holder.scopes.filter((scope) => roleScopes.includes(scope)),
+      tokenId: holder.tokenId,
+      tokenName: holder.tokenName,
+      projectId: holder.projectId,
+    };
   }
 
   handleDisconnect(client: Socket): void {
@@ -66,7 +101,10 @@ export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage("start-terminal")
-  async start(@ConnectedSocket() client: Socket, @MessageBody() data: { environmentId?: string; resourceName?: string }): Promise<void> {
+  async start(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { environmentId?: string; resourceName?: string; cols?: number; rows?: number },
+  ): Promise<void> {
     const actor = client.data.actor as Actor | undefined;
     if (!actor?.user || typeof data?.environmentId !== "string" || typeof data.resourceName !== "string") {
       client.emit("terminal-error", "Unauthorized");
@@ -83,7 +121,7 @@ export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect
       return;
     }
     try {
-      assertCanAct({ ...actor, scopes: ROLE_SCOPES[actor.user.role] }, "envs:exec", environment);
+      assertCanAct(actor, "envs:exec", environment);
     } catch (error) {
       client.emit("terminal-error", (error as Error).message);
       return;
@@ -95,10 +133,14 @@ export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     try {
-      const { stream, exitCode } = await this.docker.execInteractive(container.Id, { cmd: ["/bin/sh"] });
+      const { stream, exitCode, resize } = await this.docker.execInteractive(container.Id, {
+        cmd: ["/bin/sh"],
+        cols: dimension(data.cols, 80),
+        rows: dimension(data.rows, 30),
+      });
       const sessionId = `${client.id}:${data.resourceName}`;
       this.close(sessionId);
-      this.sessions.set(sessionId, { environmentId: environment.id, service: data.resourceName, stream, userId: actor.user.id });
+      this.sessions.set(sessionId, { environmentId: environment.id, service: data.resourceName, stream, userId: actor.user.id, resize });
       await this.audit.record(actor, "terminal.open", { target: `${environment.project.slug}/${environment.slug}`, details: { service: data.resourceName } });
 
       const decoder = new StringDecoder("utf8");
@@ -133,6 +175,17 @@ export class TerminalGateway implements OnGatewayConnection, OnGatewayDisconnect
     } catch {
       client.emit("terminal-error", "Terminal session lost");
       this.close(`${client.id}:${data.resourceName}`);
+    }
+  }
+
+  /**
+   * Follows the size of the client's terminal.
+   */
+  @SubscribeMessage("terminal-resize")
+  resize(@ConnectedSocket() client: Socket, @MessageBody() data: { resourceName?: string; cols?: number; rows?: number }): void {
+    const session = this.sessions.get(`${client.id}:${data?.resourceName}`);
+    if (session) {
+      void session.resize(dimension(data.cols, 80), dimension(data.rows, 30));
     }
   }
 

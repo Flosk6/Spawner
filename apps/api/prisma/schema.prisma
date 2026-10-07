@@ -234,6 +234,10 @@ model Job {
   status        String      @db.VarChar(20)
   phase         String?     @db.VarChar(20)
   error         String?
+  /// Why a failed job failed, for machines: invalid (spawner.yaml or the
+  /// compose file refused), capacity (not enough memory), upload (archive
+  /// refused), interrupted (Spawner restarted).
+  errorCode     String?     @map("error_code") @db.VarChar(20)
   payload       Json?
   triggeredById Int?        @map("triggered_by_id")
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -5,6 +5,7 @@ export * from './hostnames';
 export * from './variables';
 export * from './manifest';
 export * from './interpolate';
+export * from './logs';
 export * from './compose/context';
 export * from './compose/paths';
 export * from './compose/validate';

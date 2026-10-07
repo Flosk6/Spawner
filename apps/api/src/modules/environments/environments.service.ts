@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type Environment, type EnvironmentSource, type Exposure, type Job, type Project, type User } from "@prisma/client";
-import { slugIssue } from "@spawner/core";
+import { ErrorLineFilter, matchesGrep, parseDuration, slugIssue } from "@spawner/core";
 import { sanitizeGitBranch } from "@spawner/utils";
+import type Docker from "dockerode";
 import { assertCanAct, assertInProject, type Actor } from "../../common/actor";
+import type { RawLogLine } from "../../common/docker-logs";
 import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
 import { JobQueueService, type JobType } from "../engine/job-queue.service";
@@ -12,16 +14,52 @@ import { AuditService } from "../audit/audit.service";
 import { StatsService } from "../stats/stats.service";
 
 const EXEC_DEFAULT_SECONDS = 120;
-const EXEC_MAX_SECONDS = 600;
-const EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
+export const EXEC_MAX_SECONDS = 600;
+export const EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
+export const EXEC_MAX_STDIN_BYTES = 1024 * 1024;
 const STATS_MAX_MINUTES = 7 * 24 * 60;
 const AUDITED_COMMAND_LENGTH = 200;
+const LOG_DEFAULT_LINES = 200;
+const LOG_MAX_LINES = 5000;
+/** Lines read from each service when filtering, to find enough matches. */
+const LOG_SCAN_LINES = 5000;
+export const MIN_TTL_SECONDS = 10 * 60;
 
 export interface DeployRequest {
   primary: SourceRequest;
   sources: Record<string, SourceRequest>;
   fresh?: boolean;
   reseed?: boolean;
+  ttlSeconds?: number;
+}
+
+/** A line of a service's output, as the API returns it. */
+export interface LogLine {
+  service: string;
+  stream: "stdout" | "stderr";
+  time: string;
+  text: string;
+}
+
+/** What to read from the services' output. */
+export interface LogQuery {
+  services: string[];
+  tail: number;
+  since?: Date;
+  grep?: string;
+  errors: boolean;
+}
+
+/**
+ * Lines of several services merged in time order and filtered, plus the time
+ * of the newest line read for each service (filtered out or not), from which
+ * a follower goes on.
+ */
+interface LogSnapshot {
+  lines: LogLine[];
+  containers: { service: string; id: string }[];
+  newest: Map<string, string>;
+  filter: (line: { service: string; text: string }) => boolean;
 }
 
 type EnvironmentWithRelations = Environment & {
@@ -39,6 +77,36 @@ const INCLUDE = {
   exposures: { orderBy: { name: "asc" } },
   jobs: { orderBy: { createdAt: "desc" }, take: 1 },
 } satisfies Prisma.EnvironmentInclude;
+
+/** Lines a cut error may reach back for its first line. */
+const ERROR_HEAD_LOOKBACK = 200;
+
+/**
+ * Where the last lines of an error log start, moved back so that no error
+ * is cut: a stack trace without its first line ("error: relation does not
+ * exist") hides the cause.
+ */
+export function wholeErrorsStart(lines: { service: string; continuation: boolean }[], tail: number): number {
+  let start = Math.max(0, lines.length - tail);
+  const seen = new Set<string>();
+  for (let i = start; i < lines.length; i++) {
+    const { service, continuation } = lines[i];
+    if (seen.has(service)) {
+      continue;
+    }
+    seen.add(service);
+    if (!continuation) {
+      continue;
+    }
+    for (let j = i - 1; j >= 0 && i - j <= ERROR_HEAD_LOOKBACK; j--) {
+      if (lines[j].service === service && !lines[j].continuation) {
+        start = Math.min(start, j);
+        break;
+      }
+    }
+  }
+  return start;
+}
 
 /**
  * Environments as the API exposes them. Every change goes through a job; this
@@ -131,6 +199,39 @@ export class EnvironmentsService {
     return { environment: await this.get(actor, environment.id), job: this.presentJob(job) };
   }
 
+  /**
+   * Postpones the expiry of an environment: it now expires after ttl.
+   */
+  async extend(actor: Actor, id: string, ttl: unknown) {
+    const seconds = this.ttlSeconds(ttl);
+    if (seconds === undefined) {
+      throw new BadRequestException('expected { ttl: "24h" }');
+    }
+    const environment = await this.find(actor, id);
+    assertCanAct(actor, "envs:write", environment);
+    this.ensureNotDeleting(environment);
+    await this.prisma.environment.update({ where: { id: environment.id }, data: { expiresAt: new Date(Date.now() + seconds * 1000) } });
+    await this.audit.record(actor, "env.extend", { target: this.label(environment), details: { ttlSeconds: seconds } });
+    return this.get(actor, environment.id);
+  }
+
+  /**
+   * Checks a lifetime given as a duration ("24h") or a number of seconds.
+   *
+   * @returns The lifetime in seconds, or undefined when none was given
+   */
+  ttlSeconds(ttl: unknown): number | undefined {
+    if (ttl === undefined || ttl === null || ttl === "") {
+      return undefined;
+    }
+    const seconds = parseDuration(ttl);
+    const max = this.config.envTtlMaxSeconds;
+    if (seconds === null || seconds < MIN_TTL_SECONDS || seconds > max) {
+      throw new BadRequestException(`ttl must be a duration between 10m and ${Math.floor(max / 3600)}h, such as "24h"`);
+    }
+    return Math.round(seconds);
+  }
+
   async update(actor: Actor, id: string, request: DeployRequest) {
     this.validateRequest(request);
     const environment = await this.find(actor, id);
@@ -155,10 +256,11 @@ export class EnvironmentsService {
    * returns its exit code and outputs. Members run commands in their own
    * environments only.
    */
-  async exec(actor: Actor, id: string, body: { service?: unknown; argv?: unknown; timeoutSec?: unknown }) {
+  async exec(actor: Actor, id: string, body: { service?: unknown; argv?: unknown; timeoutSec?: unknown; stdin?: unknown }) {
     if (typeof body.service !== "string" || !Array.isArray(body.argv) || body.argv.length === 0 || !body.argv.every((item) => typeof item === "string")) {
       throw new BadRequestException("expected { service: string, argv: string[] }");
     }
+    const stdin = this.stdin(body.stdin);
     const timeoutSec = typeof body.timeoutSec === "number" ? Math.min(Math.max(body.timeoutSec, 1), EXEC_MAX_SECONDS) : EXEC_DEFAULT_SECONDS;
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:exec", environment);
@@ -166,9 +268,168 @@ export class EnvironmentsService {
     const command = (body.argv as string[]).join(" ");
     await this.audit.record(actor, "env.exec", {
       target: this.label(environment),
-      details: { service: body.service, command: command.length > AUDITED_COMMAND_LENGTH ? `${command.slice(0, AUDITED_COMMAND_LENGTH)}...` : command },
+      details: {
+        service: body.service,
+        command: command.length > AUDITED_COMMAND_LENGTH ? `${command.slice(0, AUDITED_COMMAND_LENGTH)}...` : command,
+        ...(stdin ? { stdinBytes: stdin.length } : {}),
+      },
     });
-    return this.docker.exec(container, body.argv as string[], { timeoutMs: timeoutSec * 1000, maxOutputBytes: EXEC_MAX_OUTPUT_BYTES });
+    return this.docker.exec(container, body.argv as string[], { timeoutMs: timeoutSec * 1000, maxOutputBytes: EXEC_MAX_OUTPUT_BYTES, stdin });
+  }
+
+  /**
+   * Decodes the standard input of a command, sent in base64.
+   */
+  private stdin(value: unknown): Buffer | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+      throw new BadRequestException("stdin must be base64");
+    }
+    const buffer = Buffer.from(value, "base64");
+    if (buffer.length > EXEC_MAX_STDIN_BYTES) {
+      throw new BadRequestException(`stdin is larger than ${EXEC_MAX_STDIN_BYTES / 1024 / 1024} MiB`);
+    }
+    return buffer;
+  }
+
+  /**
+   * Reads the output of services, merged in time order: the last lines, or
+   * the last that match the filters among the lines read.
+   */
+  async logLines(actor: Actor, id: string, query: LogQuery): Promise<{ lines: LogLine[] }> {
+    const snapshot = await this.logSnapshot(await this.find(actor, id), query);
+    return { lines: snapshot.lines };
+  }
+
+  /**
+   * Prepares to follow the output of services: reads the last lines first,
+   * so that a refused request (unknown environment or service) fails before
+   * anything is streamed.
+   *
+   * @returns A function that sends those lines, then each new line that
+   *   passes the filters until every service stops; it returns a function
+   *   that stops following
+   */
+  async followLogLines(
+    actor: Actor,
+    id: string,
+    query: LogQuery,
+  ): Promise<(send: (line: LogLine) => void, onEnd: () => void) => Promise<() => void>> {
+    const startedAt = Math.floor(Date.now() / 1000) - 1;
+    const snapshot = await this.logSnapshot(await this.find(actor, id), query);
+    return (send, onEnd) => this.follow(snapshot, startedAt, send, onEnd);
+  }
+
+  private async follow(snapshot: LogSnapshot, startedAt: number, send: (line: LogLine) => void, onEnd: () => void): Promise<() => void> {
+    snapshot.lines.forEach(send);
+    let running = snapshot.containers.length;
+    if (running === 0) {
+      onEnd();
+      return () => undefined;
+    }
+    const stops = await Promise.all(
+      snapshot.containers.map(({ service, id: containerId }) =>
+        this.docker.followLogs(
+          containerId,
+          { since: startedAt },
+          (lines) => {
+            for (const line of lines) {
+              if (line.time <= (snapshot.newest.get(service) ?? "")) {
+                continue;
+              }
+              snapshot.newest.set(service, line.time);
+              if (snapshot.filter({ service, text: line.text })) {
+                send(this.presentLogLine(service, line));
+              }
+            }
+          },
+          () => {
+            running--;
+            if (running === 0) {
+              onEnd();
+            }
+          },
+        ),
+      ),
+    );
+    return () => stops.forEach((stop) => stop());
+  }
+
+  private async logSnapshot(environment: EnvironmentWithRelations, query: LogQuery): Promise<LogSnapshot> {
+    const containers = await this.serviceContainers(environment, query.services);
+    const filtering = query.errors || Boolean(query.grep);
+    const since = query.since ? Math.floor(query.since.getTime() / 1000) : undefined;
+    const read = await Promise.all(
+      containers.map(async ({ service, id }) => (await this.docker.logLines(id, { tail: filtering ? LOG_SCAN_LINES : query.tail, since })).map((line) => ({ service, line }))),
+    );
+
+    const newest = new Map<string, string>();
+    const merged = read.flat().sort((a, b) => (a.line.time < b.line.time ? -1 : a.line.time > b.line.time ? 1 : 0));
+    merged.forEach(({ service, line }) => newest.set(service, line.time));
+
+    const errors = new ErrorLineFilter();
+    const filter = (line: { service: string; text: string }) => (!query.errors || errors.accept(line)) && (!query.grep || matchesGrep(line.text, query.grep));
+    const kept: { service: string; line: RawLogLine; continuation: boolean }[] = [];
+    for (const { service, line } of merged) {
+      const kind = query.errors ? errors.classify({ service, text: line.text }) : "line";
+      if (kind !== null && (!query.grep || matchesGrep(line.text, query.grep))) {
+        kept.push({ service, line, continuation: kind === "continuation" });
+      }
+    }
+    const start = query.errors && !query.grep ? wholeErrorsStart(kept, query.tail) : Math.max(0, kept.length - query.tail);
+    return { lines: kept.slice(start).map(({ service, line }) => this.presentLogLine(service, line)), containers, newest, filter };
+  }
+
+  /**
+   * Containers of the named services, or of every service of the environment.
+   */
+  private async serviceContainers(environment: Environment, services: string[]): Promise<{ service: string; id: string }[]> {
+    const all = (await this.docker.listEnvironmentContainers(environment.id)).map((container) => ({
+      service: container.Labels["com.docker.compose.service"],
+      id: container.Id,
+    }));
+    if (services.length === 0) {
+      return all;
+    }
+    const missing = services.filter((service) => !all.some((container) => container.service === service));
+    if (missing.length > 0) {
+      const known = all.map((container) => container.service).sort();
+      throw new NotFoundException(`no container for ${missing.join(", ")}${known.length ? ` (services: ${known.join(", ")})` : ""}`);
+    }
+    return all.filter((container) => services.includes(container.service));
+  }
+
+  private presentLogLine(service: string, line: RawLogLine): LogLine {
+    return { service, stream: line.stream, time: line.time.length > 24 ? `${line.time.slice(0, 23)}Z` : line.time, text: line.text };
+  }
+
+  /**
+   * Parses the query of the logs route.
+   */
+  logQuery(raw: { service?: string; tail?: string; since?: string; grep?: string; errors?: string }): LogQuery {
+    const tail = raw.tail === undefined ? LOG_DEFAULT_LINES : Number(raw.tail);
+    if (!Number.isInteger(tail) || tail < 1) {
+      throw new BadRequestException("tail must be a positive whole number");
+    }
+    let since: Date | undefined;
+    if (raw.since) {
+      since = /^\d+(\.\d+)?$/.test(raw.since) ? new Date(Number(raw.since) * 1000) : new Date(raw.since);
+      if (Number.isNaN(since.getTime())) {
+        throw new BadRequestException("since must be a date (ISO 8601) or a UNIX time");
+      }
+    }
+    if (raw.grep !== undefined && raw.grep.length > 200) {
+      throw new BadRequestException("grep is limited to 200 characters");
+    }
+    return {
+      services: (raw.service ?? "").split(",").map((service) => service.trim()).filter(Boolean),
+      tail: Math.min(tail, LOG_MAX_LINES),
+      since,
+      grep: raw.grep || undefined,
+      errors: raw.errors === "true",
+    };
   }
 
   async logs(actor: Actor, id: string, service: string, tail: number) {
@@ -181,18 +442,44 @@ export class EnvironmentsService {
   }
 
   /**
-   * The environment's containers, one per compose service, with their state.
+   * The environment's containers, one per compose service, with their state,
+   * health, restarts and out-of-memory kills. With usage, also their CPU,
+   * memory and writable layer right now (about a second longer).
    */
-  async services(actor: Actor, id: string) {
+  async services(actor: Actor, id: string, usage = false) {
     const environment = await this.find(actor, id);
     const containers = await this.docker.listEnvironmentContainers(environment.id);
-    return containers
-      .map((container) => ({
-        name: container.Labels["com.docker.compose.service"],
-        state: container.State,
-        status: container.Status,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const services = await Promise.all(containers.map((container) => this.describeService(container, usage)));
+    return services.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async describeService(container: Docker.ContainerInfo, usage: boolean) {
+    const info = await this.docker.client
+      .getContainer(container.Id)
+      .inspect({ size: usage } as Docker.ContainerInspectOptions)
+      .catch(() => null);
+    const running = container.State === "running";
+    const service = {
+      name: container.Labels["com.docker.compose.service"],
+      state: container.State,
+      status: container.Status,
+      health: info?.State.Health?.Status ?? null,
+      restartCount: info?.RestartCount ?? 0,
+      oomKilled: info?.State.OOMKilled === true,
+      exitCode: running ? null : (info?.State.ExitCode ?? null),
+      startedAt: info?.State.StartedAt && !info.State.StartedAt.startsWith("0001") ? info.State.StartedAt : null,
+    };
+    if (!usage) {
+      return service;
+    }
+    const live = running ? await this.docker.containerUsage(container.Id) : null;
+    return {
+      ...service,
+      cpuPercent: live?.cpuPercent ?? null,
+      memoryBytes: live?.memoryBytes ?? null,
+      memoryLimitBytes: live?.memoryLimitBytes || info?.HostConfig.Memory || null,
+      diskBytes: (info as { SizeRw?: number } | null)?.SizeRw ?? null,
+    };
   }
 
   /**
@@ -219,6 +506,7 @@ export class EnvironmentsService {
       status: job.status,
       phase: job.phase,
       error: job.error,
+      errorCode: job.errorCode,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
@@ -284,7 +572,13 @@ export class EnvironmentsService {
   }
 
   private payload(request: DeployRequest): DeployPayload {
-    return { primary: request.primary, sources: request.sources, fresh: request.fresh === true, reseed: request.reseed === true };
+    return {
+      primary: request.primary,
+      sources: request.sources,
+      fresh: request.fresh === true,
+      reseed: request.reseed === true,
+      ...(request.ttlSeconds ? { ttlSeconds: request.ttlSeconds } : {}),
+    };
   }
 
   private present(environment: EnvironmentWithRelations) {
