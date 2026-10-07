@@ -27,11 +27,17 @@
 # the timeline, the recorded terminal session, three out-of-memory kills
 # named by the timeline, spawner status and the system alerts, metrics,
 # disk and capacity; and the deleted environment keeps its page, timeline
-# and last logs.
+# and last logs. Then the lifecycle: a service stopped outside Spawner makes
+# the environment degraded until it runs again; spawner sleep stops it and a
+# visit gets the waiting page and wakes it up, data kept; a minute without
+# activity puts it to sleep by itself and spawner exec wakes it up first; the
+# quota of a person refuses a second environment (exit 6).
 #
 # Then, with scripts/e2e-fixtures/bind-mount, a service that mounts files of
-# its source and writes into it as root: an update must reach the mounted
-# files, and a delete must remove what the container wrote.
+# its source and writes into it as root: the capacity announced must match
+# what is refused, an update must reach the mounted files, and once expired
+# the environment must disappear with what the container wrote. The automatic
+# cleanup removes what a deleted environment left and nothing else.
 #
 # Usage: scripts/e2e-engine.sh            (KEEP=1 to leave the stack running)
 # Needs: docker with compose, curl, node, tar, git, python3.
@@ -80,8 +86,10 @@ status() {
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: $host" "$@" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/"
 }
 
-# Compose projects of the environments the test creates.
-TEST_PROJECTS=(spn-example--demo spn-bindmount--bind spn-agent--feat-cli-demo)
+# Compose projects of the environments the test creates, with names of their
+# own: the cleanup removes them, and the README's quick start creates
+# example/demo on a developer's stack.
+TEST_PROJECTS=(spn-example--e2e-demo spn-bindmount--bind spn-agent--feat-cli-demo)
 
 # The CLI, as downloaded from the server, with its own configuration.
 export SPAWNER_CONFIG_DIR="$WORK/cli-config"
@@ -97,6 +105,20 @@ leftovers() {
   [ ! -e "$SPAWNER_DATA_DIR/traefik/$1.yaml" ] || found+=" routing"
   [ ! -e "$SPAWNER_DATA_DIR/envs/$1" ] || found+=" sources"
   echo "$found"
+}
+
+# wait_status ENV_ID STATUS SECONDS: waits until the environment has the status.
+wait_status() {
+  for _ in $(seq 1 $(($3 / 2))); do
+    [ "$(api GET "/envs/$1" | json 'v.status')" = "$2" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+# limits JSON: changes the limits of the server as an admin.
+limits() {
+  api PUT /settings/limits -H 'Content-Type: application/json' -d "$1" >/dev/null
 }
 
 # remove_project NAME: containers, volumes, networks and images of a compose project.
@@ -175,7 +197,7 @@ api POST /projects -H 'Content-Type: application/json' \
 
 step "Creating the environment from an uploaded worktree"
 archive "$PWD" "$WORK/v1.tar.gz"
-created=$(api POST /envs -F project=example -F env=demo -F createdVia=cli -F "primary=@$WORK/v1.tar.gz")
+created=$(api POST /envs -F project=example -F env=e2e-demo -F createdVia=cli -F "primary=@$WORK/v1.tar.gz")
 env_id=$(echo "$created" | json 'v.environment.id')
 job_id=$(echo "$created" | json 'v.job.id')
 echo "environment $env_id, job $job_id"
@@ -187,7 +209,7 @@ pass "ready at http://$host"
 step "Calling the environment through Traefik"
 page=$(preview "$host")
 echo "$page"
-[[ "$page" == *"Hello from Spawner (demo)"* ]] || fail "unexpected page"
+[[ "$page" == *"Hello from Spawner (e2e-demo)"* ]] || fail "unexpected page"
 [[ "$page" == *"1 user(s)"* ]] || fail "the seed did not run"
 pass "the app answers with the seeded data"
 
@@ -252,7 +274,7 @@ step "Deleting the environment"
 job_id=$(api DELETE "/envs/$env_id" | json 'v.job.id')
 wait_job "$job_id"
 left=$(leftovers "$env_id")
-[ -z "$(docker images -q --filter "label=com.docker.compose.project=spn-example--demo")" ] || left+=" images"
+[ -z "$(docker images -q --filter "label=com.docker.compose.project=spn-example--e2e-demo")" ] || left+=" images"
 [ -z "$left" ] || fail "left behind:$left"
 status=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $host" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/")
 [ "$status" = "404" ] || fail "the URL still answers ($status)"
@@ -386,11 +408,13 @@ for _ in $(seq 1 30); do
   [ "$(spawner status --json | json 'v.services.every((s) => s.state === "running" && s.health === "healthy")')" = "true" ] && break
   sleep 2
 done
+# The collector also samples during the deploy, while only db runs: wait for a minute of both services.
+both='v.points.some((point) => Object.keys(point.services).length === 2)'
 for _ in $(seq 1 90); do
-  [ "$(api GET "/envs/$agent_id/metrics?range=1h" | json 'v.points.length > 0')" = "true" ] && break
+  [ "$(api GET "/envs/$agent_id/metrics?range=1h" | json "$both")" = "true" ] && break
   sleep 2
 done
-[ "$(api GET "/envs/$agent_id/metrics?range=1h" | json 'v.points.length > 0 && Object.keys(v.points[0].services).length === 2')" = "true" ] || fail "the metrics should hold a minute of both services"
+[ "$(api GET "/envs/$agent_id/metrics?range=1h" | json "$both")" = "true" ] || fail "the metrics should hold a minute of both services"
 for _ in $(seq 1 90); do
   [ "$(api GET "/envs/$agent_id/disk" | json 'v.disk ? v.disk.totalBytes > 0 : false')" = "true" ] && break
   sleep 2
@@ -399,6 +423,51 @@ done
 [ "$(spawner capacity --json | json 'typeof v.projects.find((p) => p.project === "agent").places')" = "number" ] || fail "spawner capacity should count the room left"
 [ "$(api GET /projects/agent/usage | json 'v.environments.total')" = "1" ] || fail "the project usage should count its environment"
 pass "minute metrics of each service, the disk of the environment, the capacity and the project usage"
+
+step "Sleeping and waking up"
+app_container=$(docker ps -q --filter "label=dev.spawner.env=$agent_id" --filter "label=dev.spawner.service=app")
+docker stop -t 1 "$app_container" >/dev/null
+wait_status "$agent_id" degraded 130 || fail "a service stopped outside Spawner should make the environment degraded"
+[[ "$(api GET "/envs/$agent_id" | json 'v.error')" == "app exited with code"* ]] || fail "the environment should say which service is down"
+docker start "$app_container" >/dev/null
+wait_status "$agent_id" ready 130 || fail "the environment should be ready again once its service runs"
+pass "a service stopped outside Spawner: the environment turns degraded, then ready again"
+
+asleep=$(spawner sleep "$agent_env" --json)
+[ "$(echo "$asleep" | json 'v.environment.status')" = "sleeping" ] || fail "spawner sleep should put the environment to sleep: $asleep"
+[ -z "$(docker ps -q --filter "label=dev.spawner.env=$agent_id")" ] || fail "a sleeping environment should run no container"
+code=$(curl -s -o "$WORK/wake.html" -D "$WORK/wake.headers" -w '%{http_code}' --max-time 10 \
+  -H "Host: $agent_host" -H "X-Spawner-Preview: $PREVIEW_TOKEN" -H 'Accept: text/html' "http://127.0.0.1:${SPAWNER_HTTP_PORT}/")
+[ "$code" = "503" ] && grep -qi '^x-spawner-wake:' "$WORK/wake.headers" && grep -q "Waking up: $agent_env (agent)" "$WORK/wake.html" \
+  || fail "a visit to a sleeping environment should get the waiting page, not $code: $(head -c 300 "$WORK/wake.html")"
+for _ in $(seq 1 60); do
+  [[ "$(preview "$agent_host")" == *"Hello from a project variable"* ]] && break
+  sleep 2
+done
+[[ "$(preview "$agent_host")" == *"Hello from a project variable"* ]] || fail "the visit should have woken the environment up"
+[ "$(preview "$agent_host" /users | json 'v.length')" = "3" ] || fail "the data should survive sleeping"
+[[ "$(api GET "/envs/$agent_id/events" | json 'v.events.map((e) => e.message).join("|")')" == *"Wake-up started by a visit to $agent_host"* ]] \
+  || fail "the timeline should show what woke it up"
+pass "spawner sleep stops it; a visit gets the waiting page and wakes it up, data kept"
+
+limits '{"idleSeconds":"1m"}'
+wait_status "$agent_id" sleeping 200 || fail "after a minute without activity, the environment should sleep"
+limits '{"idleSeconds":null}'
+[[ "$(api GET "/envs/$agent_id/events" | json 'v.events.map((e) => e.message).join("|")')" == *"Sleep started by Spawner (no activity for 1m)"* ]] \
+  || fail "the timeline should say why it went to sleep"
+users=$(spawner exec "$agent_env" db -- psql -U app -d app -tAc "SELECT count(*) FROM users" 2>"$WORK/wake.err") || fail "spawner exec should wake the environment up: $(cat "$WORK/wake.err")"
+[ "$(echo "$users" | tr -d '[:space:]')" = "3" ] || fail "spawner exec should run once the environment is awake, not answer: $users"
+grep -q "is asleep: waking it up" "$WORK/wake.err" || fail "spawner exec should say it wakes the environment up first"
+pass "a minute without activity put it to sleep by itself; spawner exec woke it up first"
+
+limits '{"envsPerUser":1}'
+set +e
+quota=$(spawner up second-env --json 2>/dev/null)
+code=$?
+set -e
+limits '{"envsPerUser":null}'
+[ "$code" = "6" ] && [ "$(echo "$quota" | json 'v.error.code')" = "quota" ] || fail "an environment beyond the quota of a person should be refused with exit 6, not $code: $quota"
+pass "beyond the quota of a person, spawner up is refused with exit code 6"
 
 step "An agent drives the environment through MCP"
 node "$ROOT/scripts/e2e/mcp.mjs" "$WORK/spawner" "$WORKTREE" "$agent_env"
@@ -426,6 +495,14 @@ api POST /projects -H 'Content-Type: application/json' \
 mkdir -p "$WORK/bind"
 cp -R "$BIND_FIXTURE/." "$WORK/bind/"
 tar -C "$WORK/bind" -czf "$WORK/bind-v1.tar.gz" "${BIND_FILES[@]}"
+limits '{"envMemoryMaxBytes":"1024g","envMemoryBytes":"512g"}'
+[ "$(api GET /system/capacity | json 'v.projects.find((p) => p.project === "bindmount").places')" = "0" ] || fail "with 512 GiB per environment, the capacity should be 0"
+code=$(curl -s -o "$WORK/room.json" -w '%{http_code}' -H "Authorization: Bearer $SPAWNER_BOOTSTRAP_TOKEN" \
+  -F project=bindmount -F env=bind -F createdVia=cli -F "primary=@$WORK/bind-v1.tar.gz" "$API/envs")
+limits '{"envMemoryMaxBytes":null,"envMemoryBytes":null}'
+[ "$code" = "503" ] && [ "$(json 'v.code' < "$WORK/room.json")" = "capacity" ] || fail "a creation beyond the capacity should be refused, not $code: $(cat "$WORK/room.json")"
+[ "$(api GET /system/capacity | json 'v.projects.find((p) => p.project === "bindmount").places > 0')" = "true" ] || fail "the capacity should announce room again"
+pass "the capacity announced no room and the creation was refused (503, capacity); back to normal, it announces room"
 created=$(api POST /envs -F project=bindmount -F env=bind -F createdVia=cli -F "primary=@$WORK/bind-v1.tar.gz")
 bind_id=$(echo "$created" | json 'v.environment.id')
 wait_job "$(echo "$created" | json 'v.job.id')"
@@ -440,9 +517,25 @@ wait_job "$(api POST "/envs/$bind_id/update" -F "primary=@$WORK/bind-v2.tar.gz" 
 [[ "$(preview "$bind_host")" == *"version two"* ]] || fail "the update did not reach the mounted files"
 pass "the service sees the updated files"
 
-wait_job "$(api DELETE "/envs/$bind_id" | json 'v.job.id')"
-[ -z "$(docker ps -aq --filter "label=dev.spawner.env=$bind_id")" ] || fail "containers left behind"
+docker exec spawner-postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qc \"UPDATE environments SET expires_at = now() - interval '1 minute' WHERE id = '$bind_id'\"" >/dev/null
+wait_status "$bind_id" deleted 150 || fail "an expired environment should be deleted"
+[[ "$(api GET "/envs/$bind_id/events" | json 'v.events.map((e) => e.message).join("|")')" == *"Deletion started by Spawner (expired)"* ]] || fail "the timeline should say it expired"
+left=$(leftovers "$bind_id")
+[ -z "$left" ] || fail "the expired environment left behind:$left"
 [ ! -e "$SPAWNER_DATA_DIR/envs/$bind_id" ] || fail "the files written by the container are left behind"
-pass "the files written as root by the container are gone"
+pass "once expired, the environment disappeared with everything it held, files written as root included"
+
+foreign="e2e-foreign-$$"
+orphan="e2e-orphan-$$"
+docker volume create "$foreign" >/dev/null
+docker volume create --label "dev.spawner.env=$bind_id" "$orphan" >/dev/null
+for _ in $(seq 1 45); do
+  [ -z "$(docker volume ls -q --filter "name=^$orphan\$")" ] && break
+  sleep 2
+done
+[ -z "$(docker volume ls -q --filter "name=^$orphan\$")" ] || fail "the automatic cleanup should remove what a deleted environment left"
+[ -n "$(docker volume ls -q --filter "name=^$foreign\$")" ] || fail "the cleanup must never touch what is not Spawner's"
+docker volume rm "$foreign" >/dev/null
+pass "the automatic cleanup removed what the deleted environment left, and nothing that is not Spawner's"
 
 step "All engine checks passed"
