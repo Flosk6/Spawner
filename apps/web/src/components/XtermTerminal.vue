@@ -94,6 +94,8 @@ async function connectWebSocket() {
     socket!.emit('start-terminal', {
       environmentId: props.environmentId,
       resourceName: props.resourceName,
+      cols: terminal?.cols,
+      rows: terminal?.rows,
     });
   });
 
@@ -133,6 +135,9 @@ async function connectWebSocket() {
 function handleResize() {
   if (fitAddon) {
     fitAddon.fit();
+  }
+  if (socket?.connected && terminal) {
+    socket.emit('terminal-resize', { resourceName: props.resourceName, cols: terminal.cols, rows: terminal.rows });
   }
 }
 

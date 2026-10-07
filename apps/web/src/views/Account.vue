@@ -57,6 +57,22 @@
         </div>
       </section>
 
+      <!-- Command line -->
+      <section class="panel">
+        <h2 class="panel-title"><i class="pi pi-code text-sm"></i>Command line and agents</h2>
+        <p class="field-hint mb-4">
+          The <code>spawner</code> CLI needs Node.js 20 or later. Install it from this server, then log in: it sends you here to approve the
+          login.
+        </p>
+        <div v-for="block in cliBlocks" :key="block.label" class="mb-3 last:mb-0">
+          <p class="text-xs uppercase text-slate-500 mb-1">{{ block.label }}</p>
+          <div class="flex items-start gap-2">
+            <pre class="flex-1 min-w-0 text-xs bg-slate-100 dark:bg-black/30 rounded px-3 py-2 overflow-x-auto"><code>{{ block.code }}</code></pre>
+            <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(block.code)" />
+          </div>
+        </div>
+      </section>
+
       <!-- Tokens -->
       <section class="panel">
         <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
@@ -179,6 +195,15 @@ const passkeysSupported = browserSupportsWebAuthn() && window.isSecureContext;
 
 const github = computed(() => account.value?.identities.find((identity) => identity.provider === 'github') ?? null);
 const availableScopes = computed<Scope[]>(() => (authStore.isAdmin ? [...MEMBER_SCOPES, 'admin'] : MEMBER_SCOPES));
+const cliBlocks = computed(() => {
+  const origin = window.location.origin;
+  return [
+    { label: 'Install', code: `mkdir -p ~/.local/bin && curl -fsSL ${origin}/api/v1/cli/spawner -o ~/.local/bin/spawner && chmod +x ~/.local/bin/spawner` },
+    { label: 'Log in', code: `spawner login ${origin}` },
+    { label: 'In a project', code: 'spawner init        # once: .spawner/ and the instructions for agents\nspawner up --wait   # the environment of the current branch' },
+    { label: 'MCP server (.mcp.json)', code: '{ "mcpServers": { "spawner": { "command": "spawner", "args": ["mcp"] } } }' },
+  ];
+});
 
 async function load() {
   try {
