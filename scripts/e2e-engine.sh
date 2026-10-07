@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# End-to-end test of the environment engine (milestone M1).
+# End-to-end test of the environment engine, access and the CLI.
 #
 # Starts the local stack (Postgres, Traefik, Spawner), then with
-# examples/node-postgres sent as an archive, as the CLI will:
+# examples/node-postgres sent as an archive through the API:
 #   1. creates an environment and waits until it is ready
 #   2. calls its URL through Traefik (with an agent's preview token) and
 #      checks the seeded data
@@ -15,15 +15,25 @@
 #   6. deletes it and checks nothing is left (containers, volumes,
 #      network, images, routing file, sources)
 #
+# Then an agent's turn, with the spawner CLI downloaded from the server and
+# logged in by the device flow (the teammate approves it): from a git
+# worktree with an uncommitted change, up --wait --json, the protected URL
+# with a preview token, exec (with stdin and exit codes), logs, status,
+# stats, shell (in a pseudo-terminal), a share link, a compose file refused
+# before upload (exit 7); then
+# scripts/e2e/mcp.mjs drives `spawner mcp` (status, url, exec, logs with
+# errors_only, up with progress, down), and nothing may be left.
+#
 # Then, with scripts/e2e-fixtures/bind-mount, a service that mounts files of
 # its source and writes into it as root: an update must reach the mounted
 # files, and a delete must remove what the container wrote.
 #
 # Usage: scripts/e2e-engine.sh            (KEEP=1 to leave the stack running)
-# Needs: docker with compose, curl, node, tar.
+# Needs: docker with compose, curl, node, tar, git, python3.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT="$PWD"
 
 export SPAWNER_DATA_DIR="${SPAWNER_DATA_DIR:-$PWD/local-data/e2e}"
 export SPAWNER_HTTP_PORT="${SPAWNER_HTTP_PORT:-80}"
@@ -66,7 +76,23 @@ status() {
 }
 
 # Compose projects of the environments the test creates.
-TEST_PROJECTS=(spn-example--demo spn-bindmount--bind)
+TEST_PROJECTS=(spn-example--demo spn-bindmount--bind spn-agent--feat-cli-demo)
+
+# The CLI, as downloaded from the server, with its own configuration.
+export SPAWNER_CONFIG_DIR="$WORK/cli-config"
+CLI_SERVER="http://spawner.localtest.me:${SPAWNER_HTTP_PORT}"
+spawner() { node "$WORK/spawner" "$@"; }
+
+# leftovers ENV_ID: what a deleted environment left behind, if anything.
+leftovers() {
+  local found=""
+  [ -z "$(docker ps -aq --filter "label=dev.spawner.env=$1")" ] || found+=" containers"
+  [ -z "$(docker volume ls -q --filter "label=dev.spawner.env=$1")" ] || found+=" volumes"
+  [ -z "$(docker network ls -q --filter "label=dev.spawner.env=$1")" ] || found+=" networks"
+  [ ! -e "$SPAWNER_DATA_DIR/traefik/$1.yaml" ] || found+=" routing"
+  [ ! -e "$SPAWNER_DATA_DIR/envs/$1" ] || found+=" sources"
+  echo "$found"
+}
 
 # remove_project NAME: containers, volumes, networks and images of a compose project.
 remove_project() {
@@ -79,6 +105,7 @@ remove_project() {
 
 cleanup() {
   local code=$?
+  cd "$ROOT"
   if [ "$code" -ne 0 ]; then
     echo "--- spawner logs (last 60 lines)"
     docker logs spawner --tail 60 2>&1 || true
@@ -91,8 +118,10 @@ cleanup() {
     "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
     docker run --rm -v "$SPAWNER_DATA_DIR:/data" alpine:3.20 sh -c 'rm -rf /data/*' >/dev/null 2>&1 || true
     rm -rf "$SPAWNER_DATA_DIR"
+    rm -rf "$WORK"
+  else
+    echo "Stack left running; work directory (the CLI and its login): $WORK"
   fi
-  rm -rf "$WORK"
   exit "$code"
 }
 trap cleanup EXIT
@@ -128,6 +157,11 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 pass "Spawner is up"
+
+step "Installing the CLI from the server"
+curl -fsS "$API/cli/spawner" -o "$WORK/spawner"
+chmod +x "$WORK/spawner"
+pass "spawner $(spawner --version), downloaded from $API/cli/spawner"
 
 step "Creating the project"
 api POST /projects -H 'Content-Type: application/json' \
@@ -167,7 +201,19 @@ share_cookie=$(echo "$answer" | grep -i '^set-cookie: spawner_share_' | sed -E '
 pass "a share link opens the preview without an account"
 
 invite=$(api POST /invites -H 'Content-Type: application/json' -d '{"role":"member","note":"e2e teammate"}' | json 'v.url')
-node scripts/e2e/teammate.mjs "$invite" "http://$host/" "$env_id"
+spawner login "$CLI_SERVER" --no-browser --name e2e-agent >"$WORK/login.out" 2>&1 &
+login_pid=$!
+device_code=""
+for _ in $(seq 1 50); do
+  device_code=$(grep -oE '[A-Z]{4}-[A-Z]{4}' "$WORK/login.out" | head -1 || true)
+  [ -n "$device_code" ] && break
+  sleep 0.2
+done
+[ -n "$device_code" ] || fail "spawner login shows no code: $(cat "$WORK/login.out")"
+node scripts/e2e/teammate.mjs "$invite" "http://$host/" "$env_id" "$device_code"
+wait "$login_pid" || fail "spawner login failed: $(cat "$WORK/login.out")"
+[ "$(spawner whoami --json | json 'v.user.name + " via " + v.token.name')" = "Grace via e2e-agent" ] || fail "the CLI should act as Grace"
+pass "the CLI logged in as Grace through the device flow"
 first_admin=$("${COMPOSE[@]}" exec -T -u node spawner node dist/admin.js invite --role admin --hours 1)
 [[ "$first_admin" == "http://spawner.localtest.me/invite/"* ]] || fail "the admin command should print an invitation: $first_admin"
 pass "the admin command prints an invitation"
@@ -199,17 +245,110 @@ echo
 step "Deleting the environment"
 job_id=$(api DELETE "/envs/$env_id" | json 'v.job.id')
 wait_job "$job_id"
-leftovers=""
-[ -z "$(docker ps -aq --filter "label=dev.spawner.env=$env_id")" ] || leftovers+=" containers"
-[ -z "$(docker volume ls -q --filter "label=dev.spawner.env=$env_id")" ] || leftovers+=" volumes"
-[ -z "$(docker network ls -q --filter "label=dev.spawner.env=$env_id")" ] || leftovers+=" networks"
-[ -z "$(docker images -q --filter "label=com.docker.compose.project=spn-example--demo")" ] || leftovers+=" images"
-[ ! -e "$SPAWNER_DATA_DIR/traefik/$env_id.yaml" ] || leftovers+=" routing"
-[ ! -e "$SPAWNER_DATA_DIR/envs/$env_id" ] || leftovers+=" sources"
-[ -z "$leftovers" ] || fail "left behind:$leftovers"
+left=$(leftovers "$env_id")
+[ -z "$(docker images -q --filter "label=com.docker.compose.project=spn-example--demo")" ] || left+=" images"
+[ -z "$left" ] || fail "left behind:$left"
 status=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $host" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/")
 [ "$status" = "404" ] || fail "the URL still answers ($status)"
 pass "nothing left behind"
+
+step "An agent tests its worktree with the CLI"
+api POST /projects -H 'Content-Type: application/json' \
+  -d '{"slug":"agent","name":"Agent","repoUrl":"https://github.com/Flosk6/Spawner.git"}' | json 'v.slug'
+AGENT_REPO="$WORK/agent-repo"
+WORKTREE="$WORK/agent-feat"
+mkdir -p "$AGENT_REPO"
+cp -R "$EXAMPLE/." "$AGENT_REPO/"
+rm -rf "$AGENT_REPO/node_modules"
+sed -i.bak 's/^project: example$/project: agent/' "$AGENT_REPO/.spawner/spawner.yaml" && rm "$AGENT_REPO/.spawner/spawner.yaml.bak"
+git -C "$AGENT_REPO" init -q -b main
+git -C "$AGENT_REPO" add -A
+git -C "$AGENT_REPO" -c user.name=e2e -c user.email=e2e@example.com -c commit.gpgsign=false commit -q -m "example"
+git -C "$AGENT_REPO" worktree add -q -b feat/cli-demo "$WORKTREE"
+sed -i.bak "s/Hello from Spawner/Hello from the worktree/" "$WORKTREE/server.js" && rm "$WORKTREE/server.js.bak"
+cd "$WORKTREE"
+
+up_json=$(spawner up --wait --json) || fail "spawner up failed: $up_json"
+agent_env=$(echo "$up_json" | json 'v.environment.slug')
+agent_id=$(echo "$up_json" | json 'v.environment.id')
+[ "$agent_env" = "feat-cli-demo" ] || fail "the environment should be named after the branch, not $agent_env"
+[ "$(echo "$up_json" | json 'v.environment.status + " " + v.environment.createdVia + " " + v.environment.tokenName + " " + v.environment.owner.name')" = "ready cli e2e-agent Grace" ] \
+  || fail "the environment should be ready and Grace's, through e2e-agent: $up_json"
+pass "spawner up --wait --json: $agent_env is ready, owned by Grace via e2e-agent"
+
+url_json=$(spawner url --with-token --json)
+agent_host=$(echo "$url_json" | json 'new URL(v.url).host')
+PREVIEW_TOKEN=$(echo "$url_json" | json 'v.header.value')
+page=$(preview "$agent_host")
+[[ "$page" == *"Hello from the worktree"* ]] || fail "the uncommitted change is not deployed: $page"
+[[ "$page" == *"1 user(s)"* ]] || fail "the seed did not run: $page"
+[ "$(status "$agent_host" -H 'Accept: application/json')" = "401" ] || fail "the URL should need a token"
+pass "the protected URL serves the uncommitted change, with the token of spawner url"
+
+spawner exec "$agent_env" db -- psql -U app -d app -tAc "INSERT INTO users (name) VALUES ('ada')" >/dev/null || fail "spawner exec failed"
+echo "INSERT INTO users (name) VALUES ('grace');" | spawner exec -i "$agent_env" db -- psql -U app -d app >/dev/null || fail "spawner exec -i failed"
+set +e
+spawner exec "$agent_env" db -- sh -c 'echo to stderr >&2; exit 3' 2>/dev/null
+code=$?
+set -e
+[ "$code" = "3" ] || fail "spawner exec should exit with the command's exit code, not $code"
+[ "$(preview "$agent_host" /users | json 'v.length')" = "3" ] || fail "the API should list 3 users"
+pass "spawner exec runs commands (with stdin) and returns their exit code; the API lists the new users"
+
+[ "$(spawner logs "$agent_env" app --tail 5 --json | json 'v.lines.length > 0')" = "true" ] || fail "spawner logs returned nothing"
+[ "$(spawner status --json | json 'v.services.map((s) => s.name + ":" + s.state + ":" + s.health).sort().join(" ")')" = "app:running:healthy db:running:healthy" ] \
+  || fail "spawner status should show healthy services"
+[ "$(spawner stats --json | json 'v.services.every((s) => s.memoryBytes > 0)')" = "true" ] || fail "spawner stats should give memory"
+[ "$(spawner ls --json | json 'v.environments.map((e) => e.slug).join(",")')" = "$agent_env" ] || fail "spawner ls should list the environment"
+set +e
+spawner status nope --json >/dev/null
+code=$?
+set -e
+[ "$code" = "1" ] || fail "an unknown environment should exit with 1, not $code"
+pass "spawner logs, status, stats and ls"
+
+# A terminal needs a TTY: Python's pty gives one, the typed lines wait in it until the shell reads them.
+set +e
+shell_out=$(printf 'echo shell-$((6*7))\nexit 5\n' \
+  | python3 -c 'import os, pty, signal, sys; signal.alarm(60); sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))' \
+    node "$WORK/spawner" shell "$agent_env" app 2>&1)
+code=$?
+set -e
+[ "$code" = "5" ] || fail "spawner shell should exit with the shell's exit code, not $code: $shell_out"
+[[ "$shell_out" == *"shell-42"* ]] || fail "spawner shell should run what is typed: $shell_out"
+pass "spawner shell opens a terminal in the service and returns its exit code"
+
+share=$(spawner share --ttl 1h --json | json 'v.url')
+answer=$(curl -s -D - -o /dev/null -H "Host: $agent_host" "http://127.0.0.1:${SPAWNER_HTTP_PORT}${share#http://$agent_host}")
+share_cookie=$(echo "$answer" | grep -i '^set-cookie: spawner_share_' | sed -E 's/^[^:]+: ([^;]+).*/\1/' | tr -d '\r')
+[ "$(status "$agent_host" -H "Cookie: $share_cookie" -H 'Accept: text/html')" = "200" ] || fail "the share link of spawner share should open the URL"
+pass "spawner share gives a link that opens the environment"
+
+cp .spawner/compose.yaml "$WORK/compose.yaml"
+node -e "const fs = require('fs'); const f = '.spawner/compose.yaml'; fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^  app:\n/m, '  app:\n    privileged: true\n'))"
+jobs_before=$(api GET "/envs/$agent_id" | json 'v.lastJob.id')
+set +e
+refused=$(spawner up --json)
+code=$?
+set -e
+cp "$WORK/compose.yaml" .spawner/compose.yaml
+[ "$code" = "7" ] || fail "a refused compose file should exit with 7, not $code: $refused"
+[[ "$(echo "$refused" | json 'v.error.issues.map((i) => i.path).join(",")')" == *"privileged"* ]] || fail "the refusal should name the key: $refused"
+[ "$(api GET "/envs/$agent_id" | json 'v.lastJob.id')" = "$jobs_before" ] || fail "a refused compose file should not reach the server"
+pass "a refused compose file stops before the upload, with exit code 7"
+
+step "An agent drives the environment through MCP"
+node "$ROOT/scripts/e2e/mcp.mjs" "$WORK/spawner" "$WORKTREE" "$agent_env"
+left=$(leftovers "$agent_id")
+[ -z "$left" ] || fail "spawner_down left behind:$left"
+[ "$(spawner logout --json | json 'v.revoked')" = "true" ] || fail "spawner logout should revoke the token"
+set +e
+spawner whoami >/dev/null 2>&1
+code=$?
+set -e
+[ "$code" = "3" ] || fail "after logout, the CLI should exit with 3, not $code"
+cd "$ROOT"
+pass "nothing left behind; logout revoked the token"
 
 step "Serving files mounted from a source"
 BIND_FIXTURE=scripts/e2e-fixtures/bind-mount

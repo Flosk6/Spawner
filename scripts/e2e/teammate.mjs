@@ -3,9 +3,11 @@
 // only: accepts an invitation with a passkey (a software authenticator, as a
 // browser would with navigator.credentials), logs in again with it, logs a
 // CLI in through the device flow, then opens a protected preview through the
-// dashboard. Fails with a message on the first unexpected answer.
+// dashboard. With a fourth argument, also approves that code: the login of
+// the real spawner CLI, started before. Fails with a message on the first
+// unexpected answer.
 //
-// Usage: node scripts/e2e/teammate.mjs <invitation url> <preview url> <environment id>
+// Usage: node scripts/e2e/teammate.mjs <invitation url> <preview url> <environment id> [device code]
 // Environment: SPAWNER_API (http://127.0.0.1:8080), SPAWNER_DASHBOARD (http://spawner.localtest.me),
 //              SPAWNER_HTTP (http://127.0.0.1:80, where Traefik listens)
 
@@ -15,7 +17,7 @@ import http from "node:http";
 const API = process.env.SPAWNER_API ?? "http://127.0.0.1:8080";
 const DASHBOARD = process.env.SPAWNER_DASHBOARD ?? "http://spawner.localtest.me";
 const TRAEFIK = process.env.SPAWNER_HTTP ?? "http://127.0.0.1:80";
-const [inviteUrl, previewUrl, environmentId] = process.argv.slice(2);
+const [inviteUrl, previewUrl, environmentId, cliCode] = process.argv.slice(2);
 if (!inviteUrl || !previewUrl || !environmentId) {
   console.error("usage: node scripts/e2e/teammate.mjs <invitation url> <preview url> <environment id>");
   process.exit(2);
@@ -188,6 +190,14 @@ expect(listed.status === 200 && listed.json.some((environment) => environment.id
 const foreignExec = await request(API, "POST", `/api/v1/envs/${environmentId}/exec`, { headers: cli, body: { service: "db", argv: ["true"] }, jar: false });
 expect(foreignExec.status === 403, "a member cannot run commands in someone else's environment", foreignExec);
 ok("the CLI logged in through the device flow, with Grace's rights only");
+
+if (cliCode) {
+  const described = await request(API, "GET", `/api/v1/auth/device/${cliCode}`);
+  expect(described.status === 200 && described.json.clientName, "the dashboard shows which machine asks to log in", described);
+  const approved = await request(API, "POST", "/api/v1/auth/device/approve", { body: { userCode: cliCode, approve: true } });
+  expect(approved.status === 201, `Grace approves the login of ${described.json.clientName}`, approved);
+  ok(`Grace approved the login of the spawner CLI (${described.json.clientName})`);
+}
 
 const preview = new URL(previewUrl);
 const viaTraefik = (path, extra = {}) => request(TRAEFIK, "GET", path, { host: preview.host, headers: { accept: "text/html", ...extra }, jar: false });
