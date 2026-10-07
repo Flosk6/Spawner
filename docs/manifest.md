@@ -35,6 +35,7 @@ seed:                         # run once, after the first start (and with --rese
     run: [php, artisan, migrate, --seed, --force]
 
 ttl: 72h                      # lifetime, prolonged by each deploy (at most the server's maximum)
+idle: 2h                      # sleep after this long without activity (at least 10m; default: the server's)
 upload:
   include: [.env.preview]     # ignored files the CLI sends anyway (globs)
 limits:
@@ -45,6 +46,7 @@ limits:
 - `seed` steps are argument arrays, run in the service without a shell (call `[sh, -c, "..."]` if you need one).
 - `auth: none` makes a URL public (webhooks, a public page). An admin allows it per project (Projects, Edit, "Allow public URLs"); otherwise the deploy is refused, by `spawner up` before anything is sent.
 - At most 10 exposures.
+- `idle`: an environment without visits or actions for this long goes to sleep. Its containers stop, its data stays, and the next visit to one of its URLs wakes it up within seconds. `idle: never` keeps it awake; an admin allows it per project (Projects, Edit, "Allow environments that never sleep").
 
 ### URLs
 
@@ -139,7 +141,9 @@ COPY . .
 CMD ["npm", "start"]
 ```
 
-Twenty environments of the same branch base then share one `node_modules` layer.
+Twenty environments of the same branch base then share one `node_modules` layer. Spawner warns, in the job log and in `spawner up`, about a Dockerfile that copies the whole code before installing its dependencies.
+
+The code of a source is only needed to build: once an environment is built, Spawner removes it, unless a service mounts files of it or an `env_file` lives in it. Every update checks out or receives the code again.
 
 ## Logs
 

@@ -19,7 +19,7 @@ $ spawner down feat-login
 
 Previews are protected: teammates open them once logged in, agents with a short token, and anyone else through a temporary share link.
 
-**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine (milestone M1), team access (M2: invitations, passkeys, tokens, protected previews), the CLI with its MCP server (M3) and supervision (M4) are done; the lifecycle (sleep, expiry, density) and the installer come next.
+**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine (milestone M1), team access (M2: invitations, passkeys, tokens, protected previews), the CLI with its MCP server (M3), supervision (M4) and the lifecycle (M5: sleep, expiry, quotas, cleanup) are done; the one-command installer and the release come next.
 
 ## How it works
 
@@ -76,6 +76,12 @@ spawner up --wait --json                               # the environment of the 
 ```
 
 See [docs/cli.md](docs/cli.md) for every command and output, and [docs/manifest.md](docs/manifest.md) for `.spawner/`.
+
+## Many environments on one server
+
+Memory is what runs out first, so environments nobody uses go to sleep: after 2 hours without a visit or an action, their containers stop and their data stays. The next visit to one of their URLs wakes them up within seconds (the browser gets a page that reloads by itself), and so do `spawner exec`, `shell`, `url` and `logs --follow`. Environments expire after 72 hours unless someone deploys or extends them. Each person may own 5 environments, and Spawner refuses a new one, or a wake-up, when the server lacks the memory or disk for it; an admin changes these limits from the settings page.
+
+On disk, environments share what they can: the image an update replaces is removed at once, the code of a source is removed once the build no longer needs it, and Spawner warns about Dockerfiles that keep environments from sharing their dependencies. Every minute, Spawner checks its environments against Docker and removes what deleted ones left behind, never anything that is not its own.
 
 ## What the dashboard shows
 

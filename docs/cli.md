@@ -52,6 +52,7 @@ The environment is named after the current git branch: `feat/login` gives `feat-
 | `url [env] [exposure]` | Prints a URL; `--with-token` adds the header that opens the protected URL |
 | `share [env]` | A link that opens the environment without an account, `--ttl 24h` by default |
 | `stop`, `start`, `down [env]` | Stops, starts, deletes. They wait for the job unless `--no-wait` |
+| `sleep`, `wake [env]` | Puts the environment to sleep now (its data stays, the next visit wakes it up), wakes it up |
 | `extend [env] --ttl 3d` | Postpones the expiry: the environment now expires in 3 days |
 | `token create`, `token ls`, `token revoke` | Personal tokens |
 | `mcp` | The MCP server, on stdio |
@@ -101,6 +102,12 @@ spawner exec -i feat-login db -- psql -U app -d app < seed.sql
 
 The command is an argument array: no shell runs it on the server unless you call one (`-- sh -c "..."`). Its stdout and stderr come back (1 MiB each), and `spawner` exits with its exit code. `-i` sends the CLI's standard input (1 MiB at most). `--timeout` is 120 seconds by default, 600 at most.
 
+### Sleeping environments
+
+An environment sleeps after a while without activity (2 hours by default, `idle` in `spawner.yaml`): its containers stop, its data stays. The next visit to one of its team URLs wakes it up (a browser gets a page that reloads by itself within seconds; an agent calling it gets a 503 to retry). `exec`, `shell`, `url` and `logs --follow` wake it up first and say so on stderr. Public URLs (`auth: none`) do not wake it up: `spawner wake` does.
+
+Requests to its URLs, deploys, commands, logs and terminals count as activity; reading its status does not.
+
 ### status and capacity
 
 `status` ends with the timeline of the environment: services that crashed, ran out of memory or turned unhealthy (from Docker events), and the jobs that changed it. A service that crashed three times in ten minutes is called out with its cause:
@@ -109,7 +116,7 @@ The command is an argument array: no shell runs it on the server unless you call
 api failed 3 times in 10 minutes, last cause: out of memory (limit 512 MiB)
 ```
 
-`capacity` answers "can I start another environment?": the memory the server can hand out (minus 1 GiB) and its free disk (minus 10 GiB), divided by what an environment of each project typically uses (the median of the last day, or its declared limits before any ran).
+`capacity` answers "can I start another environment?": the memory the server can hand out (minus 1 GiB) and its free disk (minus 10 GiB), divided by what an environment of each project typically uses (the median of the last day, or its declared limits before any ran), within what your quota leaves (5 environments a person by default, sleeping ones included). The server checks the same when you create an environment, start it or wake it up, and refuses with exit code 6.
 
 ### url
 
@@ -129,12 +136,12 @@ With `--json`, stdout carries one JSON document (or one object per line for `log
 | `status` | `{ environment, services: ServiceState[], events: TimelineEvent[], crashLoops: CrashLoop[] }` |
 | `ls` | `{ environments: Environment[] }` |
 | `stats` | `{ environment, services: ServiceUsage[] }` |
-| `capacity` | `{ host: { availableMemoryBytes, freeDiskBytes, reserves }, projects: [{ project, places, limitedBy, memoryBytes, diskBytes, basedOn }] }` |
+| `capacity` | `{ host: { availableMemoryBytes, freeDiskBytes, reserves }, quota: { limit, used, remaining } \| null, projects: [{ project, places, limitedBy, memoryBytes, diskBytes, basedOn }] }` |
 | `logs` | `{ lines: [{ service, stream, time, text }] }`; with `--follow`, one line object per line; with `--job`, `{ job, lines: string[] }`, or `{ job, text }` per line with `--follow` |
 | `exec` | `{ env, service, exitCode, stdout, stderr, truncated, timedOut }` |
 | `url` | `{ project, env, exposure, url, urls, header?: { name, value }, expiresAt? }` |
 | `share` | `{ env, id, url, expiresAt }` |
-| `stop`, `start`, `down` | `{ environment, job, waited, timedOut, logTail? }` |
+| `stop`, `start`, `sleep`, `wake`, `down` | `{ environment, job, waited, timedOut, logTail? }`; `job` is null when there was nothing to do |
 | `extend` | `{ environment }` |
 | `login` | `{ server, user, token: { id, name, scopes, expiresAt }, credentials }` |
 | `whoami` | `{ server, source, serverVersion, via, user, scopes, token }` |
@@ -153,7 +160,7 @@ Errors, with `--json`: `{ "error": { "code": "not_found", "message": "...", "hin
 | 3 | Authentication: not logged in, token expired or revoked, or not allowed (a member acting on someone else's environment) |
 | 4 | The environment failed: the end of the job log is on stderr |
 | 5 | Timeout: the job goes on on the server |
-| 6 | Capacity: the server lacks memory to build |
+| 6 | Quota or capacity: you have as many environments as a person may, or the server lacks the memory or disk (the hint says what to free) |
 | 7 | `spawner.yaml` or the compose file was refused |
 
 `exec` exits with the exit code of the command it ran, once it ran.

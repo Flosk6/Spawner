@@ -17,6 +17,7 @@ A project is a git repository holding a `.spawner/` directory: a manifest (`spaw
 - `spawner` CLI and MCP server (`apps/cli`), for people and coding agents: `up` from a worktree (uncommitted changes included, checked locally first), `--json` everywhere, stable exit codes; served by each server at `/api/v1/cli/spawner`
 - Browser terminal into any service, closed when idle and recorded for the admins
 - Supervision: CPU and memory of every container every 30 seconds (charts up to 30 days), disk per environment, a timeline of crashes, out-of-memory kills, health changes and jobs, crash loop alerts, and the room left for more environments; memory guard before builds
+- Lifecycle: an environment sleeps after 2 hours without activity (its containers stop, its URLs show a waiting page that wakes it up), expires after 72 hours; quotas per person and room checks before creating or waking one; build guards on memory and disk; reconciliation with Docker every minute and a targeted cleanup of what Spawner owns
 - Logs of a deleted environment archived and readable 7 days
 - Project variables for the compose files (secrets encrypted, masked in job logs); public URLs (`auth: none`) only where an admin allows them
 - Accounts without passwords: invitation links, then passkeys; GitHub login optional
@@ -57,7 +58,8 @@ The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens
 - M2 (done): accounts (invitations, passkeys, optional GitHub), roles, tokens, device flow, protected previews, share links, CSRF, audit
 - M3 (done): the CLI (upload, `--json`, exit codes, logs with an error filter, stats, init and the agent instructions) and the MCP server
 - M4 (done): supervision (metrics, timeline, disk, capacity, alerts), archived logs, terminal limits and recordings, project variables and public URLs, the screens of spec 11.5
-- Next: M5 lifecycle and density, M6 installer and release
+- M5 (done): sleep and wake-up, expiry, quotas and room checks, build guards, limits an admin can change, reconciliation, targeted cleanup, density (replaced images removed, sources removed after the build, Dockerfile layer warnings)
+- Next: M6 installer and release
 
 Public documentation is in `docs/` (in English): `docs/cli.md` (commands, JSON outputs, exit codes, MCP) and `docs/manifest.md` (`.spawner/`).
 
@@ -151,8 +153,9 @@ pnpm --filter @spawner/core add <package>   # Shared package
 - Specs are excluded from builds through `tsconfig.build.json`.
 - CLI (`apps/cli`): archives and workspaces are tested on real git repositories (`src/testing/repo.ts`); operations, the commands and the MCP server run against `fakeFetch` (`src/testing/fake-api.ts`), which answers routes such as `"GET /envs/:id"`; MCP tools are called by the SDK's client over an in-memory transport. `src/testing/` is not bundled (only what `src/main.ts` imports is).
 - API specs load `reflect-metadata` (see `apps/api/vitest.config.mts`); instantiate services directly rather than through the Nest container when possible.
+- Lifecycle: `lifecycle.service.spec.ts` (sleep after the idle time, expiry), `reconcile.service.spec.ts` (degraded, ready again, failed without containers), `cleanup.service.spec.ts` (what deleted environments left goes automatically; resources of unknown environments and unused mirrors wait for an admin), `limits.service.spec.ts`, `wake-page.spec.ts`, room and quota checks in `usage.spec.ts`; `packages/core` tests `dockerfileLayerWarnings`, `alwaysOnIssues` and `runtimeSources`.
 - Supervision is tested on its pure parts: `samples.spec.ts` (CPU and memory from Docker stats, minute buckets, a fake `/proc`), `docker-events.spec.ts` (`interpretDockerEvent`: a die during a job, the exit 137 that follows an OOM kill; `detectCrashLoops`), `disk.spec.ts` (`attributeDisk` on a `docker system df` answer), `usage.spec.ts` (ranges, downsampling), `retention.spec.ts` (rollups and purges, with a fake Prisma and data directory). The collectors do not start under `NODE_ENV=test`; the end-to-end test covers them.
-- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard; it also approves the login of the real CLI. Then an agent's turn: the CLI downloaded from the server, logged in as the teammate, runs `up --wait --json` from a git worktree with an uncommitted change (and two project variables, one secret, which must be masked in the job log), calls the protected URL with `url --with-token`, `exec` (stdin, exit codes), `logs`, `status`, `stats`, `ls`, `share`, a compose file refused before upload (exit 7); then supervision: the terminal session recorded, the jobs in the timeline, three out-of-memory kills that the timeline, `spawner status` and the system alerts report as a crash loop, minute metrics of each service, the disk of the environment, `spawner capacity` and the project usage; then `logout`; `scripts/e2e/mcp.mjs` drives `spawner mcp` over stdio (status, url, exec, logs with errors_only after breaking the database, up with progress, down), after which the deleted environment stays listed with its archived logs (the error found through MCP) and its timeline. With `scripts/e2e-fixtures/bind-mount` (a project allowed public URLs), it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
+- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard; it also approves the login of the real CLI. Then an agent's turn: the CLI downloaded from the server, logged in as the teammate, runs `up --wait --json` from a git worktree with an uncommitted change (and two project variables, one secret, which must be masked in the job log), calls the protected URL with `url --with-token`, `exec` (stdin, exit codes), `logs`, `status`, `stats`, `ls`, `share`, a compose file refused before upload (exit 7); then supervision: the terminal session recorded, the jobs in the timeline, three out-of-memory kills that the timeline, `spawner status` and the system alerts report as a crash loop, minute metrics of each service, the disk of the environment, `spawner capacity` and the project usage; then `logout`; `scripts/e2e/mcp.mjs` drives `spawner mcp` over stdio (status, url, exec, logs with errors_only after breaking the database, up with progress, down), after which the deleted environment stays listed with its archived logs (the error found through MCP) and its timeline. Before MCP, the lifecycle: a service stopped with `docker stop` makes the environment degraded until it runs again; `spawner sleep` stops it and a visit gets the waiting page and wakes it up, data kept; with the idle time set to a minute it sleeps by itself and `spawner exec` wakes it up first; with a quota of one, a second `spawner up` exits with 6. With `scripts/e2e-fixtures/bind-mount` (a project allowed public URLs), the capacity is announced at 0 and the creation refused (503) while an environment costs 512 GiB, then back; once its expiry is moved to the past (psql in the Postgres container), the environment disappears without leftovers; a volume labelled for it is removed by the automatic cleanup while an unlabelled one stays; it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build and the end-to-end test on every pull request and on pushes to `master` and `v1`.
 
 ## Backend Architecture (apps/api)
@@ -162,12 +165,12 @@ NestJS application with feature modules:
 ### Module Structure
 
 - **engine**: the environment engine (no controllers)
-  - `pipeline.service.ts`: what each job does, phase by phase
+  - `pipeline.service.ts`: what each job does, phase by phase: deploys (build guards, Dockerfile layer warnings, replaced images removed, sources removed after the build unless mounted or holding an env_file), stop, start, sleep, wake (containers recreated from their images if gone), delete
   - `job-queue.service.ts`: the queue in the `jobs` table, concurrency, recovery after a restart
   - `git-mirror.service.ts`: partial bare mirrors and one detached worktree per environment source
   - `upload.service.ts`: checks and extracts uploaded worktrees
   - `compose-runner.service.ts`: `docker compose` up, recreate, stop, start, down
-  - `router.service.ts`: Traefik `file` provider routes, preview protection middlewares, network attachment
+  - `router.service.ts`: Traefik `file` provider routes, preview protection middlewares, network attachment; sleeping and stopped environments are routed to Spawner's waiting page (`publishPlaceholder`)
   - `job-logs.service.ts`: one log file per job, followed live over SSE; the queue keeps the logs of the last 5 jobs of each environment
   - `log-archive.service.ts`: at deletion, the last 1 MiB of each service's output, compressed, readable 7 days through the logs routes
   - `git-keys.service.ts`: SSH deploy keys, per repository or global
@@ -175,8 +178,8 @@ NestJS application with feature modules:
 - **auth**: who makes each request (`actor.middleware.ts`), dashboard sessions, passkey login (WebAuthn), optional GitHub login, the CLI device flow, terminal tickets
 - **team**: invitations, users and roles, each user's account (passkeys, linked GitHub), the first admin
 - **tokens**: personal API tokens
-- **previews**: forwardAuth decisions for Traefik, the preview cookie, preview tokens for agents, share links
-- **settings**: settings changed from the interface (GitHub login), secrets encrypted
+- **previews**: forwardAuth decisions for Traefik, the preview cookie, preview tokens for agents, share links; `wake.controller.ts` serves the waiting page of sleeping and stopped environments and wakes them up (`wake-page.ts`)
+- **settings**: settings changed from the interface (GitHub login, secrets encrypted); `limits.service.ts` applies the limits an admin changed (lifetimes, sleep, quota, memory, build guards) onto `SpawnerConfig`
 - **audit**: the audit trail (global), 90 days
 - **projects**: `/api/v1/projects`
 - **environments**: `/api/v1/envs` and `/api/v1/jobs`
@@ -189,7 +192,8 @@ NestJS application with feature modules:
   - `disk.service.ts`: `docker system df` every 15 minutes and after each job, attributed to the environments (`disk.ts`)
   - `usage.service.ts`: charts (1h to 30d, from points or rollups), the system overview and its alerts, capacity, project usage
   - `retention.service.ts`: 15-minute rollups, purges (points 48 hours; rollups, disk, events, terminals 30 days; deleted environments 7 days)
-- **system**: the memory guard used before builds
+- **system**: the memory and disk guards used before builds
+- **lifecycle** (global): `activity.service.ts` (last activity, at most one write a minute), `lifecycle.service.ts` (every minute: sleep after the idle time, delete once expired), `reconcile.service.ts` (startup and every minute: degraded, ready again, failed), `cleanup.service.ts` (targeted cleanup, `/api/v1/system/cleanup`)
 - **health**: `/api/v1/healthz` and `/api/v1/readyz`
 - **meta**: `/api/v1/info` (version, domain, limits: what the CLI checks locally with) and the CLI download
 
@@ -220,10 +224,10 @@ Connection configured via `DATABASE_URL` environment variable.
 - `share_links`: guest links to an environment's previews, by SHA-256
 - `audit_events`: the audit trail
 - `sessions`: Express session storage (managed by connect-pg-simple)
-- `projects`: slug, name, repository, default branch, `rootDir` (where `.spawner/` is, for monorepos), `allowPublic` (exposures with `auth: none`)
+- `projects`: slug, name, repository, default branch, `rootDir` (where `.spawner/` is, for monorepos), `allowPublic` (exposures with `auth: none`), `allowAlwaysOn` (`idle: never`)
 - `project_variables`: variables of the project's compose files; secret values encrypted with the master secret
 - `environments`: slug, status, phase and error of the last failure, owner and token name, manifest, expiry, last activity; a deleted environment keeps its row (`deleted_at`), and its slug is unique among live environments through a partial index
-- `environment_sources`: what each source runs (git ref and commit, or upload digest and size)
+- `environment_sources`: what each source runs (git ref and commit, or upload digest and size), and whether its code is still on disk (`onDisk`)
 - `exposures`: name, service, port, host and entrypoint of each URL
 - `jobs`: the queue and its history (type, status, phase, error, error code for machines, payload, who asked)
 - `environment_events`: the timeline of each environment, 30 days
@@ -260,6 +264,8 @@ Connection configured via `DATABASE_URL` environment variable.
 - `SPAWNER_BOOTSTRAP_TOKEN`: Bearer token of the installation, with every scope and no user, for scripts and CI
 - `SPAWNER_BUILD_CONCURRENCY`: Builds at once (default: 1 below 8 GiB of RAM, 2 above)
 - `SPAWNER_ENV_TTL`, `SPAWNER_ENV_TTL_MAX`: Lifetime of an environment (default: 72h, at most 14d)
+- `SPAWNER_ENV_IDLE`: time without activity before an environment sleeps (default: 2h; `never` turns sleeping off)
+- `SPAWNER_ENVS_PER_USER`: live environments a person may own, sleeping ones included (default: 5; 0 for no limit)
 - `SPAWNER_ENV_MEMORY`, `SPAWNER_ENV_MEMORY_MAX`: Memory of an environment (default: 2g, at most 4g)
 - `SPAWNER_START_TIMEOUT_SECONDS` (300), `SPAWNER_JOB_TIMEOUT_SECONDS` (1800)
 - `SPAWNER_UPLOAD_MAX` (100m), `SPAWNER_UPLOAD_MAX_FILES` (50000), `SPAWNER_UPLOAD_MAX_EXTRACTED` (1g)
@@ -267,6 +273,8 @@ Connection configured via `DATABASE_URL` environment variable.
 
 **Memory Safety:**
 - `MIN_REQUIRED_FREE_MEMORY_GB`: Minimum free RAM required before builds (default: 2)
+- `MIN_REQUIRED_FREE_DISK_GB`: Minimum free disk required before builds (default: 10); a build waits up to two minutes for both, then fails (code `capacity`)
+- The settings page (`PUT /api/v1/settings/limits`) overrides the lifetimes, idle time, quota, memory and build guards; these variables are then the defaults
 - `ENABLE_MEMORY_CHECK`: Enable memory safety checks (default: true)
 
 ## Frontend Architecture (apps/web)
@@ -278,14 +286,14 @@ Vue 3 with Composition API, Vue Router 4, Tailwind CSS and PrimeVue.
 - **Home.vue**: counts, room left, recent environments
 - **ProjectList.vue**: projects, created and edited by admins in `ProjectDialog.vue` (with "Allow public URLs")
 - **ProjectDetail.vue**: what the project uses, what one environment costs, the room left for it, its variables (admins)
-- **EnvironmentList.vue**: environments by owner, project and status, deleted ones of the last 7 days; created in `EnvironmentDialog.vue`, which reads `spawner.yaml` to offer a branch per source
+- **EnvironmentList.vue**: environments by owner, project and status (ready, degraded, sleeping, in progress, stopped, failed), deleted ones of the last 7 days; created in `EnvironmentDialog.vue`, which reads `spawner.yaml` to offer a branch per source
 - **EnvironmentDetail.vue**: a crash loop banner above tabs: overview (URLs, sources, services, share links, disk in `DiskPanel.vue`; during a job, a link to its live log), logs (`LogViewer.vue`: services, errors, search, follow, download), resources (`ResourcePanel.vue`, `UsageChart.vue`), timeline (`TimelinePanel.vue`), jobs (`JobsPanel.vue`, the live log in `JobLog.vue`), terminal; redeploy, extend, stop, start, delete; a deleted environment opens read-only, with its archived logs
 - **Login.vue**: passkey login, GitHub when configured
 - **InviteAccept.vue**: an invitation link: name, then a passkey
 - **DeviceApproval.vue**: approves a CLI login (`/device?code=`)
 - **Account.vue**: name, passkeys, linked GitHub, how to install the CLI and the MCP server, API tokens
 - **Team.vue** (admin): members, roles, deactivation, links for a new passkey, invitations
-- **Settings.vue**, **Audit.vue**, **GitSettings.vue** (admin): GitHub login, audit trail and terminal sessions with their recordings, deploy keys
+- **Settings.vue**, **Audit.vue**, **GitSettings.vue** (admin): limits (`LimitsSettings.vue`), GitHub login, audit trail and terminal sessions with their recordings, deploy keys
 - **SystemOverview.vue** (admin): alerts, host now and over time, disk breakdown (`BreakdownBar.vue`), capacity per project, every container
 
 ### Architecture Patterns
@@ -316,6 +324,7 @@ exposures:                # the first one is the entrypoint unless one sets entr
 seed:                     # run once after the first start (argument arrays, no shell)
   - { service: app, run: [node, seed.js] }
 ttl: 24h
+idle: 2h                  # sleep after this long without activity (at least 10m; never needs the project's permission)
 limits: { memory: 2g }
 ```
 
@@ -346,15 +355,19 @@ The compose file may use only Spawner variables, `${SPAWNER_URL}`, `${SPAWNER_UR
 
 ### Jobs
 
-Every change is a job, run in order per environment, at most one at a time per environment. Builds (create, update) are limited by `SPAWNER_BUILD_CONCURRENCY`; stop, start and delete run alongside. A create or update goes through:
+Every change is a job, run in order per environment, at most one at a time per environment. Builds (create, update) are limited by `SPAWNER_BUILD_CONCURRENCY`; stop, start, sleep, wake and delete run alongside. A create or update goes through:
 
-1. **preparing**: memory check, sources (git worktree at the ref, or upload checked entry by entry: no absolute paths, `..`, links leaving the archive, devices or hard links)
-2. **validating**: manifest, public exposures (refused unless the project allows them), compose policy, interpolation (with the project's variables), limits; the issues found are logged with their path and a hint
+1. **preparing**: memory and disk guards (a build waits up to two minutes), sources (git worktree at the ref, or upload checked entry by entry: no absolute paths, `..`, links leaving the archive, devices or hard links)
+2. **validating**: manifest, public exposures and `idle: never` (refused unless the project allows them), compose policy, interpolation (with the project's variables), limits; the issues found are logged with their path and a hint
 3. **building**: `docker compose up -d --build --wait` (with `fresh`, `down --volumes` first); on an update, the services that mount files of a source are then recreated, since Compose keeps them on the replaced directory
 4. **seeding**: on create, or with `fresh` or `reseed`
 5. **routing**: Traefik joins the environment network, the routes file is written
 
-The environment ends `ready` (with an expiry) or `failed` (with the phase and the error); the timeline records the start and the end of each job with its duration. A delete archives the services' logs, then removes the routes, `compose down --volumes`, the project's images, the worktrees and the environment directory. Files that services wrote as root into a mounted source are removed through a short-lived root container of Spawner's own image (`StorageService.removeTree`), since Spawner runs as `node`.
+The environment ends `ready` (with an expiry) or `failed` (with the phase and the error, and an expiry if it had none); the timeline records the start and the end of each job with its duration. After a successful deploy, the images an update replaced are removed, and so is the code of the sources no service mounts and no env_file lives in: only the build needed it, and every rebuild checks out or receives the sources again.
+
+**Lifecycle**: every minute, an awake environment (`ready` or `degraded`) whose last activity (a request let through by forwardAuth, a deploy, start, wake-up, command, logs read, terminal, preview token) is older than its idle time gets a `sleep` job: its status is `sleeping` from the start, its URLs lead to Spawner's waiting page (Traefik's `replacePath` to `/api/v1/wake`, still behind forwardAuth), then its containers stop. A visit to a team URL queues a `wake` job (when the server has the memory) and gets a page that reloads by itself once the environment answers; public URLs (`auth: none`) do not wake it up. Stopped environments lead to a page too. Every minute, expired environments are deleted (actor "Spawner (expired)"). Creating an environment needs the person's quota (409, code `quota`) and room for a typical environment of the project (503, code `capacity`); starting and waking need the memory.
+
+**Reconciliation**, at startup and every minute: an awake environment whose service is exited, restarting or unhealthy is `degraded` (with the reason), `ready` again once all run; one whose containers are gone, or left in a transitional status without a job, fails. Then the automatic cleanup removes what deleted environments left (containers, volumes, networks, images, routes, directories), images of previous builds no container runs, and uploads older than a day; resources labelled for environments this installation does not know, and unused git mirrors, wait for an admin (`POST /api/v1/system/cleanup`). Spawner never runs a global prune. A delete archives the services' logs, then removes the routes, `compose down --volumes`, the project's images, the worktrees and the environment directory. Files that services wrote as root into a mounted source are removed through a short-lived root container of Spawner's own image (`StorageService.removeTree`), since Spawner runs as `node`.
 
 ## Authentication & Security
 
@@ -377,7 +390,7 @@ The environment ends `ready` (with an expiry) or `failed` (with the phase and th
 
 ### Previews
 
-Before each request to an exposure with `auth: team` (the default), Traefik asks `GET /api/v1/auth/verify` (forwardAuth, with only the Accept, Cookie and X-Spawner-Preview headers). It lets through, in this order: CORS preflights; the `X-Spawner-Preview` header (a one-hour token for one environment, from `POST /api/v1/envs/:id/preview-token`, removed before the request reaches the application); a share link (`?__spawner_share=`), answered by a redirect without the parameter and a cookie valid for that environment only; the team cookie `spawner_preview` (12 hours, for active users); a share cookie. Otherwise a browser goes to `<dashboard>/api/v1/auth/preview?next=`, which sets the team cookie on the preview domain for a logged-in user (or sends them to log in first), and other clients get a 401. Each request let through records the environment's last activity (at most once a minute). Exposures with `auth: none` are public; they need the project's `allowPublic`, set by an admin.
+Before each request to an exposure with `auth: team` (the default), Traefik asks `GET /api/v1/auth/verify` (forwardAuth, with only the Accept, Cookie and X-Spawner-Preview headers). It lets through, in this order: CORS preflights; the `X-Spawner-Preview` header (a one-hour token for one environment, from `POST /api/v1/envs/:id/preview-token`, removed before the request reaches the application); a share link (`?__spawner_share=`), answered by a redirect without the parameter and a cookie valid for that environment only; the team cookie `spawner_preview` (12 hours, for active users); a share cookie. Otherwise a browser goes to `<dashboard>/api/v1/auth/preview?next=`, which sets the team cookie on the preview domain for a logged-in user (or sends them to log in first), and other clients get a 401. Each request let through records the environment's last activity (at most once a minute). Exposures with `auth: none` are public; they need the project's `allowPublic`, set by an admin. While an environment sleeps or is stopped, its routes keep the forwardAuth (team URLs) and lead to the waiting page (`GET /api/v1/wake`, which checks access again: the preview header is not removed there).
 
 ### Audit
 
@@ -419,6 +432,7 @@ Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` he
 - `GET /api/v1/me`, `PATCH /api/v1/me` - The account; `POST /me/passkeys/options`, `POST /me/passkeys`, `DELETE /me/passkeys/:id`, `DELETE /me/identities/:id`
 - `GET /api/v1/tokens` (`?all=true` for admins), `POST /api/v1/tokens`, `DELETE /api/v1/tokens/:id` - `{ "name": "ci", "scopes": ["envs:read"], "expiresInDays": 30, "project": "blog" }`; the token is answered once
 - `GET /api/v1/settings/github`, `PUT /api/v1/settings/github` (admin)
+- `GET /api/v1/settings/limits`, `PUT /api/v1/settings/limits` (admin) - `{ values, defaults, overridden }`; `{ "idleSeconds": "30m", "envsPerUser": 3, "envMemoryBytes": "1g" }`, null for the default of the server
 - `GET /api/v1/audit?before=<id>&action=env.` (admin)
 
 ### Projects (`/api/v1/projects`)
@@ -435,7 +449,7 @@ Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` he
 ### Environments (`/api/v1/envs`)
 
 - `GET /` - List (`?project=blog`, `?project=blog&slug=feat-login`, `?mine=true`, `?deleted=true` for the environments deleted in the last 7 days)
-- `GET /:id` - Get: status, owner and token, URLs, exposures, sources, last job, CPU and memory of the last sample (`usage`); a deleted environment stays readable 7 days (`deletedAt`), with its logs, timeline and metrics
+- `GET /:id` - Get: status, owner and token, URLs, exposures, sources, last job, CPU and memory of the last sample (`usage`), when it sleeps (`idleSeconds`, `sleepsAt`); a deleted environment stays readable 7 days (`deletedAt`), with its logs, timeline and metrics
 - `POST /` - Create (multipart, answers 202 with `{ environment, job }`):
   - fields `project`, `env`, `createdVia` (`ui`, `cli`, `mcp`, `api`), `ttl` (lifetime such as `24h`, instead of the manifest's)
   - `primary`: JSON `{ "ref": "feat/login" }` to deploy the project repository from git (default branch when absent)
@@ -443,6 +457,7 @@ Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` he
   - files `primary` and `source:<name>`: gzip tar archives of worktrees, instead of git
 - `POST /:id/update` - Redeploy (same fields, plus `fresh=true` to drop the data, `reseed=true` to replay the seed)
 - `POST /:id/stop`, `POST /:id/start`, `DELETE /:id` - Jobs (202)
+- `POST /:id/sleep`, `POST /:id/wake` - Put to sleep now, wake up (202); `job: null` when there is nothing to do; starting and waking answer 503 (`code: "capacity"`) without the memory
 - `POST /:id/extend` - `{ "ttl": "24h" }`: the environment now expires 24 hours from now (10 minutes to the maximum)
 - `POST /:id/exec` - `{ "service": "db", "argv": ["psql", "-c", "select 1"], "timeoutSec": 120, "stdin": "<base64>" }`, answers `{ exitCode, stdout, stderr, truncated, timedOut }`; stdin is optional (1 MiB), JSON bodies may reach 2 MiB
 - `GET /:id/services` - Containers: state, health, restarts, out-of-memory kill, exit code; `?usage=true` adds CPU, memory (without reclaimable cache), limit and writable layer size, measured right now
@@ -473,7 +488,9 @@ Changing an environment, sharing it, running commands in it and opening its term
 
 - `GET /api/v1/system` (admin) - Host now (CPU, memory, disk), every container (environments, Spawner, others), disk breakdown, alerts (disk above 80 % with less than 50 GiB free, or below the 10 GiB reserve; memory below the build guard; crash loops; OOM kills of the last hour)
 - `GET /api/v1/system/metrics?range=24h` (admin) - The host, Spawner and the other containers over time
-- `GET /api/v1/system/capacity` - How many more environments of each project fit: `min((available memory - 1 GiB) / typical memory, (free disk - 10 GiB) / typical disk, quota)`, and what limits it
+- `GET /api/v1/system/cleanup`, `POST /api/v1/system/cleanup` (admin) - What Spawner owns and no longer needs (`automatic` items go every minute anyway), then remove it all
+- `GET|POST... /api/v1/wake` (public, internal) - The waiting page of a sleeping or stopped environment, reached through its routes (`?__spawner_wake=status` answers its state)
+- `GET /api/v1/system/capacity` - How many more environments of each project fit, within the reader's quota (`quota: { limit, used, remaining }`): `min((available memory - 1 GiB) / typical memory, (free disk - 10 GiB) / typical disk, quota)`, and what limits it
 - `GET /api/v1/terminals`, `GET /api/v1/terminals/:id/recording` (admin) - Terminal sessions and what they showed (text, escape codes included)
 - `GET /api/v1/healthz`, `GET /api/v1/readyz` (public)
 - `GET /api/v1/info` - Version, dashboard URL, preview domain, scheme, and the limits the CLI checks a deploy with (compose, upload, ttl, exec, share)
@@ -496,13 +513,14 @@ Changing an environment, sharing it, running commands in it and opening its term
 One bundle, `dist/spawner.cjs` (esbuild, CommonJS so that it runs saved without an extension, minified: the MCP SDK brings three variants of zod). Everything is a dev dependency: nothing is installed at runtime.
 
 - `src/main.ts`, `src/cli.ts`: commander program; each action gets `{ output, cwd, ctx }` first, returns its exit code, and never calls `process.exit`
+- `src/context.ts` `ensureAwake`: exec, shell, url and logs --follow wake a sleeping environment up first
 - `src/ops/`: the operations, shared by the commands and the MCP server: `up.ts` (local check with the project's public URL permission and variables, packing, create or update, wait), `envs.ts` (status with the timeline and crash loops, list, stats, capacity, url, share, stop/start/down, extend), `logs.ts`, `exec.ts`, `auth.ts` (device login, whoami, logout, tokens), `init.ts`, `shell.ts` (Socket.IO terminal)
 - `src/mcp.ts`: `spawner mcp`, the nine tools of the specification on the same operations, stdio transport
 - `src/context.ts`: the server connection, target resolution (project from `spawner.yaml` or `--project`, environment from the branch), waiting for jobs
 - `src/archive.ts`: what is sent (`git ls-files`, default excludes, `upload.include`) and the tar.gz (no hard links, symlinks checked)
 - `src/check.ts`: `spawner.yaml` and the compose file validated with `@spawner/core` and the server's limits (`GET /info`)
 - `src/config.ts`: `~/.config/spawner/credentials.json` (0600), `SPAWNER_URL` and `SPAWNER_TOKEN`
-- `src/errors.ts`: `CliError` and the exit codes (0 ok, 1 error, 2 usage, 3 auth, 4 environment failed, 5 timeout, 6 capacity, 7 refused)
+- `src/errors.ts`: `CliError` and the exit codes (0 ok, 1 error, 2 usage, 3 auth, 4 environment failed, 5 timeout, 6 quota or capacity, 7 refused)
 
 Rules: human messages on stderr, results on stdout (only JSON with `--json`); errors carry a stable `code` and a `hint`; external programs (git, open) run through `execFile` with argument arrays.
 
