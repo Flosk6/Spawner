@@ -1,11 +1,10 @@
-import { Module } from '@nestjs/common';
-import { SystemStatsService } from './system-stats.service';
-import { SystemController } from './system.controller';
-import { StatsModule } from '../stats/stats.module';
+import { Module } from "@nestjs/common";
+import { SystemStatsService } from "./system-stats.service";
 
+/**
+ * The memory guard of builds.
+ */
 @Module({
-  imports: [StatsModule],
-  controllers: [SystemController],
   providers: [SystemStatsService],
   exports: [SystemStatsService],
 })

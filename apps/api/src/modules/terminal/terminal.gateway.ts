@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { OnModuleDestroy } from "@nestjs/common";
 import { ConnectedSocket, MessageBody, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
 import type { Namespace, Socket } from "socket.io";
 import { StringDecoder } from "string_decoder";
@@ -9,9 +10,15 @@ import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
 import { WsTicketsService } from "../auth/ws-tickets.service";
+import { TerminalSessionsService, type TerminalEndReason, type TerminalRecorder } from "./terminal-sessions.service";
 
 const MAX_TERMINALS_PER_USER = 3;
 const MAX_INPUT_LENGTH = 4096;
+const IDLE_LIMIT_MS = 15 * 60_000;
+const DURATION_LIMIT_MS = 4 * 3600_000;
+const LIMITS_CHECK_MS = 30_000;
+/** bash when the image has it, sh otherwise. */
+const SHELL = ["/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"];
 
 interface TerminalSession {
   environmentId: string;
@@ -19,6 +26,10 @@ interface TerminalSession {
   stream: Duplex;
   userId: number;
   resize: (cols: number, rows: number) => Promise<void>;
+  recorder: TerminalRecorder;
+  client: Socket;
+  startedAt: number;
+  lastInputAt: number;
 }
 
 /**
@@ -36,12 +47,15 @@ function dimension(value: unknown, fallback: number): number {
  * a refused client gets a connect_error and never connects. A terminal
  * opens only in an environment the user may run commands in (their own, or
  * any for an admin), within the project of the token that asked for the
- * ticket, and is recorded in the audit trail.
+ * ticket, and is recorded in the audit trail. A person has 3 terminals at
+ * most; a terminal closes after 15 minutes without input and after 4 hours;
+ * what it shows is recorded (2 MiB) for the admins.
  */
 @WebSocketGateway({ namespace: "terminal" })
-export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
+export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
   private readonly logger = new Logger(TerminalGateway.name);
   private readonly sessions = new Map<string, TerminalSession>();
+  private readonly limits: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -49,7 +63,30 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
     private readonly docker: DockerService,
     private readonly config: SpawnerConfig,
     private readonly audit: AuditService,
-  ) {}
+    private readonly recordings: TerminalSessionsService,
+  ) {
+    this.limits = setInterval(() => this.enforceLimits(), LIMITS_CHECK_MS);
+    this.limits.unref();
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.limits);
+  }
+
+  /**
+   * Closes the terminals idle for 15 minutes or open for 4 hours.
+   */
+  enforceLimits(now = Date.now()): void {
+    for (const [sessionId, session] of this.sessions) {
+      if (now - session.lastInputAt > IDLE_LIMIT_MS) {
+        session.client.emit("terminal-error", "Closed after 15 minutes without input");
+        this.close(sessionId, "idle");
+      } else if (now - session.startedAt > DURATION_LIMIT_MS) {
+        session.client.emit("terminal-error", "Closed after 4 hours: open a new terminal");
+        this.close(sessionId, "max_duration");
+      }
+    }
+  }
 
   /**
    * Authenticates each connection during its handshake, so that no message
@@ -95,7 +132,7 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
   handleDisconnect(client: Socket): void {
     for (const sessionId of this.sessions.keys()) {
       if (sessionId.startsWith(`${client.id}:`)) {
-        this.close(sessionId);
+        this.close(sessionId, "closed");
       }
     }
   }
@@ -134,24 +171,42 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
 
     try {
       const { stream, exitCode, resize } = await this.docker.execInteractive(container.Id, {
-        cmd: ["/bin/sh"],
+        cmd: SHELL,
         cols: dimension(data.cols, 80),
         rows: dimension(data.rows, 30),
       });
       const sessionId = `${client.id}:${data.resourceName}`;
-      this.close(sessionId);
-      this.sessions.set(sessionId, { environmentId: environment.id, service: data.resourceName, stream, userId: actor.user.id, resize });
-      await this.audit.record(actor, "terminal.open", { target: `${environment.project.slug}/${environment.slug}`, details: { service: data.resourceName } });
+      this.close(sessionId, "closed");
+      const label = `${environment.project.slug}/${environment.slug}`;
+      const recorder = await this.recordings.open(actor, { id: environment.id, label }, data.resourceName);
+      const now = Date.now();
+      this.sessions.set(sessionId, {
+        environmentId: environment.id,
+        service: data.resourceName,
+        stream,
+        userId: actor.user.id,
+        resize,
+        recorder,
+        client,
+        startedAt: now,
+        lastInputAt: now,
+      });
+      await this.audit.record(actor, "terminal.open", { target: label, details: { service: data.resourceName, sessionId: recorder.sessionId } });
 
       const decoder = new StringDecoder("utf8");
-      stream.on("data", (chunk: Buffer) => client.emit("terminal-output", decoder.write(chunk)));
+      stream.on("data", (chunk: Buffer) => {
+        const text = decoder.write(chunk);
+        recorder.write(text);
+        client.emit("terminal-output", text);
+      });
       stream.on("end", async () => {
-        client.emit("terminal-exit", await exitCode().catch(() => 0));
-        this.close(sessionId);
+        const code = await exitCode().catch(() => 0);
+        client.emit("terminal-exit", code);
+        this.close(sessionId, "exit", code);
       });
       stream.on("error", () => {
         client.emit("terminal-error", "Terminal session lost");
-        this.close(sessionId);
+        this.close(sessionId, "error");
       });
       client.emit("terminal-output", `\r\n\x1b[1;32mConnected to ${data.resourceName}\x1b[0m\r\n\r\n`);
     } catch (error) {
@@ -170,11 +225,12 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
     if (typeof data.input !== "string" || data.input.length > MAX_INPUT_LENGTH) {
       return;
     }
+    session.lastInputAt = Date.now();
     try {
       session.stream.write(data.input);
     } catch {
       client.emit("terminal-error", "Terminal session lost");
-      this.close(`${client.id}:${data.resourceName}`);
+      this.close(`${client.id}:${data.resourceName}`, "error");
     }
   }
 
@@ -191,15 +247,16 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect {
 
   @SubscribeMessage("stop-terminal")
   stop(@ConnectedSocket() client: Socket, @MessageBody() data: { resourceName?: string }): void {
-    this.close(`${client.id}:${data?.resourceName}`);
+    this.close(`${client.id}:${data?.resourceName}`, "closed");
   }
 
-  private close(sessionId: string): void {
+  private close(sessionId: string, reason: TerminalEndReason, exitCode: number | null = null): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return;
     }
     this.sessions.delete(sessionId);
+    void session.recorder.close(reason, exitCode);
     try {
       session.stream.end();
       session.stream.destroy();

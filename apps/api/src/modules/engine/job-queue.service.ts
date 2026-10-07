@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from "@nestjs/common";
 import type { Job, Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/prisma.service";
+import { TimelineService } from "../timeline/timeline.service";
 import { JobLogsService } from "./job-logs.service";
 import { PipelineError, PipelineService } from "./pipeline.service";
 import { SpawnerConfig } from "../../common/spawner.config";
@@ -11,6 +12,9 @@ const HEAVY_JOBS: JobType[] = ["create", "update"];
 const LIGHT_JOBS: JobType[] = ["delete", "stop", "start"];
 const LIGHT_CONCURRENCY = 4;
 const TRANSITIONAL_STATUSES = ["queued", "preparing", "validating", "building", "seeding", "routing", "deleting", "stopping", "starting"];
+/** Job logs kept for each environment, the newest. */
+const KEPT_JOB_LOGS = 5;
+const JOB_NAMES: Record<string, string> = { create: "Creation", update: "Update", delete: "Deletion", stop: "Stop", start: "Start" };
 
 /**
  * Job queue stored in the jobs table. A job is claimed with
@@ -31,6 +35,7 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
     private readonly config: SpawnerConfig,
     private readonly pipeline: PipelineService,
     private readonly logs: JobLogsService,
+    private readonly timeline: TimelineService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -48,8 +53,10 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
 
   /**
    * Queues a job for an environment.
+   *
+   * @param actor - Who asked, as the timeline shows it ("Ada via claude-laptop")
    */
-  async enqueue(environmentId: string, type: JobType, payload: object | null, triggeredById: number | null): Promise<Job> {
+  async enqueue(environmentId: string, type: JobType, payload: object | null, triggeredById: number | null, actor: string | null = null): Promise<Job> {
     const job = await this.prisma.job.create({
       data: {
         environmentId,
@@ -57,6 +64,7 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
         status: "queued",
         payload: (payload ?? undefined) as Prisma.InputJsonValue | undefined,
         triggeredById,
+        actor: actor?.slice(0, 100) ?? null,
       },
     });
     setImmediate(() => void this.tick());
@@ -119,11 +127,16 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
   }
 
   private async execute(job: Job): Promise<void> {
+    const name = JOB_NAMES[job.type] ?? job.type;
+    const started = Date.now();
     this.logs.append(job.id, `Job ${job.type} started`);
+    await this.timeline.record(job.environmentId, "job_started", `${name} started${job.actor ? ` by ${job.actor}` : ""}`, { details: { jobId: job.id, type: job.type } });
     try {
       await this.pipeline.run(job);
       this.logs.append(job.id, `Job ${job.type} succeeded`);
       await this.prisma.job.update({ where: { id: job.id }, data: { status: "succeeded", finishedAt: new Date() } });
+      const seconds = Math.round((Date.now() - started) / 1000);
+      await this.timeline.record(job.environmentId, "job_succeeded", `${name} succeeded in ${formatSeconds(seconds)}`, { details: { jobId: job.id, type: job.type, seconds } });
     } catch (error) {
       const message = (error as Error).message ?? String(error);
       const phase = error instanceof PipelineError ? error.phase : null;
@@ -133,10 +146,22 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
         where: { id: job.id },
         data: { status: "failed", phase, error: message.slice(0, 4000), errorCode, finishedAt: new Date() },
       });
+      await this.timeline.record(job.environmentId, "job_failed", `${name} failed${phase ? ` during ${phase}` : ""}: ${message.split("\n")[0].slice(0, 300)}`, {
+        details: { jobId: job.id, type: job.type, phase, errorCode },
+      });
       this.logger.warn(`Job ${job.id} (${job.type}) failed: ${message.split("\n")[0]}`);
     } finally {
       this.logs.close(job.id);
+      await this.pruneLogs(job.environmentId);
     }
+  }
+
+  /**
+   * Keeps the logs of the last five jobs of an environment.
+   */
+  private async pruneLogs(environmentId: string): Promise<void> {
+    const old = await this.prisma.job.findMany({ where: { environmentId }, orderBy: { createdAt: "desc" }, skip: KEPT_JOB_LOGS, select: { id: true } }).catch(() => []);
+    old.forEach((job) => this.logs.remove(job.id));
   }
 
   /**
@@ -150,6 +175,9 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
         where: { id: job.id },
         data: { status: "failed", error: "interrupted by a restart of Spawner", errorCode: "interrupted", finishedAt: new Date() },
       });
+      await this.timeline.record(job.environmentId, "job_failed", `${JOB_NAMES[job.type] ?? job.type} interrupted by a restart of Spawner`, {
+        details: { jobId: job.id, type: job.type, errorCode: "interrupted" },
+      });
       await this.prisma.environment.updateMany({
         where: { id: job.environmentId, status: { in: TRANSITIONAL_STATUSES } },
         data: { status: "failed", error: "interrupted by a restart of Spawner" },
@@ -159,4 +187,13 @@ export class JobQueueService implements OnApplicationBootstrap, OnModuleDestroy 
       this.logger.warn(`${interrupted.length} interrupted job(s) marked as failed`);
     }
   }
+}
+
+/** "45s", "1m 42s", "12m". */
+export function formatSeconds(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return seconds % 60 === 0 || minutes >= 10 ? `${minutes}m` : `${minutes}m ${seconds % 60}s`;
 }

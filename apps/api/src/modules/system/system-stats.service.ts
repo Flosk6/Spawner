@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
+import * as fs from "fs";
 import * as os from "os";
+import { parseMeminfo } from "../supervision/host";
 
 const bytesToGB = (bytes: number) => bytes / 1024 ** 3;
 
@@ -25,11 +27,26 @@ export interface MemoryCheckResult {
   };
 }
 
+/**
+ * The memory guard of builds: a build waits until enough memory is
+ * available. Available means what the kernel can hand out (MemAvailable on
+ * Linux, page cache included), not only the free pages.
+ */
 @Injectable()
 export class SystemStatsService {
+  /** Where the kernel reports memory; os.freemem() when unreadable (macOS). */
+  meminfoPath = "/proc/meminfo";
+
   getMemoryStats(): SystemMemoryStats {
-    const total = os.totalmem();
-    const free = os.freemem();
+    let total = os.totalmem();
+    let free = os.freemem();
+    try {
+      const fields = parseMeminfo(fs.readFileSync(this.meminfoPath, "utf8"));
+      total = fields.MemTotal ?? total;
+      free = fields.MemAvailable ?? free;
+    } catch {
+      // Not Linux: the os module's numbers.
+    }
     const used = total - free;
 
     return {

@@ -7,7 +7,9 @@ import type { PrismaService } from "../../common/prisma.service";
 import type { SpawnerConfig } from "../../common/spawner.config";
 import type { AuditService } from "../audit/audit.service";
 import type { JobQueueService } from "../engine/job-queue.service";
-import type { StatsService } from "../stats/stats.service";
+import type { LogArchiveService } from "../engine/log-archive.service";
+import type { MetricsCollector } from "../supervision/metrics-collector.service";
+import type { TimelineService } from "../timeline/timeline.service";
 import { EnvironmentsService, type LogLine } from "./environments.service";
 
 const config = { scheme: "http", envTtlSeconds: 72 * 3600, envTtlMaxSeconds: 14 * 86400 } as SpawnerConfig;
@@ -23,6 +25,8 @@ describe("EnvironmentsService", () => {
   let tailsAsked: number[];
   let followers: Record<string, { onLines: (lines: RawLogLine[]) => void; onEnd: () => void }>;
   let updates: { expiresAt?: Date }[];
+  let archived: { service: string; line: RawLogLine }[];
+  let deletedAt: Date | null;
 
   beforeEach(() => {
     output = {
@@ -32,6 +36,8 @@ describe("EnvironmentsService", () => {
     tailsAsked = [];
     followers = {};
     updates = [];
+    archived = [];
+    deletedAt = null;
     const environment = {
       id: "env-1",
       slug: "feat-login",
@@ -44,10 +50,13 @@ describe("EnvironmentsService", () => {
       exposures: [],
       jobs: [],
       manifest: null,
+      get deletedAt() {
+        return deletedAt;
+      },
     };
     const prisma = {
       environment: {
-        findFirst: async () => environment,
+        findFirst: async ({ where }: { where: { deletedAt?: null } }) => (where.deletedAt === null && deletedAt ? null : environment),
         update: async ({ data }: { data: { expiresAt?: Date } }) => updates.push(data),
       },
     };
@@ -63,13 +72,16 @@ describe("EnvironmentsService", () => {
       },
     };
     const audit = { record: async () => undefined };
+    const timeline = { record: async () => undefined };
     service = new EnvironmentsService(
       prisma as unknown as PrismaService,
       {} as JobQueueService,
       config,
       docker as unknown as DockerService,
-      {} as StatsService,
+      { environment: () => null } as unknown as MetricsCollector,
       audit as unknown as AuditService,
+      { read: () => archived } as unknown as LogArchiveService,
+      timeline as unknown as TimelineService,
     );
   });
 
@@ -102,6 +114,17 @@ describe("EnvironmentsService", () => {
     it("searches a text in the services asked for", async () => {
       const { lines } = await service.logLines(owner, "env-1", query({ service: "db", grep: "READY" }));
       expect(lines.map((entry) => entry.text)).toEqual(["ready to accept connections"]);
+    });
+
+    it("reads the archived logs of a deleted environment", async () => {
+      deletedAt = new Date();
+      archived = [
+        { service: "api", line: line(2, "Error: last words", "stderr") },
+        { service: "db", line: line(1, "shutting down") },
+      ];
+      const { lines } = await service.logLines(owner, "env-1", query({ errors: "true" }));
+      expect(lines.map((entry) => entry.text)).toEqual(["Error: last words"]);
+      await expect(service.extend(owner, "env-1", "1h")).rejects.toThrow(NotFoundException);
     });
 
     it("names the services when one is unknown", async () => {

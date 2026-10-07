@@ -77,6 +77,35 @@ export class DockerService implements OnModuleInit {
   }
 
   /**
+   * The compose project of Spawner's own containers (spawner, postgres,
+   * traefik), read from the labels of the container Spawner runs in.
+   *
+   * @returns The project name, or null outside a container (development)
+   */
+  async ownComposeProject(): Promise<string | null> {
+    const self = await this.docker
+      .getContainer(os.hostname())
+      .inspect()
+      .catch(() => null);
+    return self?.Config.Labels?.["com.docker.compose.project"] ?? null;
+  }
+
+  /**
+   * One stats sample of a running container, without waiting for a second
+   * one (one-shot): the caller computes the CPU from two successive samples.
+   *
+   * @returns The sample, or null when the container is gone or slow to answer
+   */
+  async statsSample(containerId: string, timeoutMs = 10_000): Promise<Record<string, any> | null> {
+    const sample = this.docker
+      .getContainer(containerId)
+      .stats({ stream: false, "one-shot": true })
+      .catch(() => null);
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs).unref());
+    return Promise.race([sample, timeout]) as Promise<Record<string, any> | null>;
+  }
+
+  /**
    * Lists the containers of an environment, running or not.
    */
   async listEnvironmentContainers(environmentId: string): Promise<Docker.ContainerInfo[]> {
@@ -193,13 +222,13 @@ export class DockerService implements OnModuleInit {
    * Returns the last lines of a container's output, each with its stream
    * and time.
    *
-   * @param options - How many lines from the end, and since when (UNIX seconds)
+   * @param options - How many lines from the end, and between when and when (UNIX seconds)
    */
-  async logLines(containerId: string, options: { tail: number; since?: number }): Promise<RawLogLine[]> {
+  async logLines(containerId: string, options: { tail: number; since?: number; until?: number }): Promise<RawLogLine[]> {
     const container = this.docker.getContainer(containerId);
     const [info, raw] = await Promise.all([
       container.inspect(),
-      container.logs({ stdout: true, stderr: true, tail: options.tail, since: options.since, timestamps: true, follow: false }),
+      container.logs({ stdout: true, stderr: true, tail: options.tail, since: options.since, until: options.until, timestamps: true, follow: false }),
     ]);
     const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as unknown as string);
     return decodeLogs(buffer, info.Config.Tty);

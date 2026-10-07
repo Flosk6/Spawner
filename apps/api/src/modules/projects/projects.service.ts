@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Project } from "@prisma/client";
 import * as path from "path";
-import { slugIssue } from "@spawner/core";
+import { MANIFEST_PATH, parseManifest, slugIssue } from "@spawner/core";
 import { sanitizeGitBranch } from "@spawner/utils";
 import { assertInProject, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
+import { SecretsService } from "../../common/secrets.service";
 import { AuditService } from "../audit/audit.service";
 import { GitMirrorService } from "../engine/git-mirror.service";
 
@@ -14,7 +15,11 @@ export interface ProjectInput {
   repoUrl?: string;
   defaultRef?: string;
   rootDir?: string;
+  allowPublic?: boolean;
 }
+
+const VARIABLE_NAME = /^[A-Z_][A-Z0-9_]*$/;
+const MAX_VARIABLE_BYTES = 64 * 1024;
 
 /**
  * Projects: a repository holding .spawner/spawner.yaml (in rootDir, for
@@ -26,6 +31,7 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly git: GitMirrorService,
     private readonly audit: AuditService,
+    private readonly secrets: SecretsService,
   ) {}
 
   async list(actor: Actor) {
@@ -37,7 +43,110 @@ export class ProjectsService {
     return projects.map(({ _count, ...project }) => ({ ...project, environmentCount: _count.environments }));
   }
 
-  async get(slug: string, actor?: Actor) {
+  /**
+   * A project as the API shows it, with the names of its variables (their
+   * values stay with the admins).
+   */
+  async describe(slug: string, actor: Actor) {
+    const project = await this.get(slug, actor);
+    const variables = await this.prisma.projectVariable.findMany({ where: { projectId: project.id }, orderBy: { name: "asc" }, select: { name: true, secret: true } });
+    return { ...project, variables };
+  }
+
+  /**
+   * spawner.yaml at a branch, tag or commit (the default branch otherwise),
+   * read from the repository: what the new environment form needs, the
+   * other sources and their default branches.
+   */
+  async manifest(slug: string, actor: Actor, ref?: string) {
+    const project = await this.get(slug, actor);
+    const at = ref || project.defaultRef;
+    const file = path.posix.join(project.rootDir, MANIFEST_PATH);
+    let text: string | null;
+    try {
+      text = await this.git.readFile(project.repoUrl, at, file);
+    } catch (error) {
+      throw new BadRequestException(`Unable to read the repository: ${(error as Error).message.split("\n")[0]}`);
+    }
+    if (text === null) {
+      throw new NotFoundException(`${file} does not exist at ${at}`);
+    }
+    const { manifest, issues } = parseManifest(text);
+    return {
+      ref: at,
+      name: manifest?.name ?? null,
+      sources: Object.entries(manifest?.sources ?? {}).map(([name, source]) => ({ name, repo: source.repo, defaultRef: source.defaultRef })),
+      exposures: manifest?.exposures ?? [],
+      issues,
+    };
+  }
+
+  /**
+   * Branches of the project repository, or of one of its other sources.
+   */
+  async branches(slug: string, actor: Actor, source?: string): Promise<string[]> {
+    const project = await this.get(slug, actor);
+    let repoUrl = project.repoUrl;
+    if (source) {
+      const manifest = await this.manifest(slug, actor);
+      if (source !== manifest.name) {
+        const declared = manifest.sources.find((candidate) => candidate.name === source);
+        if (!declared) {
+          throw new NotFoundException(`spawner.yaml declares no source "${source}"`);
+        }
+        repoUrl = declared.repo;
+      }
+    }
+    try {
+      return await this.git.listBranches(repoUrl);
+    } catch (error) {
+      throw new BadRequestException(`Unable to list branches: ${(error as Error).message.split("\n")[0]}`);
+    }
+  }
+
+  /**
+   * The variables of a project, for its admins: secret values are never
+   * shown again.
+   */
+  async variables(slug: string) {
+    const project = await this.get(slug);
+    const variables = await this.prisma.projectVariable.findMany({ where: { projectId: project.id }, orderBy: { name: "asc" } });
+    return variables.map((variable) => ({ name: variable.name, secret: variable.secret, value: variable.secret ? null : variable.value, updatedAt: variable.updatedAt }));
+  }
+
+  /**
+   * Sets a variable the compose files of the project can use as ${NAME}.
+   * A secret value is stored encrypted and masked in job logs.
+   */
+  async setVariable(actor: Actor, slug: string, name: string, input: { value?: unknown; secret?: unknown }) {
+    const project = await this.get(slug);
+    if (!VARIABLE_NAME.test(name) || name.startsWith("SPAWNER_")) {
+      throw new BadRequestException("variable names use uppercase letters, digits and underscores, and do not start with SPAWNER_");
+    }
+    if (typeof input.value !== "string" || Buffer.byteLength(input.value) > MAX_VARIABLE_BYTES) {
+      throw new BadRequestException("value must be a string of 64 KiB at most");
+    }
+    const secret = input.secret === true;
+    const value = secret ? this.secrets.encrypt(input.value) : input.value;
+    await this.prisma.projectVariable.upsert({
+      where: { projectId_name: { projectId: project.id, name } },
+      create: { projectId: project.id, name, value, secret },
+      update: { value, secret },
+    });
+    await this.audit.record(actor, "project.variable_set", { target: slug, details: { name, secret } });
+    return (await this.variables(slug)).find((variable) => variable.name === name);
+  }
+
+  async deleteVariable(actor: Actor, slug: string, name: string): Promise<void> {
+    const project = await this.get(slug);
+    const { count } = await this.prisma.projectVariable.deleteMany({ where: { projectId: project.id, name } });
+    if (count === 0) {
+      throw new NotFoundException(`project "${slug}" has no variable ${name}`);
+    }
+    await this.audit.record(actor, "project.variable_delete", { target: slug, details: { name } });
+  }
+
+  async get(slug: string, actor?: Actor): Promise<Project> {
     const project = await this.prisma.project.findUnique({ where: { slug } });
     if (!project) {
       throw new NotFoundException(`project "${slug}" not found`);
@@ -107,6 +216,12 @@ export class ProjectsService {
       } catch (error) {
         throw new BadRequestException(`defaultRef: ${(error as Error).message}`);
       }
+    }
+    if (input.allowPublic !== undefined) {
+      if (typeof input.allowPublic !== "boolean") {
+        throw new BadRequestException("allowPublic must be true or false");
+      }
+      data.allowPublic = input.allowPublic;
     }
     if (input.rootDir !== undefined) {
       const rootDir = path.posix.normalize(input.rootDir || ".");

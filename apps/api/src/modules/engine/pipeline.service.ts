@@ -9,15 +9,19 @@ import {
   MANIFEST_PATH,
   parseManifest,
   prepareCompose,
+  publicExposureIssues,
   type Issue,
   type Manifest,
 } from "@spawner/core";
+import { directorySize } from "../../common/directory-size";
 import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
+import { SecretsService } from "../../common/secrets.service";
 import { SystemStatsService } from "../system/system-stats.service";
 import { ComposeRunner } from "./compose-runner.service";
 import { GitMirrorService } from "./git-mirror.service";
 import { JobLogsService } from "./job-logs.service";
+import { LogArchiveService } from "./log-archive.service";
 import { AuditService } from "../audit/audit.service";
 import { RouterService } from "./router.service";
 import { SpawnerConfig } from "../../common/spawner.config";
@@ -93,6 +97,16 @@ interface SourceRecord {
 type Log = (line: string) => void;
 
 const SEED_TIMEOUT_MS = 10 * 60 * 1000;
+/** Secret values shorter than this are not masked: they would hide common words. */
+const MASKED_MIN_LENGTH = 4;
+
+/**
+ * A log that replaces secret values with stars.
+ */
+export function maskSecrets(log: Log, secrets: string[]): Log {
+  const values = secrets.filter((secret) => secret.length >= MASKED_MIN_LENGTH).sort((a, b) => b.length - a.length);
+  return values.length === 0 ? log : (line) => log(values.reduce((text, secret) => text.split(secret).join("********"), line));
+}
 
 /**
  * Executes environment jobs. A deploy goes through these phases:
@@ -115,15 +129,18 @@ export class PipelineService {
     private readonly logs: JobLogsService,
     private readonly systemStats: SystemStatsService,
     private readonly audit: AuditService,
+    private readonly archives: LogArchiveService,
+    private readonly secrets: SecretsService,
   ) {}
 
   async run(job: Job): Promise<void> {
     const log: Log = (line) => this.logs.append(job.id, line);
     switch (job.type) {
       case "create":
-        return this.deploy(job, log, true);
-      case "update":
-        return this.deploy(job, log, false);
+      case "update": {
+        const variables = await this.projectVariables(job.environmentId);
+        return this.deploy(job, maskSecrets(log, variables.secrets), job.type === "create", variables.values);
+      }
       case "delete":
         return this.destroy(job, log);
       case "stop":
@@ -135,7 +152,24 @@ export class PipelineService {
     }
   }
 
-  private async deploy(job: Job, log: Log, isCreate: boolean): Promise<void> {
+  /**
+   * The variables an admin set on the project of an environment, secret
+   * values decrypted.
+   */
+  private async projectVariables(environmentId: string): Promise<{ values: Record<string, string>; secrets: string[] }> {
+    const variables = await this.prisma.projectVariable.findMany({ where: { project: { environments: { some: { id: environmentId } } } } });
+    const values: Record<string, string> = {};
+    const secrets: string[] = [];
+    for (const variable of variables) {
+      values[variable.name] = variable.secret ? this.secrets.decrypt(variable.value) : variable.value;
+      if (variable.secret) {
+        secrets.push(values[variable.name]);
+      }
+    }
+    return { values, secrets };
+  }
+
+  private async deploy(job: Job, log: Log, isCreate: boolean, projectVariables: Record<string, string>): Promise<void> {
     const env = await this.environment(job.environmentId);
     const payload = job.payload as unknown as DeployPayload;
     const projectName = composeProjectName(env.project.slug, env.slug);
@@ -151,6 +185,7 @@ export class PipelineService {
       );
       const projectRoot = this.projectRoot(primaryDir, env.project.rootDir);
       const manifest = this.readManifest(projectRoot, env.project.slug, log);
+      this.rejectIfIssues(publicExposureIssues(manifest, env.project.allowPublic), "spawner.yaml", log);
 
       const undeclared = Object.keys(payload.sources ?? {}).filter((name) => !(name in manifest.sources));
       if (undeclared.length > 0) {
@@ -178,6 +213,7 @@ export class PipelineService {
         scheme: this.config.scheme,
         exposures: manifest.exposures,
         sourceRoots,
+        projectVariables,
       });
       this.rejectIfIssues(variableIssues, "variables", log);
 
@@ -255,6 +291,14 @@ export class PipelineService {
     const projectName = composeProjectName(env.project.slug, env.slug);
     try {
       await this.setStatus(env.id, "deleting");
+      try {
+        const services = await this.archives.archive(env.id);
+        if (services.length > 0) {
+          log(`Kept the last logs of ${services.join(", ")} for 7 days`);
+        }
+      } catch (error) {
+        log(`The logs could not be archived: ${(error as Error).message}`);
+      }
       await this.router.unpublish(env.id, projectName);
       log(`Removing ${projectName}`);
       await this.compose.down(projectName, this.storage.renderedComposePath(env.id), log);
@@ -328,7 +372,7 @@ export class PipelineService {
     const ref = spec.request.ref || spec.defaultRef;
     try {
       const { commit } = await this.git.checkout(spec.repoUrl, ref, spec.dir, log);
-      return { name: spec.name, dir: spec.dir, origin: "git", repoUrl: spec.repoUrl, ref, commit, digest: null, sizeBytes: null };
+      return { name: spec.name, dir: spec.dir, origin: "git", repoUrl: spec.repoUrl, ref, commit, digest: null, sizeBytes: await directorySize(spec.dir) };
     } catch (error) {
       throw new PipelineError("preparing", `${label}: ${(error as Error).message}`);
     }

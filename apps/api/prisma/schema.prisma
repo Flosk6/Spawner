@@ -10,27 +10,28 @@ datasource db {
 /// A member of the team. Accounts have no password: the first access goes
 /// through an invitation, then passkeys, or GitHub when it is configured.
 model User {
-  id           Int           @id @default(autoincrement())
-  name         String        @db.VarChar(60)
-  email        String?       @db.VarChar
-  avatarUrl    String?       @map("avatar_url") @db.VarChar
-  role         String        @default("member") @db.VarChar(10)
-  isActive     Boolean       @default(true) @map("is_active")
+  id           Int               @id @default(autoincrement())
+  name         String            @db.VarChar(60)
+  email        String?           @db.VarChar
+  avatarUrl    String?           @map("avatar_url") @db.VarChar
+  role         String            @default("member") @db.VarChar(10)
+  isActive     Boolean           @default(true) @map("is_active")
   /// User handle given to authenticators, the same for all the user's passkeys.
-  webauthnId   String?       @unique @map("webauthn_id") @db.VarChar(64)
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt  DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  webauthnId   String?           @unique @map("webauthn_id") @db.VarChar(64)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt  DateTime?         @map("last_login_at") @db.Timestamptz(6)
   identities   Identity[]
   passkeys     Passkey[]
   tokens       ApiToken[]
   deviceCodes  DeviceCode[]
-  invitesFor   Invite[]      @relation("InviteForUser")
-  invitesSent  Invite[]      @relation("InviteCreatedBy")
+  invitesFor   Invite[]          @relation("InviteForUser")
+  invitesSent  Invite[]          @relation("InviteCreatedBy")
   shareLinks   ShareLink[]
   auditEvents  AuditEvent[]
   environments Environment[]
   jobs         Job[]
+  terminals    TerminalSession[]
 
   @@map("users")
 }
@@ -145,18 +146,37 @@ model AuditEvent {
 }
 
 model Project {
-  id           String        @id @default(cuid())
-  slug         String        @unique @db.VarChar(20)
-  name         String        @db.VarChar
-  repoUrl      String        @map("repo_url") @db.VarChar
-  defaultRef   String        @default("main") @map("default_ref") @db.VarChar
-  rootDir      String        @default(".") @map("root_dir") @db.VarChar
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String            @id @default(cuid())
+  slug         String            @unique @db.VarChar(20)
+  name         String            @db.VarChar
+  repoUrl      String            @map("repo_url") @db.VarChar
+  defaultRef   String            @default("main") @map("default_ref") @db.VarChar
+  rootDir      String            @default(".") @map("root_dir") @db.VarChar
+  /// Exposures may be public (auth: none in spawner.yaml) only when an admin allows it.
+  allowPublic  Boolean           @default(false) @map("allow_public")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   environments Environment[]
   tokens       ApiToken[]
+  variables    ProjectVariable[]
 
   @@map("projects")
+}
+
+/// A variable an admin gives the compose files of a project
+/// (${STRIPE_KEY}). Secret values are encrypted (AES-256-GCM), never shown
+/// again, and masked in job logs.
+model ProjectVariable {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String   @db.VarChar(64)
+  value     String
+  secret    Boolean  @default(false)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@map("project_variables")
 }
 
 /// One running copy of a project. A deleted environment keeps its row
@@ -186,10 +206,31 @@ model Environment {
   exposures      Exposure[]
   jobs           Job[]
   shareLinks     ShareLink[]
+  events         EnvironmentEvent[]
 
   @@index([projectId, slug])
   @@index([status])
+  @@index([deletedAt])
   @@map("environments")
+}
+
+/// What happened to an environment: services crashing, running out of
+/// memory or turning unhealthy (from Docker events), and its jobs. Kept 30
+/// days, and 7 days after the environment is deleted.
+model EnvironmentEvent {
+  id            BigInt      @id @default(autoincrement())
+  environmentId String      @map("environment_id")
+  time          DateTime    @default(now()) @db.Timestamptz(6)
+  /// crash, oom, unhealthy, healthy, job_started, job_succeeded, job_failed, extended
+  type          String      @db.VarChar(20)
+  service       String?     @db.VarChar(63)
+  message       String
+  details       Json?
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  @@index([environmentId, time])
+  @@index([time])
+  @@map("environment_events")
 }
 
 model EnvironmentSource {
@@ -240,6 +281,8 @@ model Job {
   errorCode     String?     @map("error_code") @db.VarChar(20)
   payload       Json?
   triggeredById Int?        @map("triggered_by_id")
+  /// Who asked for it, as shown in the timeline: "Ada via claude-laptop".
+  actor         String?     @db.VarChar(100)
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   startedAt     DateTime?   @map("started_at") @db.Timestamptz(6)
   finishedAt    DateTime?   @map("finished_at") @db.Timestamptz(6)
@@ -286,15 +329,82 @@ model Session {
   @@map("sessions")
 }
 
-model EnvironmentStats {
-  id            Int      @id @default(autoincrement())
-  time          DateTime @default(now()) @db.Timestamptz(6)
-  environmentId String
-  cpuPercent    Decimal  @db.Decimal(5, 2)
-  memoryUsageGB Decimal  @db.Decimal(8, 2)
-  memoryLimitGB Decimal  @db.Decimal(8, 2)
-  containers    Json
+/// One minute of resource usage, averaged from samples every 30 seconds:
+/// of the host (scope "host"), of Spawner's own containers ("spawner"), of
+/// the other containers of the host ("others"), or of an environment
+/// ("env"). Kept 48 hours, then summed up in MetricRollup.
+model MetricPoint {
+  id               BigInt   @id @default(autoincrement())
+  time             DateTime @db.Timestamptz(6)
+  scope            String   @db.VarChar(10)
+  /// No foreign key: the usage of a project outlives its environments.
+  environmentId    String?  @map("environment_id")
+  projectId        String?  @map("project_id")
+  cpuPercent       Float    @map("cpu_percent")
+  memoryBytes      BigInt   @map("memory_bytes")
+  /// The sum of the memory limits of an environment, the memory of the host.
+  memoryLimitBytes BigInt?  @map("memory_limit_bytes")
+  /// Each service of an environment ({ "api": { "cpu": 1.2, "memory": 123 } }),
+  /// or the details of the host (available memory, swap, load).
+  details          Json?
 
-  @@index([environmentId, time(sort: Desc)])
+  @@index([scope, time])
+  @@index([environmentId, time])
+  @@map("metric_points")
+}
+
+/// Fifteen minutes of usage, average and maximum. Kept 30 days.
+model MetricRollup {
+  id            BigInt   @id @default(autoincrement())
+  time          DateTime @db.Timestamptz(6)
+  scope         String   @db.VarChar(10)
+  environmentId String?  @map("environment_id")
+  projectId     String?  @map("project_id")
+  cpuAvg        Float    @map("cpu_avg")
+  cpuMax        Float    @map("cpu_max")
+  memoryAvg     BigInt   @map("memory_avg")
+  memoryMax     BigInt   @map("memory_max")
+
+  @@index([scope, time])
+  @@index([environmentId, time])
+  @@map("metric_rollups")
+}
+
+/// Disk usage of the host and of each environment, measured every 15
+/// minutes and after builds and deletions. Kept 30 days.
+model DiskSnapshot {
+  id         BigInt   @id @default(autoincrement())
+  time       DateTime @default(now()) @db.Timestamptz(6)
+  totalBytes BigInt   @map("total_bytes")
+  freeBytes  BigInt   @map("free_bytes")
+  /// Images, build cache, volumes, writable layers, sources and logs, in
+  /// total and for each environment.
+  details    Json
+
   @@index([time])
+  @@map("disk_snapshots")
+}
+
+/// A terminal opened in a service. Its output is recorded in
+/// <data>/terminals/<id>.log (2 MiB at most) and kept 30 days.
+model TerminalSession {
+  id            String    @id @default(cuid())
+  environmentId String?   @map("environment_id")
+  /// "blog/feat-login": the environment row is gone 7 days after its deletion.
+  environment   String    @db.VarChar(60)
+  service       String    @db.VarChar(63)
+  userId        Int?      @map("user_id")
+  /// Who opened it, as shown: "Ada", "Ada via claude-laptop".
+  actor         String    @db.VarChar(100)
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt       DateTime? @map("ended_at") @db.Timestamptz(6)
+  /// exit, idle, max_duration, closed, error
+  endReason     String?   @map("end_reason") @db.VarChar(20)
+  exitCode      Int?      @map("exit_code")
+  recordedBytes Int       @default(0) @map("recorded_bytes")
+  truncated     Boolean   @default(false)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([startedAt])
+  @@map("terminal_sessions")
 }

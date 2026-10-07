@@ -11,6 +11,7 @@ const GB = 1024 ** 3;
 
 describe('SystemStatsService.checkMemoryAvailability', () => {
   const service = new SystemStatsService();
+  service.meminfoPath = '/nonexistent/meminfo';
 
   beforeEach(() => {
     vi.mocked(os.totalmem).mockReturnValue(16 * GB);
@@ -44,5 +45,17 @@ describe('SystemStatsService.checkMemoryAvailability', () => {
     vi.mocked(os.freemem).mockReturnValue(4 * GB);
 
     expect(service.getMemoryStats().usagePercent).toBe(75);
+  });
+});
+
+describe('SystemStatsService on Linux', () => {
+  it('counts the memory the kernel can hand out, cache included', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const file = path.join(fs.mkdtempSync(path.join((await vi.importActual<typeof import('os')>('os')).tmpdir(), 'meminfo-')), 'meminfo');
+    fs.writeFileSync(file, 'MemTotal: 8388608 kB\nMemFree: 524288 kB\nMemAvailable: 4194304 kB\n');
+    const service = new SystemStatsService();
+    service.meminfoPath = file;
+    expect(service.getMemoryStats()).toMatchObject({ total: 8 * GB, free: 4 * GB, used: 4 * GB, usagePercent: 50 });
   });
 });

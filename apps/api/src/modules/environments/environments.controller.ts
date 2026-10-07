@@ -48,14 +48,21 @@ export class EnvironmentsController {
   constructor(private readonly environments: EnvironmentsService) {}
 
   /**
-   * Live environments, newest first. mine=true keeps the actor's own.
+   * Live environments, newest first. mine=true keeps the actor's own;
+   * deleted=true lists those deleted in the last 7 days instead.
    */
   @Get()
-  list(@CurrentActor() actor: Actor, @Query("project") project?: string, @Query("slug") slug?: string, @Query("mine") mine?: string) {
+  list(
+    @CurrentActor() actor: Actor,
+    @Query("project") project?: string,
+    @Query("slug") slug?: string,
+    @Query("mine") mine?: string,
+    @Query("deleted") deleted?: string,
+  ) {
     if (project && slug) {
       return this.environments.getBySlug(actor, project, slug).then((environment) => [environment]);
     }
-    return this.environments.list(actor, { project, mine: mine === "true" });
+    return this.environments.list(actor, { project, mine: mine === "true", deleted: deleted === "true" });
   }
 
   @Get(":id")
@@ -134,22 +141,31 @@ export class EnvironmentsController {
   /**
    * Output of the services as JSON lines { service, stream, time, text },
    * merged in time order. service (comma-separated) narrows the services,
-   * tail the number of lines (200), since a start (ISO 8601), grep a text to
-   * find and errors=true the lines reporting errors. With follow=true, the
-   * answer is a stream of server-sent events, one line per event, until the
+   * tail the number of lines (200), since and until a time range (ISO 8601),
+   * grep a text to find and errors=true the lines reporting errors.
+   * format=text downloads them as a text file. With follow=true, the answer
+   * is a stream of server-sent events, one line per event, until the
    * services stop.
    */
   @Get(":id/logs")
   async logLines(
     @CurrentActor() actor: Actor,
     @Param("id") id: string,
-    @Query() raw: { service?: string; tail?: string; since?: string; grep?: string; errors?: string; follow?: string },
+    @Query() raw: { service?: string; tail?: string; since?: string; until?: string; grep?: string; errors?: string; follow?: string; format?: string },
     @Req() request: Request,
     @Res() response: Response,
   ) {
     const query = this.environments.logQuery(raw);
     if (raw.follow !== "true") {
-      response.json(await this.environments.logLines(actor, id, query));
+      const { lines } = await this.environments.logLines(actor, id, query);
+      if (raw.format === "text") {
+        response.setHeader("Content-Type", "text/plain; charset=utf-8");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("Content-Disposition", `attachment; filename="${id}-logs.txt"`);
+        response.send(lines.map((line) => `${line.time} ${line.service} ${line.stream} | ${line.text}\n`).join(""));
+        return;
+      }
+      response.json({ lines });
       return;
     }
 
@@ -206,17 +222,21 @@ export class EnvironmentsController {
   }
 
   /**
+   * The last jobs of the environment, newest first; the logs of the last
+   * five are kept.
+   */
+  @Get(":id/jobs")
+  jobs(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.jobs(actor, id);
+  }
+
+  /**
    * The containers of the services; usage=true adds their CPU, memory and
    * disk right now.
    */
   @Get(":id/services")
   services(@CurrentActor() actor: Actor, @Param("id") id: string, @Query("usage") usage?: string) {
     return this.environments.services(actor, id, usage === "true");
-  }
-
-  @Get(":id/stats")
-  stats(@CurrentActor() actor: Actor, @Param("id") id: string, @Query("minutes", new DefaultValuePipe(60), ParseIntPipe) minutes: number) {
-    return this.environments.usage(actor, id, minutes);
   }
 
   /**

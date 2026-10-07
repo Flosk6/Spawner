@@ -3,7 +3,7 @@ import { Prisma, type Environment, type EnvironmentSource, type Exposure, type J
 import { ErrorLineFilter, matchesGrep, parseDuration, slugIssue } from "@spawner/core";
 import { sanitizeGitBranch } from "@spawner/utils";
 import type Docker from "dockerode";
-import { assertCanAct, assertInProject, type Actor } from "../../common/actor";
+import { assertCanAct, assertInProject, describeActor, type Actor } from "../../common/actor";
 import type { RawLogLine } from "../../common/docker-logs";
 import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
@@ -11,13 +11,16 @@ import { JobQueueService, type JobType } from "../engine/job-queue.service";
 import type { DeployPayload, SourceRequest } from "../engine/pipeline.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
-import { StatsService } from "../stats/stats.service";
+import { LogArchiveService } from "../engine/log-archive.service";
+import { MetricsCollector } from "../supervision/metrics-collector.service";
+import { TimelineService } from "../timeline/timeline.service";
 
 const EXEC_DEFAULT_SECONDS = 120;
 export const EXEC_MAX_SECONDS = 600;
 export const EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const EXEC_MAX_STDIN_BYTES = 1024 * 1024;
-const STATS_MAX_MINUTES = 7 * 24 * 60;
+/** A deleted environment stays readable this long, with its archived logs. */
+export const DELETED_VISIBLE_MS = 7 * 86_400_000;
 const AUDITED_COMMAND_LENGTH = 200;
 const LOG_DEFAULT_LINES = 200;
 const LOG_MAX_LINES = 5000;
@@ -46,6 +49,7 @@ export interface LogQuery {
   services: string[];
   tail: number;
   since?: Date;
+  until?: Date;
   grep?: string;
   errors: boolean;
 }
@@ -119,18 +123,20 @@ export class EnvironmentsService {
     private readonly queue: JobQueueService,
     private readonly config: SpawnerConfig,
     private readonly docker: DockerService,
-    private readonly stats: StatsService,
+    private readonly collector: MetricsCollector,
     private readonly audit: AuditService,
+    private readonly archives: LogArchiveService,
+    private readonly timeline: TimelineService,
   ) {}
 
   /**
    * Live environments, newest first, within the project a token is
-   * restricted to.
+   * restricted to; with deleted, those deleted in the last 7 days instead.
    */
-  async list(actor: Actor, filter: { project?: string; mine?: boolean }) {
+  async list(actor: Actor, filter: { project?: string; mine?: boolean; deleted?: boolean }) {
     const environments = await this.prisma.environment.findMany({
       where: {
-        deletedAt: null,
+        deletedAt: filter.deleted ? { gte: new Date(Date.now() - DELETED_VISIBLE_MS) } : null,
         ...(filter.project ? { project: { slug: filter.project } } : {}),
         ...(actor.projectId ? { projectId: actor.projectId } : {}),
         ...(filter.mine ? { ownerId: actor.user?.id ?? -1 } : {}),
@@ -141,8 +147,11 @@ export class EnvironmentsService {
     return environments.map((environment) => this.present(environment));
   }
 
+  /**
+   * A live environment, or one deleted in the last 7 days.
+   */
   async get(actor: Actor, id: string) {
-    return this.present(await this.find(actor, id));
+    return this.present(await this.find(actor, id, { deleted: true }));
   }
 
   /**
@@ -194,7 +203,7 @@ export class EnvironmentsService {
       throw error;
     }
 
-    const job = await this.queue.enqueue(environment.id, "create", this.payload(input.request), actor.user?.id ?? null);
+    const job = await this.queue.enqueue(environment.id, "create", this.payload(input.request), actor.user?.id ?? null, describeActor(actor));
     await this.audit.record(actor, "env.create", { target: `${project.slug}/${environment.slug}`, details: this.auditSources(input.request) });
     return { environment: await this.get(actor, environment.id), job: this.presentJob(job) };
   }
@@ -210,8 +219,10 @@ export class EnvironmentsService {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:write", environment);
     this.ensureNotDeleting(environment);
-    await this.prisma.environment.update({ where: { id: environment.id }, data: { expiresAt: new Date(Date.now() + seconds * 1000) } });
+    const expiresAt = new Date(Date.now() + seconds * 1000);
+    await this.prisma.environment.update({ where: { id: environment.id }, data: { expiresAt } });
     await this.audit.record(actor, "env.extend", { target: this.label(environment), details: { ttlSeconds: seconds } });
+    await this.timeline.record(environment.id, "extended", `Expiry postponed to ${expiresAt.toISOString()} by ${describeActor(actor)}`, { details: { expiresAt } });
     return this.get(actor, environment.id);
   }
 
@@ -237,7 +248,7 @@ export class EnvironmentsService {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:write", environment);
     this.ensureNotDeleting(environment);
-    const job = await this.queue.enqueue(environment.id, "update", this.payload(request), actor.user?.id ?? null);
+    const job = await this.queue.enqueue(environment.id, "update", this.payload(request), actor.user?.id ?? null, describeActor(actor));
     await this.audit.record(actor, "env.update", { target: this.label(environment), details: { ...this.auditSources(request), fresh: request.fresh, reseed: request.reseed } });
     return { environment: await this.get(actor, environment.id), job: this.presentJob(job) };
   }
@@ -246,7 +257,7 @@ export class EnvironmentsService {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:write", environment);
     this.ensureNotDeleting(environment);
-    const job = await this.queue.enqueue(environment.id, type, null, actor.user?.id ?? null);
+    const job = await this.queue.enqueue(environment.id, type, null, actor.user?.id ?? null, describeActor(actor));
     await this.audit.record(actor, `env.${type}`, { target: this.label(environment) });
     return { environment: this.present(environment), job: this.presentJob(job) };
   }
@@ -299,7 +310,7 @@ export class EnvironmentsService {
    * the last that match the filters among the lines read.
    */
   async logLines(actor: Actor, id: string, query: LogQuery): Promise<{ lines: LogLine[] }> {
-    const snapshot = await this.logSnapshot(await this.find(actor, id), query);
+    const snapshot = await this.logSnapshot(await this.find(actor, id, { deleted: true }), query);
     return { lines: snapshot.lines };
   }
 
@@ -318,7 +329,7 @@ export class EnvironmentsService {
     query: LogQuery,
   ): Promise<(send: (line: LogLine) => void, onEnd: () => void) => Promise<() => void>> {
     const startedAt = Math.floor(Date.now() / 1000) - 1;
-    const snapshot = await this.logSnapshot(await this.find(actor, id), query);
+    const snapshot = await this.logSnapshot(await this.find(actor, id, { deleted: true }), query);
     return (send, onEnd) => this.follow(snapshot, startedAt, send, onEnd);
   }
 
@@ -357,16 +368,35 @@ export class EnvironmentsService {
     return () => stops.forEach((stop) => stop());
   }
 
+  /**
+   * Reads the last lines of the services: from Docker, or from the archives
+   * of a deleted environment.
+   */
   private async logSnapshot(environment: EnvironmentWithRelations, query: LogQuery): Promise<LogSnapshot> {
-    const containers = await this.serviceContainers(environment, query.services);
     const filtering = query.errors || Boolean(query.grep);
-    const since = query.since ? Math.floor(query.since.getTime() / 1000) : undefined;
-    const read = await Promise.all(
-      containers.map(async ({ service, id }) => (await this.docker.logLines(id, { tail: filtering ? LOG_SCAN_LINES : query.tail, since })).map((line) => ({ service, line }))),
-    );
+    let containers: { service: string; id: string }[] = [];
+    let read: { service: string; line: RawLogLine }[];
+    if (environment.deletedAt) {
+      const sinceTime = query.since?.toISOString() ?? "";
+      const untilTime = query.until?.toISOString() ?? "~";
+      read = this.archives
+        .read(environment.id)
+        .filter(({ service, line }) => (query.services.length === 0 || query.services.includes(service)) && line.time >= sinceTime && line.time <= untilTime);
+    } else {
+      containers = await this.serviceContainers(environment, query.services);
+      const since = query.since ? Math.floor(query.since.getTime() / 1000) : undefined;
+      const until = query.until ? Math.ceil(query.until.getTime() / 1000) : undefined;
+      read = (
+        await Promise.all(
+          containers.map(async ({ service, id }) =>
+            (await this.docker.logLines(id, { tail: filtering ? LOG_SCAN_LINES : query.tail, since, until })).map((line) => ({ service, line })),
+          ),
+        )
+      ).flat();
+    }
 
     const newest = new Map<string, string>();
-    const merged = read.flat().sort((a, b) => (a.line.time < b.line.time ? -1 : a.line.time > b.line.time ? 1 : 0));
+    const merged = read.sort((a, b) => (a.line.time < b.line.time ? -1 : a.line.time > b.line.time ? 1 : 0));
     merged.forEach(({ service, line }) => newest.set(service, line.time));
 
     const errors = new ErrorLineFilter();
@@ -408,18 +438,23 @@ export class EnvironmentsService {
   /**
    * Parses the query of the logs route.
    */
-  logQuery(raw: { service?: string; tail?: string; since?: string; grep?: string; errors?: string }): LogQuery {
+  logQuery(raw: { service?: string; tail?: string; since?: string; until?: string; grep?: string; errors?: string }): LogQuery {
     const tail = raw.tail === undefined ? LOG_DEFAULT_LINES : Number(raw.tail);
     if (!Number.isInteger(tail) || tail < 1) {
       throw new BadRequestException("tail must be a positive whole number");
     }
-    let since: Date | undefined;
-    if (raw.since) {
-      since = /^\d+(\.\d+)?$/.test(raw.since) ? new Date(Number(raw.since) * 1000) : new Date(raw.since);
-      if (Number.isNaN(since.getTime())) {
-        throw new BadRequestException("since must be a date (ISO 8601) or a UNIX time");
+    const date = (value: string | undefined, name: string) => {
+      if (!value) {
+        return undefined;
       }
-    }
+      const parsed = /^\d+(\.\d+)?$/.test(value) ? new Date(Number(value) * 1000) : new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException(`${name} must be a date (ISO 8601) or a UNIX time`);
+      }
+      return parsed;
+    };
+    const since = date(raw.since, "since");
+    const until = date(raw.until, "until");
     if (raw.grep !== undefined && raw.grep.length > 200) {
       throw new BadRequestException("grep is limited to 200 characters");
     }
@@ -427,6 +462,7 @@ export class EnvironmentsService {
       services: (raw.service ?? "").split(",").map((service) => service.trim()).filter(Boolean),
       tail: Math.min(tail, LOG_MAX_LINES),
       since,
+      until,
       grep: raw.grep || undefined,
       errors: raw.errors === "true",
     };
@@ -447,7 +483,7 @@ export class EnvironmentsService {
    * memory and writable layer right now (about a second longer).
    */
   async services(actor: Actor, id: string, usage = false) {
-    const environment = await this.find(actor, id);
+    const environment = await this.find(actor, id, { deleted: true });
     const containers = await this.docker.listEnvironmentContainers(environment.id);
     const services = await Promise.all(containers.map((container) => this.describeService(container, usage)));
     return services.sort((a, b) => a.name.localeCompare(b.name));
@@ -482,20 +518,10 @@ export class EnvironmentsService {
     };
   }
 
-  /**
-   * CPU and memory of the environment over the last minutes, one point per
-   * minute while it runs.
-   */
-  async usage(actor: Actor, id: string, minutes: number) {
-    const environment = await this.find(actor, id);
-    const span = Math.min(Math.max(minutes, 5), STATS_MAX_MINUTES);
-    const points = await this.stats.getStatsHistory(environment.id, new Date(Date.now() - span * 60_000));
-    return points.map((point) => ({
-      time: point.time,
-      cpuPercent: Number(point.cpuPercent),
-      memoryUsageGB: Number(point.memoryUsageGB),
-      memoryLimitGB: Number(point.memoryLimitGB),
-    }));
+  async jobs(actor: Actor, id: string) {
+    const environment = await this.find(actor, id, { deleted: true });
+    const jobs = await this.prisma.job.findMany({ where: { environmentId: environment.id }, orderBy: { createdAt: "desc" }, take: 10 });
+    return jobs.map((job) => this.presentJob(job));
   }
 
   presentJob(job: Job) {
@@ -507,6 +533,7 @@ export class EnvironmentsService {
       phase: job.phase,
       error: job.error,
       errorCode: job.errorCode,
+      actor: job.actor,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
@@ -521,9 +548,13 @@ export class EnvironmentsService {
     return container.Id;
   }
 
-  private async find(actor: Actor, id: string): Promise<EnvironmentWithRelations> {
-    const environment = await this.prisma.environment.findFirst({ where: { id, deletedAt: null }, include: INCLUDE });
-    if (!environment) {
+  /**
+   * A live environment, or with deleted, one deleted in the last 7 days
+   * (read-only: its page, timeline and archived logs stay).
+   */
+  private async find(actor: Actor, id: string, options: { deleted?: boolean } = {}): Promise<EnvironmentWithRelations> {
+    const environment = await this.prisma.environment.findFirst({ where: options.deleted ? { id } : { id, deletedAt: null }, include: INCLUDE });
+    if (!environment || (environment.deletedAt && environment.deletedAt.getTime() < Date.now() - DELETED_VISIBLE_MS)) {
       throw new NotFoundException(`environment "${id}" not found`);
     }
     assertInProject(actor, environment.projectId);
@@ -585,6 +616,7 @@ export class EnvironmentsService {
     const urls = Object.fromEntries(environment.exposures.map((exposure) => [exposure.name, `${this.config.scheme}://${exposure.host}`]));
     const entrypoint = environment.exposures.find((exposure) => exposure.entrypoint);
     const primarySource = (environment.manifest as { name?: string } | null)?.name;
+    const now = environment.deletedAt ? null : this.collector.environment(environment.id);
     return {
       id: environment.id,
       project: environment.project.slug,
@@ -618,8 +650,10 @@ export class EnvironmentsService {
       lastJob: environment.jobs[0] ? this.presentJob(environment.jobs[0]) : null,
       expiresAt: environment.expiresAt,
       lastActivityAt: environment.lastActivityAt,
+      usage: now ? { cpuPercent: now.cpuPercent, memoryBytes: now.memoryBytes, memoryLimitBytes: now.memoryLimitBytes, at: now.at } : null,
       createdAt: environment.createdAt,
       updatedAt: environment.updatedAt,
+      deletedAt: environment.deletedAt,
     };
   }
 }

@@ -41,6 +41,14 @@ export class JobLogsService {
     this.events.emit(`${jobId}:end`);
   }
 
+  /**
+   * Deletes the log of a job.
+   */
+  remove(jobId: string): void {
+    this.sizes.delete(jobId);
+    fs.rmSync(this.storage.jobLogPath(jobId), { force: true });
+  }
+
   read(jobId: string): string {
     try {
       return fs.readFileSync(this.storage.jobLogPath(jobId), "utf8");

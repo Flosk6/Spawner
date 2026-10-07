@@ -12,7 +12,9 @@ import { SpawnerConfig } from "../../common/spawner.config";
  *   envs/<env-id>/src/<source>  code of each source (worktree or upload)
  *   envs/<env-id>/compose.rendered.yaml
  *   traefik/<env-id>.yaml       routing read by Traefik's file provider
- *   jobs/<job-id>.log           job logs
+ *   jobs/<job-id>.log           job logs (the last 5 jobs of each environment)
+ *   archives/<env-id>/          last logs of the services of a deleted environment (7 days)
+ *   terminals/<session-id>.log  terminal recordings (30 days)
  *   uploads/                    archives being received
  *   home/                       HOME of the git and docker commands
  */
@@ -24,7 +26,7 @@ export class StorageService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    for (const dir of [this.mirrorsDir, this.envsDir, this.traefikDir, this.jobsDir, this.uploadsDir, this.homeDir, this.config.keysDir]) {
+    for (const dir of [this.mirrorsDir, this.envsDir, this.traefikDir, this.jobsDir, this.archivesDir, this.terminalsDir, this.uploadsDir, this.homeDir, this.config.keysDir]) {
       fs.mkdirSync(dir, { recursive: true });
     }
   }
@@ -43,6 +45,14 @@ export class StorageService implements OnModuleInit {
 
   get jobsDir() {
     return path.join(this.config.dataDir, "jobs");
+  }
+
+  get archivesDir() {
+    return path.join(this.config.dataDir, "archives");
+  }
+
+  get terminalsDir() {
+    return path.join(this.config.dataDir, "terminals");
   }
 
   get uploadsDir() {
@@ -80,6 +90,14 @@ export class StorageService implements OnModuleInit {
 
   jobLogPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.log`);
+  }
+
+  archiveDir(environmentId: string): string {
+    return path.join(this.archivesDir, environmentId);
+  }
+
+  terminalRecordingPath(sessionId: string): string {
+    return path.join(this.terminalsDir, `${sessionId}.log`);
   }
 
   /**

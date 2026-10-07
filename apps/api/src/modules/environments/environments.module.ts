@@ -5,7 +5,7 @@ import { diskStorage } from "multer";
 import { EngineModule } from "../engine/engine.module";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "../engine/storage.service";
-import { StatsModule } from "../stats/stats.module";
+import { SupervisionModule } from "../supervision/supervision.module";
 import { EnvironmentsController } from "./environments.controller";
 import { EnvironmentsService } from "./environments.service";
 import { JobsController } from "./jobs.controller";
@@ -13,7 +13,7 @@ import { JobsController } from "./jobs.controller";
 @Module({
   imports: [
     EngineModule,
-    StatsModule,
+    SupervisionModule,
     MulterModule.registerAsync({
       imports: [EngineModule],
       inject: [SpawnerConfig, StorageService],

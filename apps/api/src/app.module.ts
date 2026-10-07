@@ -19,10 +19,11 @@ import { MetaModule } from "./modules/meta/meta.module";
 import { PreviewsModule } from "./modules/previews/previews.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { SettingsModule } from "./modules/settings/settings.module";
-import { StatsModule } from "./modules/stats/stats.module";
+import { SupervisionModule } from "./modules/supervision/supervision.module";
 import { SystemModule } from "./modules/system/system.module";
 import { TeamModule } from "./modules/team/team.module";
 import { TerminalModule } from "./modules/terminal/terminal.module";
+import { TimelineModule } from "./modules/timeline/timeline.module";
 import { TokensModule } from "./modules/tokens/tokens.module";
 
 // Load environment variables before module initialization
@@ -47,6 +48,7 @@ config({ path: envPath });
     PrismaModule,
     DockerModule,
     AuditModule,
+    TimelineModule,
     TokensModule,
     SettingsModule,
     AuthModule,
@@ -57,7 +59,7 @@ config({ path: envPath });
     PreviewsModule,
     TerminalModule,
     SystemModule,
-    StatsModule,
+    SupervisionModule,
     HealthModule,
     MetaModule,
   ],

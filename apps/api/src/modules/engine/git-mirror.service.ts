@@ -56,31 +56,7 @@ export class GitMirrorService {
 
     return this.locks.run(mirror, async () => {
       const env = this.env(repoUrl);
-
-      if (!fs.existsSync(path.join(mirror, "HEAD"))) {
-        fs.rmSync(mirror, { recursive: true, force: true });
-        onLine(`Cloning ${repoUrl}`);
-        await run("git", ["clone", "--bare", "--filter=blob:none", "--no-tags", "--", repoUrl, mirror], {
-          env,
-          timeoutMs: NETWORK_TIMEOUT_MS,
-          onLine,
-        });
-      }
-
-      onLine(`Fetching ${repoUrl}`);
-      await run(
-        "git",
-        ["-C", mirror, "fetch", "--prune", "--filter=blob:none", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"],
-        { env, timeoutMs: NETWORK_TIMEOUT_MS, onLine },
-      );
-
-      let commit: string;
-      try {
-        commit = (await run("git", ["-C", mirror, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`], { env })).stdout.trim();
-      } catch {
-        throw new Error(`"${ref}" is not a branch, tag or commit of ${repoUrl}`);
-      }
-
+      const commit = await this.syncAndResolve(repoUrl, mirror, ref, env, onLine);
       await this.removeWorktreeLocked(mirror, target, env);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       await run("git", ["-C", mirror, "worktree", "add", "--detach", "--force", target, commit], {
@@ -91,6 +67,57 @@ export class GitMirrorService {
       onLine(`Checked out ${ref} at ${commit.slice(0, 12)}`);
       return { commit };
     });
+  }
+
+  /**
+   * Reads a file of a repository at a branch, tag or commit, through the
+   * mirror (its content is fetched on demand).
+   *
+   * @returns The content, or null when the file does not exist at that ref
+   * @throws Error when the ref does not exist or the repository is unreachable
+   */
+  async readFile(repoUrl: string, ref: string, file: string): Promise<string | null> {
+    this.validateRepoUrl(repoUrl);
+    sanitizeGitBranch(ref);
+    const mirror = this.storage.mirrorDir(repoUrl);
+    return this.locks.run(mirror, async () => {
+      const env = this.env(repoUrl);
+      const commit = await this.syncAndResolve(repoUrl, mirror, ref, env, () => undefined);
+      try {
+        return (await run("git", ["-C", mirror, "show", `${commit}:${file}`], { env, timeoutMs: NETWORK_TIMEOUT_MS })).stdout;
+      } catch {
+        return null;
+      }
+    });
+  }
+
+  /**
+   * Clones the mirror if needed, fetches its branches and tags, and resolves
+   * a ref to its commit. Runs under the mirror's lock.
+   */
+  private async syncAndResolve(repoUrl: string, mirror: string, ref: string, env: Record<string, string>, onLine: (line: string) => void): Promise<string> {
+    if (!fs.existsSync(path.join(mirror, "HEAD"))) {
+      fs.rmSync(mirror, { recursive: true, force: true });
+      onLine(`Cloning ${repoUrl}`);
+      await run("git", ["clone", "--bare", "--filter=blob:none", "--no-tags", "--", repoUrl, mirror], {
+        env,
+        timeoutMs: NETWORK_TIMEOUT_MS,
+        onLine,
+      });
+    }
+
+    onLine(`Fetching ${repoUrl}`);
+    await run(
+      "git",
+      ["-C", mirror, "fetch", "--prune", "--filter=blob:none", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"],
+      { env, timeoutMs: NETWORK_TIMEOUT_MS, onLine },
+    );
+
+    try {
+      return (await run("git", ["-C", mirror, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`], { env })).stdout.trim();
+    } catch {
+      throw new Error(`"${ref}" is not a branch, tag or commit of ${repoUrl}`);
+    }
   }
 
   /**
