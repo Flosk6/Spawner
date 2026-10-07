@@ -31,7 +31,18 @@
           <i :class="primary.origin === 'upload' ? 'pi pi-upload' : 'pi pi-code-branch'" class="text-xs"></i>
           <span class="truncate">{{ sourceLabel(primary) }}</span>
         </div>
-        <div v-if="environment.status === 'failed' && environment.error" class="flex items-start gap-2 text-red-600 dark:text-red-400">
+        <div v-if="environment.usage" class="flex items-center gap-2" :title="`${formatSize(environment.usage.memoryBytes)} of ${formatSize(environment.usage.memoryLimitBytes)} memory`">
+          <i class="pi pi-server text-xs"></i>
+          <span>{{ formatSize(environment.usage.memoryBytes) }} of memory</span>
+          <span class="flex-1 max-w-[6rem] h-1.5 rounded-full bg-slate-200 dark:bg-dark-700 overflow-hidden">
+            <span class="block h-full bg-purple-500" :style="{ width: `${memoryShare}%` }"></span>
+          </span>
+        </div>
+        <div v-if="environment.deletedAt" class="flex items-center gap-2">
+          <i class="pi pi-trash text-xs"></i>
+          <span>Deleted {{ timeAgo(environment.deletedAt) }}</span>
+        </div>
+        <div v-else-if="environment.status === 'failed' && environment.error" class="flex items-start gap-2 text-red-600 dark:text-red-400">
           <i class="pi pi-times-circle text-xs mt-1"></i>
           <span class="line-clamp-2">{{ environment.phase ? `${environment.phase}: ` : '' }}{{ environment.error }}</span>
         </div>
@@ -54,7 +65,7 @@
           <span class="text-sm font-medium">Open</span>
         </a>
 
-        <div class="flex gap-2" @click.stop>
+        <div v-if="!environment.deletedAt" class="flex gap-2" @click.stop>
           <button :class="actionClass" :disabled="busy" @click="$emit('view', environment)" v-tooltip.top="'Details'">
             <i class="pi pi-eye"></i>
           </button>
@@ -95,6 +106,7 @@ import type { Environment, EnvironmentSource } from '../types';
 import { useAuthStore } from '../stores/auth';
 import { TONE_CLASSES, canManage, isBusy, ownerLabel, redeployRequest, statusTone } from '../utils/environment';
 import { timeAgo, timeLeft } from '../utils/format';
+import { formatSize } from '../utils/palette';
 
 const props = defineProps<{ environment: Environment }>();
 
@@ -113,13 +125,16 @@ const redeployable = computed(() => redeployRequest(props.environment) !== null)
 const borderClass = computed(() => TONE_CLASSES[statusTone(props.environment.status)].border);
 
 const primary = computed(() => props.environment.sources.find((source) => source.primary));
+const memoryShare = computed(() =>
+  props.environment.usage?.memoryLimitBytes ? Math.min(100, (props.environment.usage.memoryBytes / props.environment.usage.memoryLimitBytes) * 100) : 0,
+);
 
 const actionClass =
   'flex-1 px-3 py-2.5 bg-slate-200/70 dark:bg-dark-700/70 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300/50 dark:border-purple-800/30 rounded-lg transition-all duration-200 flex items-center justify-center text-slate-600 dark:text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed';
 
 function sourceLabel(source: EnvironmentSource): string {
   if (source.origin === 'upload') {
-    return 'Uploaded worktree';
+    return 'Uploaded worktree, uncommitted changes included';
   }
   const commit = source.commit ? ` @ ${source.commit.slice(0, 7)}` : '';
   return `${source.ref ?? ''}${commit}`;

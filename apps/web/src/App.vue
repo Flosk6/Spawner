@@ -121,22 +121,22 @@ const menuItems = computed(() => [
   { label: 'Home', icon: 'pi pi-home', path: '/home' },
   { label: 'Projects', icon: 'pi pi-folder', path: '/projects' },
   { label: 'Environments', icon: 'pi pi-sitemap', path: '/environments' },
-  ...(authStore.isAdmin ? [{ label: 'Team', icon: 'pi pi-users', path: '/team' }] : []),
-  {
-    label: 'System',
-    icon: 'pi pi-cog',
-    path: '/system',
-    submenu: [
-      { label: 'Overview', path: '/system/overview' },
-      ...(authStore.isAdmin
-        ? [
+  ...(authStore.isAdmin
+    ? [
+        { label: 'Team', icon: 'pi pi-users', path: '/team' },
+        {
+          label: 'System',
+          icon: 'pi pi-cog',
+          path: '/system',
+          submenu: [
+            { label: 'Overview', path: '/system/overview' },
             { label: 'Git keys', path: '/system/settings/git' },
             { label: 'Settings', path: '/system/settings' },
             { label: 'Audit', path: '/system/audit' },
-          ]
-        : []),
-    ],
-  },
+          ],
+        },
+      ]
+    : []),
 ]);
 
 function isActive(path: string): boolean {

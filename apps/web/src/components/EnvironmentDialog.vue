@@ -1,5 +1,5 @@
 <template>
-  <Dialog :visible="visible" header="New environment" modal :style="{ width: '560px' }" @update:visible="$emit('update:visible', $event)">
+  <Dialog :visible="visible" header="New environment" modal :style="{ width: '600px' }" @update:visible="$emit('update:visible', $event)">
     <form class="space-y-5" @submit.prevent="submit">
       <div>
         <label class="field-label" for="env-project">Project</label>
@@ -14,23 +14,44 @@
         />
       </div>
 
-      <div>
-        <label class="field-label" for="env-ref">Branch, tag or commit</label>
-        <InputText
-          id="env-ref"
-          v-model="form.ref"
-          class="w-full font-mono"
-          list="env-branches"
-          :placeholder="selectedProject?.defaultRef ?? 'main'"
-          autocomplete="off"
-        />
-        <datalist id="env-branches">
-          <option v-for="branch in branches" :key="branch" :value="branch" />
-        </datalist>
-        <p class="field-hint">
-          {{ loadingBranches ? 'Loading branches...' : `Empty for the default branch (${selectedProject?.defaultRef ?? 'main'}).` }}
-        </p>
-      </div>
+      <template v-if="form.project">
+        <div>
+          <label class="field-label" for="env-ref">{{ manifest?.name ?? 'Project' }} <span class="font-normal text-slate-500">(this repository)</span></label>
+          <InputText
+            id="env-ref"
+            v-model="form.ref"
+            class="w-full font-mono"
+            list="env-branches-primary"
+            :placeholder="selectedProject?.defaultRef ?? 'main'"
+            autocomplete="off"
+          />
+          <datalist id="env-branches-primary">
+            <option v-for="branch in branches.primary ?? []" :key="branch" :value="branch" />
+          </datalist>
+          <p class="field-hint">Branch, tag or commit; empty for {{ selectedProject?.defaultRef ?? 'the default branch' }}.</p>
+        </div>
+
+        <div v-for="source in manifest?.sources ?? []" :key="source.name">
+          <label class="field-label" :for="`env-ref-${source.name}`">{{ source.name }} <span class="font-normal text-slate-500 font-mono text-xs">{{ source.repo }}</span></label>
+          <InputText
+            :id="`env-ref-${source.name}`"
+            v-model="form.sources[source.name]"
+            class="w-full font-mono"
+            :list="`env-branches-${source.name}`"
+            :placeholder="source.defaultRef"
+            autocomplete="off"
+            @focus="loadBranches(source.name)"
+          />
+          <datalist :id="`env-branches-${source.name}`">
+            <option v-for="branch in branches[source.name] ?? []" :key="branch" :value="branch" />
+          </datalist>
+        </div>
+
+        <Message v-if="manifestError" severity="warn" :closable="false">
+          {{ manifestError }} The environment can still start from the default branches.
+        </Message>
+        <p v-else-if="loadingManifest" class="field-hint">Reading spawner.yaml...</p>
+      </template>
 
       <div>
         <label class="field-label" for="env-name">Name</label>
@@ -52,22 +73,24 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import Dialog from 'primevue/dialog';
-import Select from 'primevue/select';
-import InputText from 'primevue/inputtext';
 import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
+import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
+import Select from 'primevue/select';
 import { environmentsApi, errorMessage, projectsApi } from '../services/api';
-import type { JobAccepted, ProjectSummary } from '../types';
+import type { JobAccepted, ProjectManifest, ProjectSummary } from '../types';
 import { ENV_SLUG_MAX_LENGTH, ENV_SLUG_PATTERN, suggestEnvSlug } from '../utils/environment';
 
 const props = defineProps<{ visible: boolean; projects: ProjectSummary[]; project?: string }>();
 const emit = defineEmits<{ 'update:visible': [visible: boolean]; created: [accepted: JobAccepted] }>();
 
-const form = reactive({ project: '', ref: '', env: '' });
+const form = reactive({ project: '', ref: '', env: '', sources: {} as Record<string, string> });
 const nameEdited = ref(false);
-const branches = ref<string[]>([]);
-const loadingBranches = ref(false);
+const manifest = ref<ProjectManifest | null>(null);
+const manifestError = ref('');
+const loadingManifest = ref(false);
+const branches = reactive<Record<string, string[]>>({});
 const saving = ref(false);
 const error = ref('');
 
@@ -78,28 +101,47 @@ watch(
   () => props.visible,
   (visible) => {
     if (visible) {
-      Object.assign(form, { project: props.project ?? (props.projects.length === 1 ? props.projects[0].slug : ''), ref: '', env: '' });
+      Object.assign(form, { project: props.project ?? (props.projects.length === 1 ? props.projects[0].slug : ''), ref: '', env: '', sources: {} });
       nameEdited.value = false;
       error.value = '';
     }
   },
 );
 
+/**
+ * Branches of a source (primary: the project repository), loaded once,
+ * when its field is used. The field stays free text if the repository is
+ * unreachable: the job says why.
+ */
+async function loadBranches(source: string) {
+  if (branches[source] || !form.project) {
+    return;
+  }
+  branches[source] = [];
+  branches[source] = await projectsApi.branches(form.project, source === 'primary' ? undefined : source).catch(() => []);
+}
+
 watch(
   () => form.project,
-  async () => {
-    branches.value = [];
-    const project = selectedProject.value?.slug;
+  async (project) => {
+    manifest.value = null;
+    manifestError.value = '';
+    Object.keys(branches).forEach((key) => delete branches[key]);
+    form.sources = {};
     if (!project) {
       return;
     }
-    loadingBranches.value = true;
+    void loadBranches('primary');
+    loadingManifest.value = true;
     try {
-      branches.value = await projectsApi.branches(project);
-    } catch {
-      // The field stays free text: an unreachable repository fails later, with its reason.
+      manifest.value = await projectsApi.manifest(project);
+      if (manifest.value.issues.length > 0) {
+        manifestError.value = `spawner.yaml has errors at ${manifest.value.ref}: ${manifest.value.issues[0].path} ${manifest.value.issues[0].message}.`;
+      }
+    } catch (err) {
+      manifestError.value = errorMessage(err, 'spawner.yaml could not be read.');
     } finally {
-      loadingBranches.value = false;
+      loadingManifest.value = false;
     }
   },
 );
@@ -118,7 +160,8 @@ async function submit() {
   saving.value = true;
   error.value = '';
   try {
-    const accepted = await environmentsApi.create(form.project, form.env, { ref: form.ref.trim() || undefined });
+    const sources = Object.fromEntries(Object.entries(form.sources).map(([name, ref]) => [name, ref.trim()]).filter(([, ref]) => ref));
+    const accepted = await environmentsApi.create(form.project, form.env, { ref: form.ref.trim() || undefined, sources });
     emit('created', accepted);
     emit('update:visible', false);
   } catch (err) {
@@ -128,4 +171,3 @@ async function submit() {
   }
 }
 </script>
-

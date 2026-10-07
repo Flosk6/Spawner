@@ -8,6 +8,7 @@ import InviteAccept from '../views/InviteAccept.vue';
 import Settings from '../views/Settings.vue';
 import Team from '../views/Team.vue';
 import ProjectList from '../views/ProjectList.vue';
+import ProjectDetail from '../views/ProjectDetail.vue';
 import EnvironmentList from '../views/EnvironmentList.vue';
 import EnvironmentDetail from '../views/EnvironmentDetail.vue';
 import SystemOverview from '../views/SystemOverview.vue';
@@ -73,7 +74,7 @@ const router = createRouter({
       path: '/system/overview',
       name: 'SystemOverview',
       component: SystemOverview,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
       path: '/system/settings/git',
@@ -85,6 +86,12 @@ const router = createRouter({
       path: '/projects',
       name: 'ProjectList',
       component: ProjectList,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects/:slug',
+      name: 'ProjectDetail',
+      component: ProjectDetail,
       meta: { requiresAuth: true },
     },
     {

@@ -122,7 +122,7 @@ function edit(project: Project | null) {
 }
 
 function openEnvironments(project: Project) {
-  router.push({ path: '/environments', query: { project: project.slug } });
+  router.push(`/projects/${project.slug}`);
 }
 
 function confirmRemove(project: ProjectSummary) {

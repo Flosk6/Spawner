@@ -100,7 +100,8 @@ const projects = ref<ProjectSummary[]>([]);
 const loading = ref(true);
 const creating = ref(false);
 const projectFilter = ref((route.query.project as string) ?? '');
-const statusFilter = ref<StatusTone | 'all'>('all');
+const statusFilter = ref<StatusTone | 'all' | 'deleted'>('all');
+const deleted = ref<Environment[]>([]);
 const authStore = useAuthStore();
 const scopeOptions = [
   { label: 'All', value: 'all' },
@@ -124,16 +125,31 @@ const statusFilters = computed(() => {
     { value: 'busy' as const, label: 'In progress', count: count('busy'), dot: TONE_CLASSES.busy.dot },
     { value: 'stopped' as const, label: 'Stopped', count: count('stopped'), dot: TONE_CLASSES.stopped.dot },
     { value: 'failed' as const, label: 'Failed', count: count('failed'), dot: TONE_CLASSES.failed.dot },
+    { value: 'deleted' as const, label: 'Deleted', count: deletedOfProject.value.length, dot: 'bg-slate-300 dark:bg-slate-600' },
   ];
 });
 
+/** Environments deleted in the last 7 days: their page, timeline and last logs stay. */
+const deletedOfProject = computed(() =>
+  deleted.value.filter(
+    (environment) =>
+      (!projectFilter.value || environment.project === projectFilter.value) && (scope.value === 'all' || environment.owner?.id === authStore.user?.id),
+  ),
+);
+
 const visible = computed(() =>
-  ofProject.value.filter((environment) => statusFilter.value === 'all' || statusTone(environment.status) === statusFilter.value),
+  statusFilter.value === 'deleted'
+    ? deletedOfProject.value
+    : ofProject.value.filter((environment) => statusFilter.value === 'all' || statusTone(environment.status) === statusFilter.value),
 );
 
 async function load() {
   try {
-    [environments.value, projects.value] = await Promise.all([environmentsApi.list(), projectsApi.list()]);
+    [environments.value, projects.value, deleted.value] = await Promise.all([
+      environmentsApi.list(),
+      projectsApi.list(),
+      environmentsApi.list({ deleted: true }).catch(() => []),
+    ]);
   } catch (err) {
     showError(errorMessage(err, 'The environments could not be loaded'));
   } finally {
@@ -186,22 +202,28 @@ async function redeploy(environment: Environment) {
 }
 
 function confirmRemove(environment: Environment) {
-  confirmDelete(environment.slug, async () => {
-    try {
-      replace(await environmentsApi.remove(environment.id));
-      showSuccess(`${environment.slug} is being deleted`);
-    } catch (err) {
-      showError(errorMessage(err, `${environment.slug} could not be deleted`));
-    }
-  });
+  confirmDelete(
+    environment.slug,
+    async () => {
+      try {
+        replace(await environmentsApi.remove(environment.id));
+        showSuccess(`${environment.slug} is being deleted`);
+      } catch (err) {
+        showError(errorMessage(err, `${environment.slug} could not be deleted`));
+      }
+    },
+    'Its containers, volumes and data are removed for good; its timeline and last logs stay readable for 7 days.',
+  );
 }
 
 onMounted(() => {
   load();
   timer = setInterval(() => {
-    environmentsApi
-      .list()
-      .then((list) => (environments.value = list))
+    Promise.all([environmentsApi.list(), environmentsApi.list({ deleted: true })])
+      .then(([live, gone]) => {
+        environments.value = live;
+        deleted.value = gone;
+      })
       .catch(() => undefined);
   }, REFRESH_MS);
 });

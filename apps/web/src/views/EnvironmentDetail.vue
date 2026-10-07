@@ -12,7 +12,7 @@
 
     <template v-else-if="environment">
       <!-- Header -->
-      <div class="flex flex-wrap items-start justify-between gap-4 mb-8">
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-3 mb-2">
             <h1 class="text-3xl font-bold text-slate-900 dark:text-white break-all">{{ environment.slug }}</h1>
@@ -26,11 +26,12 @@
           </div>
           <p class="text-sm text-slate-500">
             Created {{ timeAgo(environment.createdAt) }} by {{ ownerLabel(environment) }}, from the {{ environment.createdVia }}
-            <template v-if="environment.expiresAt && environment.status !== 'failed'"> · expires {{ timeLeft(environment.expiresAt) }}</template>
+            <template v-if="environment.usage"> · {{ formatSize(environment.usage.memoryBytes) }} of memory now</template>
+            <template v-if="environment.expiresAt && !deleted && environment.status !== 'failed'"> · expires {{ timeLeft(environment.expiresAt) }}</template>
           </p>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
+        <div v-if="!deleted" class="flex flex-wrap items-center gap-2">
           <a v-if="environment.url && environment.status === 'ready'" :href="environment.url" target="_blank" rel="noopener">
             <Button label="Open" icon="pi pi-external-link" />
           </a>
@@ -63,6 +64,8 @@
             :disabled="busy || acting"
             @click="act('start')"
           />
+          <Button v-if="manageable && environment.expiresAt" label="Extend" icon="pi pi-clock" severity="secondary" outlined :disabled="acting" @click="extendMenu?.toggle($event)" />
+          <Menu ref="extendMenu" :model="extendOptions" popup />
           <Button
             v-if="manageable"
             label="Delete"
@@ -75,168 +78,243 @@
         </div>
       </div>
 
+      <Message v-if="deleted" severity="secondary" :closable="false" class="mb-6">
+        Deleted {{ timeAgo(environment.deletedAt) }}. Its timeline and the last logs of its services stay readable until
+        {{ keptUntil }}.
+      </Message>
+      <Message v-for="loop in crashLoops" :key="loop.service" severity="error" :closable="false" class="mb-4">
+        <span class="font-semibold">{{ loop.service }}</span> failed {{ loop.count }} times in {{ loop.windowMinutes }} minutes, last cause:
+        {{ loop.lastCause }}.
+        <button class="underline ml-1" @click="showLogs(loop.service, true)">See its errors</button>
+      </Message>
       <Message v-if="environment.status === 'failed' && environment.error" severity="error" :closable="false" class="mb-6">
         <div class="font-semibold mb-1">Failed{{ environment.phase ? ` during ${environment.phase}` : '' }}</div>
         <pre class="whitespace-pre-wrap text-sm font-mono">{{ environment.error }}</pre>
+        <button v-if="environment.lastJob" class="underline text-sm mt-2" @click="showJob(environment.lastJob.id)">Read the job log</button>
+      </Message>
+      <Message v-if="busy && environment.lastJob && tab !== 'jobs'" severity="info" :closable="false" class="mb-6">
+        {{ environment.status === 'queued' ? 'Waiting for its turn' : `${environment.status.charAt(0).toUpperCase()}${environment.status.slice(1)}` }}...
+        <button class="underline ml-1" @click="showJob(environment.lastJob.id)">Follow the job log</button>
       </Message>
 
-      <div class="grid gap-6 lg:grid-cols-2 mb-6">
-        <!-- URLs -->
-        <section class="panel">
-          <h2 class="panel-title"><i class="pi pi-globe text-sm"></i>URLs</h2>
-          <p v-if="environment.exposures.length === 0" class="text-sm text-slate-500">Known once the environment is deployed.</p>
-          <ul v-else class="space-y-3">
-            <li v-for="exposure in environment.exposures" :key="exposure.name" class="flex flex-wrap items-center justify-between gap-2">
-              <div class="flex items-center gap-2 min-w-0">
-                <span class="font-medium text-slate-900 dark:text-white">{{ exposure.name }}</span>
-                <span v-if="exposure.entrypoint" class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
-                  entrypoint
-                </span>
-                <span class="text-xs text-slate-500 font-mono">{{ exposure.service }}:{{ exposure.port }}</span>
+      <Tabs v-model:value="tab">
+        <TabList>
+          <Tab value="overview">Overview</Tab>
+          <Tab value="logs">Logs</Tab>
+          <Tab value="resources">Resources</Tab>
+          <Tab value="timeline">Timeline</Tab>
+          <Tab value="jobs">Jobs</Tab>
+          <Tab v-if="manageable && !deleted" value="terminal">Terminal</Tab>
+        </TabList>
+        <TabPanels class="!px-0">
+          <TabPanel value="overview">
+            <div v-if="tab === 'overview'" class="space-y-6">
+              <div class="grid gap-6 lg:grid-cols-2">
+                <section class="panel">
+                  <h2 class="panel-title"><i class="pi pi-globe text-sm"></i>URLs</h2>
+                  <p v-if="environment.exposures.length === 0" class="text-sm text-slate-500">Known once the environment is deployed.</p>
+                  <ul v-else class="space-y-3">
+                    <li v-for="exposure in environment.exposures" :key="exposure.name" class="flex flex-wrap items-center justify-between gap-2">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span class="font-medium text-slate-900 dark:text-white">{{ exposure.name }}</span>
+                        <span
+                          v-if="exposure.entrypoint"
+                          class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300"
+                          >entrypoint</span
+                        >
+                        <span v-if="exposure.auth === 'none'" class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                          >public</span
+                        >
+                        <span class="text-xs text-slate-500 font-mono">{{ exposure.service }}:{{ exposure.port }}</span>
+                      </div>
+                      <a :href="environment.urls[exposure.name]" target="_blank" rel="noopener" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all">{{
+                        environment.urls[exposure.name]
+                      }}</a>
+                    </li>
+                  </ul>
+                </section>
+
+                <section class="panel">
+                  <h2 class="panel-title"><i class="pi pi-code-branch text-sm"></i>Sources</h2>
+                  <p v-if="environment.sources.length === 0" class="text-sm text-slate-500">Known once the code is fetched.</p>
+                  <ul v-else class="space-y-3">
+                    <li v-for="source in environment.sources" :key="source.name" class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <span class="font-medium text-slate-900 dark:text-white">{{ source.name }}</span>
+                      <span v-if="source.origin === 'upload'" class="text-slate-500">
+                        <i class="pi pi-upload text-xs mr-1"></i>uploaded worktree, uncommitted changes included
+                        <span class="font-mono">{{ source.digest?.slice(0, 12) }}</span>
+                        <template v-if="source.sizeBytes"> · {{ formatSize(source.sizeBytes) }}</template>
+                      </span>
+                      <span v-else class="text-slate-500 font-mono break-all">
+                        {{ source.ref }}<template v-if="source.commit"> @ {{ source.commit.slice(0, 7) }}</template>
+                      </span>
+                    </li>
+                  </ul>
+                </section>
               </div>
-              <a
-                :href="environment.urls[exposure.name]"
-                target="_blank"
-                rel="noopener"
-                class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all"
-              >{{ environment.urls[exposure.name] }}</a>
-            </li>
-          </ul>
-        </section>
 
-        <!-- Sources -->
-        <section class="panel">
-          <h2 class="panel-title"><i class="pi pi-code-branch text-sm"></i>Sources</h2>
-          <p v-if="environment.sources.length === 0" class="text-sm text-slate-500">Known once the code is fetched.</p>
-          <ul v-else class="space-y-3">
-            <li v-for="source in environment.sources" :key="source.name" class="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span class="font-medium text-slate-900 dark:text-white">{{ source.name }}</span>
-              <span v-if="source.origin === 'upload'" class="text-slate-500">
-                <i class="pi pi-upload text-xs mr-1"></i>uploaded worktree
-                <span class="font-mono">{{ source.digest?.slice(0, 12) }}</span>
-                <template v-if="source.sizeBytes"> · {{ formatBytes(source.sizeBytes) }}</template>
-              </span>
-              <span v-else class="text-slate-500 font-mono break-all">
-                {{ source.ref }}<template v-if="source.commit"> @ {{ source.commit.slice(0, 7) }}</template>
-              </span>
-            </li>
-          </ul>
-        </section>
-      </div>
+              <section class="panel">
+                <h2 class="panel-title"><i class="pi pi-box text-sm"></i>Services</h2>
+                <p v-if="services.length === 0" class="text-sm text-slate-500">{{ deleted ? 'The containers are gone.' : 'No container yet.' }}</p>
+                <div v-else class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead class="text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th class="py-2 pr-4">Service</th>
+                        <th class="py-2 pr-4">State</th>
+                        <th class="py-2 pr-4">Health</th>
+                        <th class="py-2 pr-4">Restarts</th>
+                        <th class="py-2 pr-4">Out of memory</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
+                      <tr v-for="service in services" :key="service.name">
+                        <td class="py-2 pr-4 font-medium">{{ service.name }}</td>
+                        <td class="py-2 pr-4">
+                          <span :class="service.state === 'running' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">{{ service.state }}</span>
+                          <span v-if="service.exitCode !== null && service.state !== 'running'" class="text-slate-500"> (exit {{ service.exitCode }})</span>
+                        </td>
+                        <td class="py-2 pr-4">
+                          <span :class="service.health === 'unhealthy' ? 'text-red-600 dark:text-red-400' : service.health === 'healthy' ? 'text-green-600 dark:text-green-400' : 'text-slate-500'">{{
+                            service.health ?? '-'
+                          }}</span>
+                        </td>
+                        <td class="py-2 pr-4" :class="service.restartCount > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : ''">{{ service.restartCount }}</td>
+                        <td class="py-2 pr-4">
+                          <span v-if="service.oomKilled" class="text-red-600 dark:text-red-400 font-semibold">yes</span><span v-else class="text-slate-500">-</span>
+                        </td>
+                        <td class="py-2 text-right whitespace-nowrap">
+                          <Button label="Logs" size="small" text @click="showLogs(service.name)" />
+                          <Button
+                            v-if="manageable && !deleted"
+                            label="Terminal"
+                            size="small"
+                            text
+                            :disabled="service.state !== 'running'"
+                            @click="openTerminal(service.name)"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
 
-      <!-- Sharing -->
-      <section v-if="manageable && environment.exposures.length > 0" class="panel mb-6">
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
-          <h2 class="panel-title !mb-0"><i class="pi pi-share-alt text-sm"></i>Share</h2>
-          <div class="flex items-center gap-2">
-            <Select v-model="shareHours" :options="shareDurations" option-label="label" option-value="value" size="small" class="w-36" />
-            <Button label="Create a link" icon="pi pi-link" size="small" :loading="sharing" @click="share" />
-          </div>
-        </div>
-        <p class="field-hint mb-3">The team opens the URLs once logged in. A link lets someone without an account in, until it expires.</p>
-        <Message v-if="sharedLink" severity="success" :closable="true" class="mb-3" @close="sharedLink = null">
-          <p class="mb-2">Copy this link now: it will not be shown again. It works until {{ new Date(sharedLink.expiresAt).toLocaleString() }}.</p>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 break-all text-xs bg-white/60 dark:bg-black/20 rounded px-2 py-1">{{ sharedLink.url }}</code>
-            <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(sharedLink.url)" />
-          </div>
-        </Message>
-        <ul v-if="shares.length > 0" class="divide-y divide-slate-200 dark:divide-purple-800/30">
-          <li v-for="link in shares" :key="link.id" class="flex items-center justify-between gap-3 py-2 text-sm">
-            <span>Link by {{ link.createdBy ?? 'the installation token' }}, {{ timeAgo(link.createdAt) }}, expires {{ timeLeft(link.expiresAt) }}</span>
-            <Button icon="pi pi-times" severity="danger" text rounded size="small" v-tooltip.top="'Revoke'" @click="revokeShare(link.id)" />
-          </li>
-        </ul>
-      </section>
+              <div class="grid gap-6 lg:grid-cols-2">
+                <section v-if="manageable && !deleted && environment.exposures.length > 0" class="panel">
+                  <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <h2 class="panel-title !mb-0"><i class="pi pi-share-alt text-sm"></i>Share</h2>
+                    <div class="flex items-center gap-2">
+                      <Select v-model="shareHours" :options="shareDurations" option-label="label" option-value="value" size="small" class="w-32" />
+                      <Button label="Create a link" icon="pi pi-link" size="small" :loading="sharing" @click="share" />
+                    </div>
+                  </div>
+                  <p class="field-hint mb-3">The team opens the URLs once logged in. A link lets someone without an account in, until it expires.</p>
+                  <Message v-if="sharedLink" severity="success" :closable="true" class="mb-3" @close="sharedLink = null">
+                    <p class="mb-2">Copy this link now: it will not be shown again. It works until {{ new Date(sharedLink.expiresAt).toLocaleString() }}.</p>
+                    <div class="flex items-center gap-2">
+                      <code class="flex-1 break-all text-xs bg-white/60 dark:bg-black/20 rounded px-2 py-1">{{ sharedLink.url }}</code>
+                      <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(sharedLink.url)" />
+                    </div>
+                  </Message>
+                  <ul v-if="shares.length > 0" class="divide-y divide-slate-200 dark:divide-purple-800/30">
+                    <li v-for="link in shares" :key="link.id" class="flex items-center justify-between gap-3 py-2 text-sm">
+                      <span>Link by {{ link.createdBy ?? 'the installation token' }}, {{ timeAgo(link.createdAt) }}, expires {{ timeLeft(link.expiresAt) }}</span>
+                      <Button icon="pi pi-times" severity="danger" text rounded size="small" v-tooltip.top="'Revoke'" @click="revokeShare(link.id)" />
+                    </li>
+                  </ul>
+                </section>
 
-      <!-- Last job -->
-      <section v-if="environment.lastJob" class="panel mb-6">
-        <h2 class="panel-title"><i class="pi pi-list text-sm"></i>Last job</h2>
-        <JobLog :job="environment.lastJob" @finished="refresh" />
-      </section>
-
-      <!-- Services -->
-      <section class="panel mb-6">
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 class="panel-title !mb-0"><i class="pi pi-box text-sm"></i>Services</h2>
-          <div v-if="selectedService" class="flex gap-1">
-            <Button label="Logs" size="small" :outlined="serviceView !== 'logs'" @click="serviceView = 'logs'" />
-            <Button
-              v-if="manageable"
-              label="Terminal"
-              size="small"
-              :outlined="serviceView !== 'terminal'"
-              :disabled="selectedService.state !== 'running'"
-              @click="serviceView = 'terminal'"
-            />
-          </div>
-        </div>
-
-        <p v-if="services.length === 0" class="text-sm text-slate-500">No container is running.</p>
-        <template v-else>
-          <div class="flex flex-wrap gap-2 mb-4">
-            <button
-              v-for="service in services"
-              :key="service.name"
-              class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors"
-              :class="
-                service.name === selected
-                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300'
-                  : 'border-slate-300 dark:border-purple-800/30 text-slate-600 dark:text-slate-400 hover:border-slate-400'
-              "
-              @click="selected = service.name"
-            >
-              <span class="h-2 w-2 rounded-full" :class="service.state === 'running' ? 'bg-green-500' : 'bg-slate-400'"></span>
-              <span class="font-medium">{{ service.name }}</span>
-              <span class="text-xs opacity-70">{{ service.status }}</span>
-            </button>
-          </div>
-
-          <div v-if="selectedService && serviceView === 'logs'">
-            <div class="flex justify-end mb-2">
-              <button class="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white" @click="loadServiceLogs">
-                <i class="pi pi-refresh text-xs mr-1" :class="{ 'pi-spin': loadingLogs }"></i>Reload
-              </button>
+                <section v-if="!deleted" class="panel">
+                  <h2 class="panel-title"><i class="pi pi-database text-sm"></i>Disk</h2>
+                  <DiskPanel :environment-id="environment.id" />
+                </section>
+              </div>
             </div>
-            <pre
-              ref="logsBox"
-              class="h-96 overflow-auto rounded-lg bg-slate-950 text-slate-200 text-xs leading-relaxed p-4 font-mono whitespace-pre-wrap break-all"
-            >{{ serviceLogs || 'No output.' }}</pre>
-          </div>
-          <XtermTerminal
-            v-else-if="selectedService && serviceView === 'terminal'"
-            :key="selectedService.name"
-            :environment-id="environment.id"
-            :resource-name="selectedService.name"
-          />
-        </template>
-      </section>
+          </TabPanel>
 
-      <StatsChart v-if="environment.status === 'ready'" :environment-id="environment.id" />
+          <TabPanel value="logs">
+            <section v-if="tab === 'logs'" class="panel">
+              <LogViewer
+                :key="logsKey"
+                :environment-id="environment.id"
+                :services="serviceNames"
+                :archived="deleted"
+                :initial-service="logService"
+                :initial-errors="logErrors"
+              />
+            </section>
+          </TabPanel>
+
+          <TabPanel value="resources">
+            <section v-if="tab === 'resources'" class="panel">
+              <ResourcePanel :environment-id="environment.id" />
+            </section>
+          </TabPanel>
+
+          <TabPanel value="timeline">
+            <section v-if="tab === 'timeline'" class="panel">
+              <TimelinePanel :environment-id="environment.id" :live="!deleted" @logs="(name: string) => showLogs(name, true)" @job="showJob" />
+            </section>
+          </TabPanel>
+
+          <TabPanel value="jobs">
+            <section v-if="tab === 'jobs'" class="panel">
+              <JobsPanel :environment-id="environment.id" :last-job-id="environment.lastJob?.id" :focus-job="focusJob" @finished="refresh" />
+            </section>
+          </TabPanel>
+
+          <TabPanel v-if="manageable && !deleted" value="terminal">
+            <section v-if="tab === 'terminal'" class="panel">
+              <div class="flex flex-wrap items-center gap-2 mb-4">
+                <span class="text-sm text-slate-500">Service</span>
+                <Select v-model="terminalService" :options="runningServices" class="w-48" size="small" placeholder="Choose a service" />
+                <span class="field-hint !mt-0">Sessions are recorded for the admins, close after 15 minutes without input, and last 4 hours at most.</span>
+              </div>
+              <XtermTerminal v-if="terminalService" :key="terminalService" :environment-id="environment.id" :resource-name="terminalService" />
+              <p v-else class="text-sm text-slate-500">No running service.</p>
+            </section>
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
-import Select from 'primevue/select';
-import SplitButton from 'primevue/splitbutton';
+import Menu from 'primevue/menu';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
+import Select from 'primevue/select';
+import SplitButton from 'primevue/splitbutton';
+import Tab from 'primevue/tab';
+import TabList from 'primevue/tablist';
+import TabPanel from 'primevue/tabpanel';
+import TabPanels from 'primevue/tabpanels';
+import Tabs from 'primevue/tabs';
+import DiskPanel from '../components/DiskPanel.vue';
 import EnvironmentStatus from '../components/EnvironmentStatus.vue';
-import JobLog from '../components/JobLog.vue';
-import StatsChart from '../components/StatsChart.vue';
+import JobsPanel from '../components/JobsPanel.vue';
+import LogViewer from '../components/LogViewer.vue';
+import ResourcePanel from '../components/ResourcePanel.vue';
+import TimelinePanel from '../components/TimelinePanel.vue';
 import XtermTerminal from '../components/XtermTerminal.vue';
 import { useNotification } from '../composables/useNotification';
 import { useAuthStore } from '../stores/auth';
 import { environmentsApi, errorMessage } from '../services/api';
-import type { CreatedShareLink, Environment, JobAccepted, ServiceState, ShareLink } from '../types';
+import type { CrashLoop, CreatedShareLink, Environment, JobAccepted, ServiceState, ShareLink } from '../types';
 import { canManage, isBusy, ownerLabel, redeployRequest } from '../utils/environment';
-import { formatBytes, timeAgo, timeLeft } from '../utils/format';
+import { timeAgo, timeLeft } from '../utils/format';
+import { formatSize } from '../utils/palette';
 
 const POLL_MS = 3000;
+const SERVICES_POLL_MS = 15_000;
+const TABS = ['overview', 'logs', 'resources', 'timeline', 'jobs', 'terminal'];
+const KEPT_DAYS = 7;
 
 const route = useRoute();
 const router = useRouter();
@@ -244,22 +322,56 @@ const { showError, showSuccess, confirmAction, confirmDelete } = useNotification
 
 const environment = ref<Environment | null>(null);
 const services = ref<ServiceState[]>([]);
-const selected = ref('');
-const serviceView = ref<'logs' | 'terminal'>('logs');
-const serviceLogs = ref('');
-const loadingLogs = ref(false);
-const logsBox = ref<HTMLElement | null>(null);
+const crashLoops = ref<CrashLoop[]>([]);
 const loading = ref(true);
 const loadError = ref('');
 const acting = ref(false);
+const tab = ref(TABS.includes(String(route.query.tab)) ? String(route.query.tab) : 'overview');
+const logService = ref<string | null>(null);
+const logErrors = ref(false);
+const logsKey = ref(0);
+const focusJob = ref<string | null>(null);
+const terminalService = ref<string | null>(null);
+const extendMenu = ref<InstanceType<typeof Menu> | null>(null);
 let poll: ReturnType<typeof setInterval> | null = null;
+let servicesPoll: ReturnType<typeof setInterval> | null = null;
 
 const id = computed(() => route.params.id as string);
+const deleted = computed(() => Boolean(environment.value?.deletedAt));
 const busy = computed(() => (environment.value ? isBusy(environment.value.status) : false));
-const selectedService = computed(() => services.value.find((service) => service.name === selected.value));
+const serviceNames = computed(() => {
+  const names = new Set(services.value.map((service) => service.name));
+  environment.value?.exposures.forEach((exposure) => names.add(exposure.service));
+  return [...names].sort();
+});
+const runningServices = computed(() => services.value.filter((service) => service.state === 'running').map((service) => service.name));
+const keptUntil = computed(() =>
+  environment.value?.deletedAt ? new Date(new Date(environment.value.deletedAt).getTime() + KEPT_DAYS * 86_400_000).toLocaleString() : '',
+);
 
 const authStore = useAuthStore();
 const manageable = computed(() => (environment.value ? canManage(authStore.user, environment.value) : false));
+
+watch(tab, (value) => {
+  router.replace({ query: { ...route.query, tab: value === 'overview' ? undefined : value } });
+});
+
+function showLogs(service: string | null, errors = false) {
+  logService.value = service;
+  logErrors.value = errors;
+  logsKey.value++;
+  tab.value = 'logs';
+}
+
+function showJob(jobId: string) {
+  focusJob.value = jobId;
+  tab.value = 'jobs';
+}
+
+function openTerminal(service: string) {
+  terminalService.value = service;
+  tab.value = 'terminal';
+}
 
 const shareDurations = [
   { label: '1 hour', value: 1 },
@@ -272,7 +384,7 @@ const sharedLink = ref<CreatedShareLink | null>(null);
 const sharing = ref(false);
 
 async function loadShares() {
-  shares.value = manageable.value ? await environmentsApi.shares(id.value).catch(() => []) : [];
+  shares.value = manageable.value && !deleted.value ? await environmentsApi.shares(id.value).catch(() => []) : [];
 }
 
 async function share() {
@@ -303,6 +415,25 @@ async function copy(value: string) {
   showSuccess('Copied');
 }
 
+const extendOptions = [
+  { label: 'Keep 1 more day', command: () => extend('24h') },
+  { label: 'Keep 3 more days', command: () => extend('72h') },
+  { label: 'Keep 1 more week', command: () => extend('168h') },
+];
+
+async function extend(ttl: string) {
+  acting.value = true;
+  try {
+    const updated = await environmentsApi.extend(id.value, ttl);
+    environment.value = updated;
+    showSuccess(`Expires ${timeLeft(updated.expiresAt)}`);
+  } catch (err) {
+    showError(errorMessage(err, 'The expiry could not be postponed'));
+  } finally {
+    acting.value = false;
+  }
+}
+
 const redeployBlocked = computed(() =>
   environment.value && !redeployRequest(environment.value) ? 'Deployed from a local worktree: redeploy it with the CLI' : null,
 );
@@ -331,37 +462,19 @@ async function refresh() {
   } finally {
     loading.value = false;
   }
-  await Promise.all([loadServices(), loadShares()]);
+  await Promise.all([loadServices(), loadShares(), loadCrashLoops()]);
 }
 
 async function loadServices() {
   services.value = await environmentsApi.services(id.value).catch(() => []);
-  if (!services.value.some((service) => service.name === selected.value)) {
-    selected.value = services.value.find((service) => service.state === 'running')?.name ?? services.value[0]?.name ?? '';
+  if (!terminalService.value || !runningServices.value.includes(terminalService.value)) {
+    terminalService.value = runningServices.value[0] ?? null;
   }
 }
 
-async function loadServiceLogs() {
-  if (!selectedService.value) {
-    return;
-  }
-  loadingLogs.value = true;
-  try {
-    serviceLogs.value = await environmentsApi.logs(id.value, selectedService.value.name);
-  } catch (err) {
-    serviceLogs.value = errorMessage(err, 'The logs could not be read');
-  } finally {
-    loadingLogs.value = false;
-  }
-  await nextTick();
-  logsBox.value?.scrollTo({ top: logsBox.value.scrollHeight });
+async function loadCrashLoops() {
+  crashLoops.value = deleted.value ? [] : await environmentsApi.events(id.value).then((result) => result.crashLoops).catch(() => []);
 }
-
-watch([selected, serviceView], () => {
-  if (serviceView.value === 'logs') {
-    loadServiceLogs();
-  }
-});
 
 function accepted(result: JobAccepted) {
   environment.value = { ...result.environment, lastJob: result.job };
@@ -398,20 +511,24 @@ function confirmRemove() {
   if (!current) {
     return;
   }
-  confirmDelete(current.slug, async () => {
-    try {
-      await environmentsApi.remove(current.id);
-      showSuccess(`${current.slug} is being deleted`);
-      router.push({ path: '/environments', query: { project: current.project } });
-    } catch (err) {
-      showError(errorMessage(err, 'The environment could not be deleted'));
-    }
-  });
+  confirmDelete(
+    current.slug,
+    async () => {
+      try {
+        await environmentsApi.remove(current.id);
+        showSuccess(`${current.slug} is being deleted`);
+        router.push({ path: '/environments', query: { project: current.project } });
+      } catch (err) {
+        showError(errorMessage(err, 'The environment could not be deleted'));
+      }
+    },
+    'Its containers, volumes and data are removed for good; its timeline and last logs stay readable for 7 days.',
+  );
 }
 
 onMounted(() => {
   refresh();
-  // Follows the status while a job works on the environment.
+  // Follows the status while a job works on the environment, and the services otherwise.
   poll = setInterval(() => {
     if (busy.value) {
       environmentsApi
@@ -420,6 +537,12 @@ onMounted(() => {
         .catch(() => undefined);
     }
   }, POLL_MS);
+  servicesPoll = setInterval(() => {
+    if (!deleted.value && tab.value === 'overview') {
+      void loadServices();
+      void loadCrashLoops();
+    }
+  }, SERVICES_POLL_MS);
 });
 
 watch(id, () => {
@@ -428,9 +551,18 @@ watch(id, () => {
   refresh();
 });
 
+watch(busy, (now, before) => {
+  if (before && !now) {
+    void refresh();
+  }
+});
+
 onBeforeUnmount(() => {
   if (poll) {
     clearInterval(poll);
+  }
+  if (servicesPoll) {
+    clearInterval(servicesPoll);
   }
 });
 </script>

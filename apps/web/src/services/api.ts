@@ -28,8 +28,20 @@ import type {
   ServiceState,
   ShareLink,
   TeamMember,
-  UsagePoint,
   User,
+  Capacity,
+  EnvironmentDisk,
+  EnvironmentEvents,
+  EnvironmentMetrics,
+  LogLine,
+  MetricRange,
+  ProjectDetail,
+  ProjectManifest,
+  ProjectUsage,
+  ProjectVariable,
+  SystemMetrics,
+  SystemOverview,
+  TerminalSessionInfo,
 } from '../types';
 
 const api = axios.create({
@@ -121,14 +133,31 @@ export const auditApi = {
 };
 
 export const systemApi = {
-  hostStats: <T>() => api.get<{ data: T }>('/v1/system/host/stats').then((res) => res.data.data),
-  environmentsStats: <T>() => api.get<{ data: T }>('/v1/system/spawner/environments-stats').then((res) => res.data.data),
+  /** The host now, its alerts and each project's share (admins). */
+  overview: () => api.get<SystemOverview>('/v1/system').then((res) => res.data),
+  metrics: (range: MetricRange) => api.get<SystemMetrics>('/v1/system/metrics', { params: { range } }).then((res) => res.data),
+  /** Room for more environments of each project (everyone). */
+  capacity: () => api.get<Capacity>('/v1/system/capacity').then((res) => res.data),
+};
+
+export const terminalsApi = {
+  list: (before?: string) => api.get<TerminalSessionInfo[]>('/v1/terminals', { params: { before, limit: 50 } }).then((res) => res.data),
+  recording: (id: string) => api.get<string>(`/v1/terminals/${id}/recording`, { responseType: 'text' }).then((res) => res.data),
 };
 
 export const projectsApi = {
   list: () => api.get<ProjectSummary[]>('/v1/projects').then((res) => res.data),
-  branches: (slug: string) => api.get<{ branches: string[] }>(`/v1/projects/${slug}/branches`).then((res) => res.data.branches),
-  get: (slug: string) => api.get<Project>(`/v1/projects/${slug}`).then((res) => res.data),
+  /** Branches of the project repository, or of another source of spawner.yaml. */
+  branches: (slug: string, source?: string) =>
+    api.get<{ branches: string[] }>(`/v1/projects/${slug}/branches`, { params: { source } }).then((res) => res.data.branches),
+  get: (slug: string) => api.get<ProjectDetail>(`/v1/projects/${slug}`).then((res) => res.data),
+  /** spawner.yaml at a ref: the other sources and their default branches. */
+  manifest: (slug: string, ref?: string) => api.get<ProjectManifest>(`/v1/projects/${slug}/manifest`, { params: { ref } }).then((res) => res.data),
+  usage: (slug: string) => api.get<ProjectUsage>(`/v1/projects/${slug}/usage`).then((res) => res.data),
+  variables: (slug: string) => api.get<ProjectVariable[]>(`/v1/projects/${slug}/variables`).then((res) => res.data),
+  setVariable: (slug: string, name: string, value: string, secret: boolean) =>
+    api.put<ProjectVariable>(`/v1/projects/${slug}/variables/${encodeURIComponent(name)}`, { value, secret }).then((res) => res.data),
+  deleteVariable: (slug: string, name: string) => api.delete(`/v1/projects/${slug}/variables/${encodeURIComponent(name)}`).then(() => undefined),
   create: (input: ProjectInput) => api.post<Project>('/v1/projects', input).then((res) => res.data),
   update: (slug: string, input: ProjectInput) => api.patch<Project>(`/v1/projects/${slug}`, input).then((res) => res.data),
   remove: (slug: string) => api.delete(`/v1/projects/${slug}`).then(() => undefined),
@@ -157,9 +186,34 @@ function deployForm(deploy: GitDeploy, fields: Record<string, string>): FormData
   return form;
 }
 
+/** What to read from the services' output. */
+export interface LogFilter {
+  services?: string[];
+  tail?: number;
+  since?: string;
+  until?: string;
+  grep?: string;
+  errors?: boolean;
+}
+
+function logParams(filter: LogFilter) {
+  return {
+    service: filter.services?.length ? filter.services.join(',') : undefined,
+    tail: filter.tail,
+    since: filter.since,
+    until: filter.until,
+    grep: filter.grep || undefined,
+    errors: filter.errors ? 'true' : undefined,
+  };
+}
+
 export const environmentsApi = {
-  list: (filter: { project?: string; mine?: boolean } = {}) =>
-    api.get<Environment[]>('/v1/envs', { params: { project: filter.project, mine: filter.mine ? 'true' : undefined } }).then((res) => res.data),
+  list: (filter: { project?: string; mine?: boolean; deleted?: boolean } = {}) =>
+    api
+      .get<Environment[]>('/v1/envs', {
+        params: { project: filter.project, mine: filter.mine ? 'true' : undefined, deleted: filter.deleted ? 'true' : undefined },
+      })
+      .then((res) => res.data),
   get: (id: string) => api.get<Environment>(`/v1/envs/${id}`).then((res) => res.data),
   create: (project: string, env: string, deploy: GitDeploy) =>
     api.post<JobAccepted>('/v1/envs', deployForm(deploy, { project, env, createdVia: 'ui' })).then((res) => res.data),
@@ -179,7 +233,38 @@ export const environmentsApi = {
     api.get<string>(`/v1/envs/${id}/logs/${service}`, { params: { tail }, responseType: 'text' }).then((res) => res.data),
   exec: (id: string, service: string, argv: string[]) =>
     api.post<ExecResult>(`/v1/envs/${id}/exec`, { service, argv }).then((res) => res.data),
-  usage: (id: string, minutes = 60) => api.get<UsagePoint[]>(`/v1/envs/${id}/stats`, { params: { minutes } }).then((res) => res.data),
+  events: (id: string, before?: string) => api.get<EnvironmentEvents>(`/v1/envs/${id}/events`, { params: { before, limit: 50 } }).then((res) => res.data),
+  metrics: (id: string, range: MetricRange) => api.get<EnvironmentMetrics>(`/v1/envs/${id}/metrics`, { params: { range } }).then((res) => res.data),
+  disk: (id: string) => api.get<{ measuredAt: string | null; disk: EnvironmentDisk | null }>(`/v1/envs/${id}/disk`).then((res) => res.data),
+  jobs: (id: string) => api.get<Job[]>(`/v1/envs/${id}/jobs`).then((res) => res.data),
+  extend: (id: string, ttl: string) => api.post<Environment>(`/v1/envs/${id}/extend`, { ttl }).then((res) => res.data),
+  logLines: (id: string, filter: LogFilter) => api.get<{ lines: LogLine[] }>(`/v1/envs/${id}/logs`, { params: logParams(filter) }).then((res) => res.data.lines),
+  /** The URL that downloads the output of the services as text. */
+  logsDownloadUrl: (id: string, filter: LogFilter) => {
+    const params = new URLSearchParams(Object.entries({ ...logParams(filter), format: 'text' }).filter((entry): entry is [string, string] => entry[1] !== undefined).map(([key, value]) => [key, String(value)]));
+    return `/api/v1/envs/${id}/logs?${params}`;
+  },
+  /**
+   * Follows the output of the services: onLine receives the last lines, then
+   * each new one, until the services stop (onEnd). Returns a function that
+   * stops following.
+   */
+  followLogs(id: string, filter: LogFilter, onLine: (line: LogLine) => void, onEnd: () => void): () => void {
+    const params = new URLSearchParams(
+      Object.entries({ ...logParams(filter), follow: 'true' })
+        .filter((entry): entry is [string, string] => entry[1] !== undefined)
+        .map(([key, value]) => [key, String(value)]),
+    );
+    const source = new EventSource(`/api/v1/envs/${id}/logs?${params}`);
+    source.onmessage = (event) => onLine(JSON.parse(event.data) as LogLine);
+    const end = () => {
+      source.close();
+      onEnd();
+    };
+    source.addEventListener('end', end);
+    source.onerror = end;
+    return () => source.close();
+  },
   share: (id: string, ttlHours: number) => api.post<CreatedShareLink>(`/v1/envs/${id}/share`, { ttlHours }).then((res) => res.data),
   shares: (id: string) => api.get<ShareLink[]>(`/v1/envs/${id}/shares`).then((res) => res.data),
   revokeShare: (id: string, shareId: string) => api.delete(`/v1/envs/${id}/shares/${shareId}`).then(() => undefined),

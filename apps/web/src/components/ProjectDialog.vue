@@ -46,6 +46,14 @@
         </div>
       </div>
 
+      <label class="flex items-start gap-3 text-sm">
+        <Checkbox v-model="form.allowPublic" binary input-id="project-public" class="mt-0.5" />
+        <span>
+          <span class="font-medium">Allow public URLs</span>
+          <span class="block text-xs text-slate-500">Exposures with <code>auth: none</code> in spawner.yaml open without a login (webhooks, public pages). Otherwise every URL needs one.</span>
+        </span>
+      </label>
+
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
       <div class="flex justify-end gap-2 pt-2">
@@ -61,6 +69,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Button from 'primevue/button';
+import Checkbox from 'primevue/checkbox';
 import Message from 'primevue/message';
 import { errorMessage, gitApi, projectsApi } from '../services/api';
 import type { GitTestResult, Project } from '../types';
@@ -69,7 +78,7 @@ import { PROJECT_SLUG_MAX_LENGTH, PROJECT_SLUG_PATTERN } from '../utils/environm
 const props = defineProps<{ visible: boolean; project?: Project | null }>();
 const emit = defineEmits<{ 'update:visible': [visible: boolean]; saved: [project: Project] }>();
 
-const form = reactive({ name: '', slug: '', repoUrl: '', defaultRef: 'main', rootDir: '.' });
+const form = reactive({ name: '', slug: '', repoUrl: '', defaultRef: 'main', rootDir: '.', allowPublic: false });
 const slugEdited = ref(false);
 const saving = ref(false);
 const testing = ref(false);
@@ -92,6 +101,7 @@ watch(
       repoUrl: project?.repoUrl ?? '',
       defaultRef: project?.defaultRef ?? 'main',
       rootDir: project?.rootDir ?? '.',
+      allowPublic: project?.allowPublic ?? false,
     });
     slugEdited.value = false;
     access.value = null;
@@ -138,6 +148,7 @@ async function submit() {
     repoUrl: form.repoUrl.trim(),
     defaultRef: form.defaultRef.trim() || 'main',
     rootDir: form.rootDir.trim() || '.',
+    allowPublic: form.allowPublic,
   };
   try {
     const saved = props.project ? await projectsApi.update(props.project.slug, input) : await projectsApi.create({ ...input, slug: form.slug });

@@ -59,13 +59,13 @@
           </div>
           <div class="ml-5 w-0 flex-1">
             <dl>
-              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">CPU Usage</dt>
-              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ hostStats?.cpu.usage || 0 }}%</dd>
+              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Memory available</dt>
+              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatSize(capacity?.host?.availableMemoryBytes) }}</dd>
             </dl>
           </div>
         </div>
         <div class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-900/30">
-          <router-link to="/system/overview" class="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 group">
+          <router-link v-if="authStore.isAdmin" to="/system/overview" class="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 group">
             <span>View details</span>
             <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
           </router-link>
@@ -80,13 +80,14 @@
           </div>
           <div class="ml-5 w-0 flex-1">
             <dl>
-              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Memory Usage</dt>
-              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ hostStats?.memory.usagePercent || 0 }}%</dd>
+              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Room for</dt>
+              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ room.places }}</dd>
+              <dd v-if="room.detail" class="text-xs text-gray-500 dark:text-slate-400 truncate">{{ room.detail }}</dd>
             </dl>
           </div>
         </div>
         <div class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-900/30">
-          <router-link to="/system/overview" class="text-sm font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 flex items-center gap-1 group">
+          <router-link v-if="authStore.isAdmin" to="/system/overview" class="text-sm font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 flex items-center gap-1 group">
             <span>View details</span>
             <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
           </router-link>
@@ -185,6 +186,7 @@
       </router-link>
 
       <router-link
+        v-if="authStore.isAdmin"
         to="/system/overview"
         class="group bg-white dark:bg-dark-800 rounded-xl p-6 border border-slate-200 dark:border-slate-500/50 shadow-md hover:shadow-lg hover:shadow-slate-500/20 dark:hover:shadow-slate-500/30 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-400"
       >
@@ -204,24 +206,40 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { environmentsApi, projectsApi, systemApi } from '../services/api';
 import EnvironmentStatus from '../components/EnvironmentStatus.vue';
-import type { Environment } from '../types';
+import { useAuthStore } from '../stores/auth';
+import type { Capacity, Environment } from '../types';
 import { timeAgo } from '../utils/format';
+import { formatSize } from '../utils/palette';
 
-interface HostStats {
-  cpu: { usage: number };
-  memory: { usagePercent: number };
-}
-
+const authStore = useAuthStore();
 const loading = ref(true);
 const environments = ref<Environment[]>([]);
 const stats = ref<{ environmentCount: number; projectCount: number } | null>(null);
-const hostStats = ref<HostStats | null>(null);
+const capacity = ref<Capacity | null>(null);
+
+/** "3 more blog" for the project with the most room, or "-" before the first sample. */
+/**
+ * More environments the server can hold: those of the only project, or the
+ * range from the heaviest project to the lightest.
+ */
+const room = computed(() => {
+  const projects = (capacity.value?.projects ?? []).filter((project) => project.places !== null);
+  if (projects.length === 0) {
+    return { places: '-', detail: '' };
+  }
+  const counts = projects.map((project) => project.places ?? 0);
+  const [least, most] = [Math.min(...counts), Math.max(...counts)];
+  if (projects.length === 1) {
+    return { places: `${least} more`, detail: `${projects[0].project} environments` };
+  }
+  return { places: least === most ? `${least} more` : `${least} to ${most} more`, detail: 'environments, depending on the project' };
+});
 
 onMounted(async () => {
-  await Promise.all([loadEnvironments(), loadHostStats()]);
+  await Promise.all([loadEnvironments(), loadCapacity()]);
   loading.value = false;
 });
 
@@ -238,11 +256,7 @@ async function loadEnvironments() {
   }
 }
 
-async function loadHostStats() {
-  try {
-    hostStats.value = await systemApi.hostStats<HostStats>();
-  } catch (error) {
-    console.error('Failed to load host stats:', error);
-  }
+async function loadCapacity() {
+  capacity.value = await systemApi.capacity().catch(() => null);
 }
 </script>

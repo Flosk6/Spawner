@@ -59,10 +59,10 @@ export function useNotification() {
   const confirmDelete = (
     itemName: string,
     onAccept: () => void,
-    onReject?: () => void
+    consequence = "This action cannot be undone."
   ) => {
     confirm.require({
-      message: `Are you sure you want to delete "${itemName}"? This action cannot be undone.`,
+      message: `Are you sure you want to delete "${itemName}"? ${consequence}`,
       header: "Confirm Deletion",
       icon: "pi pi-exclamation-triangle",
       acceptClass: "p-button-danger",
@@ -70,7 +70,6 @@ export function useNotification() {
       acceptLabel: "Delete",
       rejectLabel: "Cancel",
       accept: onAccept,
-      reject: onReject,
     });
   };
 
