@@ -195,7 +195,19 @@ export class RouterService implements OnModuleInit {
       rule: `Host(\`${host}\`)`,
       entryPoints: [this.config.entrypoint],
       service,
-      ...(this.config.tls === "letsencrypt" ? { tls: { certResolver: this.config.certResolver } } : {}),
+      ...(this.config.tls === "letsencrypt" ? { tls: this.tls() } : {}),
     };
+  }
+
+  /**
+   * The certificate of a route: one per host, or the wildcard of the preview
+   * domain, which Traefik requests once and shares between every route.
+   */
+  private tls(): Record<string, unknown> {
+    if (!this.config.tlsWildcard) {
+      return { certResolver: this.config.certResolver };
+    }
+    const domain = this.config.previewDomain;
+    return { certResolver: this.config.certResolver, domains: [{ main: domain, sans: [`*.${domain}`] }] };
   }
 }

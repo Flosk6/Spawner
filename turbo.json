@@ -8,6 +8,9 @@
       "dependsOn": [
         "^build"
       ],
+      "env": [
+        "SPAWNER_VERSION"
+      ],
       "outputs": [
         "dist/**",
         ".next/**",

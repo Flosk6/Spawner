@@ -8,10 +8,14 @@ import { EXEC_MAX_OUTPUT_BYTES, EXEC_MAX_SECONDS, EXEC_MAX_STDIN_BYTES, MIN_TTL_
 import { SHARE_DEFAULT_HOURS, SHARE_MAX_HOURS } from "../previews/shares.service";
 
 /**
- * Version of this Spawner, from the API's package.json (next to dist/ in
- * development and in the image).
+ * Version of this Spawner: SPAWNER_VERSION, set by the release build from its
+ * tag, or the API's package.json (next to dist/ in development and in the
+ * image).
  */
 function readVersion(): string {
+  if (process.env.SPAWNER_VERSION) {
+    return process.env.SPAWNER_VERSION;
+  }
   try {
     return JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "..", "..", "package.json"), "utf8")).version ?? "unknown";
   } catch {

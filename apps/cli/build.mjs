@@ -1,12 +1,13 @@
 // Bundles the CLI into one CommonJS file, dist/spawner.cjs, that runs on
 // Node.js 20 or later without node_modules: what the server serves for
 // download (saved as "spawner", without extension, so CommonJS) and what npm
-// will publish.
+// publishes as spawner-cli.
 import { build } from 'esbuild';
 import { chmodSync, readFileSync, rmSync } from 'fs';
 import { fileURLToPath } from 'url';
 
-const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+// The release build sets SPAWNER_VERSION from its tag (2.0.0-rc.1).
+const version = process.env.SPAWNER_VERSION || JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 rmSync(new URL('./dist', import.meta.url), { recursive: true, force: true });
 await build({

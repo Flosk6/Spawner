@@ -38,6 +38,11 @@ export class SpawnerConfig {
   readonly tls = process.env.SPAWNER_TLS === "letsencrypt" ? ("letsencrypt" as const) : ("off" as const);
   readonly scheme: "http" | "https" = this.tls === "off" ? "http" : "https";
   readonly certResolver = process.env.SPAWNER_TLS_RESOLVER || "letsencrypt";
+  /**
+   * One wildcard certificate (*.<preview domain>, DNS-01 challenge) for every
+   * route, instead of one per host: Let's Encrypt allows about 50 a week.
+   */
+  readonly tlsWildcard = process.env.SPAWNER_TLS_WILDCARD === "true";
   readonly entrypoint = process.env.SPAWNER_TRAEFIK_ENTRYPOINT || (this.tls === "off" ? "web" : "websecure");
   readonly dashboardHost = process.env.SPAWNER_DASHBOARD_HOST || `spawner.${this.previewDomain}`;
   readonly dashboardUpstream = process.env.SPAWNER_DASHBOARD_UPSTREAM || "http://spawner:3000";
