@@ -19,7 +19,7 @@ $ spawner down feat-login
 
 Previews are protected: teammates open them once logged in, agents with a short token, and anyone else through a temporary share link.
 
-**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine (milestone M1), team access (M2: invitations, passkeys, tokens, protected previews) and the CLI with its MCP server (M3) are done; the supervision screens, the lifecycle (sleep, expiry) and the installer come next.
+**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine (milestone M1), team access (M2: invitations, passkeys, tokens, protected previews), the CLI with its MCP server (M3) and supervision (M4) are done; the lifecycle (sleep, expiry, density) and the installer come next.
 
 ## How it works
 
@@ -76,6 +76,13 @@ spawner up --wait --json                               # the environment of the 
 ```
 
 See [docs/cli.md](docs/cli.md) for every command and output, and [docs/manifest.md](docs/manifest.md) for `.spawner/`.
+
+## What the dashboard shows
+
+- **An environment**: its URLs and services, logs filtered by service, errors and text (followed live, downloadable), CPU and memory of each service over time, its disk, a timeline of crashes, out-of-memory kills, failed healthchecks and jobs, and a terminal into any service. When a service crashes in a loop, the page says which one and why ("app: out of memory (limit 512 MiB)"); `spawner status` says the same.
+- **A deleted environment** stays readable for 7 days: its logs are archived when it is deleted, so a failure can still be understood after the fact.
+- **The server** (admins): alerts (disk, memory, crash loops), the host over 30 days, the disk taken by each environment, every container, and how many more environments of each project fit (`spawner capacity`).
+- **A project**: what one of its environments costs (memory, disk, build time), and its variables: values the compose files use as `${NAME}`, secret ones encrypted and masked in job logs.
 
 ## Quick start (local)
 
@@ -138,6 +145,8 @@ The script prints the dashboard URL, `https://spawner.preview.yourdomain.com`, a
 - **Previews**: Traefik asks Spawner before each request to a protected URL; teammates pass with a cookie set by the dashboard, agents with a one-hour header token, guests with a share link that expires
 - **CSRF**: the dashboard session is a `__Host-` cookie, and every change made without a token needs a header that other origins, previews included, cannot send
 - **Deploy keys**: read-only SSH keys per repository
+- **Terminals**: closed after 15 minutes without input or 4 hours, and recorded for the admins (30 days)
+- **Public URLs**: an exposure is public (`auth: none`) only in a project an admin allowed
 
 Run Spawner on a server dedicated to previews: environments run code from branches that have not been reviewed yet.
 

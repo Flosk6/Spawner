@@ -28,7 +28,7 @@ exposures:                    # the URLs; the first one is the entrypoint unless
   - name: api
     service: api
     port: 8000
-    auth: team                # team (default): teammates and agents with a token; none: public
+    auth: team                # team (default): teammates and agents with a token; none: public, if the project allows it
 
 seed:                         # run once, after the first start (and with --reseed or --fresh)
   - service: api
@@ -43,6 +43,7 @@ limits:
 
 - Names (`project`, `name`, sources, exposures) use lowercase letters, digits and single dashes, starting with a letter: at most 20 characters for a project, 10 for an exposure. Environments, named after branches, take 29.
 - `seed` steps are argument arrays, run in the service without a shell (call `[sh, -c, "..."]` if you need one).
+- `auth: none` makes a URL public (webhooks, a public page). An admin allows it per project (Projects, Edit, "Allow public URLs"); otherwise the deploy is refused, by `spawner up` before anything is sent.
 - At most 10 exposures.
 
 ### URLs
@@ -111,6 +112,7 @@ The file is interpolated with Spawner's variables only; any other `${...}` is an
 | `SPAWNER_URL_<EXPOSURE>` | `SPAWNER_URL_API=https://api--feat-login--blog.preview.example.com` |
 | `SPAWNER_HOST_<EXPOSURE>` | the same host, without the scheme |
 | `SPAWNER_SRC_<SOURCE>` | path of a source on the server, for build contexts and mounts |
+| Project variables | set by an admin on the project page: `${STRIPE_KEY}`. Secret values are stored encrypted, never shown again, and masked in job logs |
 
 `<EXPOSURE>` and `<SOURCE>` are uppercased, with `-` turned into `_`. Services reach each other on the environment's network by service name (`http://api:8000`), without authentication.
 

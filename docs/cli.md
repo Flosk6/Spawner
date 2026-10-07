@@ -42,12 +42,13 @@ The environment is named after the current git branch: `feat/login` gives `feat-
 | `login [url]`, `logout`, `whoami` | Authentication |
 | `init` | Creates `.spawner/spawner.yaml` and `.spawner/compose.yaml`, and offers to add the instructions for coding agents to `CLAUDE.md` or `AGENTS.md` |
 | `up [env]` | Creates or updates the environment of the worktree. `--wait` waits until it is ready |
-| `status [env]` | Status, URLs, sources, expiry, last job, and each service: state, health, restarts, out-of-memory kills |
+| `status [env]` | Status, URLs, sources, expiry, last job, each service (state, health, restarts, out-of-memory kills), and the last events of its timeline |
 | `ls` | Environments of the current project (all projects outside one, or with `--all`); `--mine` |
 | `logs [env] [service]` | Output of the services, merged; or the log of the last job with `--job` |
 | `exec <env> <service> -- <command...>` | Runs a command and exits with its exit code |
 | `shell <env> <service>` | Interactive terminal (for people; agents use `exec`) |
 | `stats [env]` | CPU, memory, disk, restarts and out-of-memory kills of each service, right now |
+| `capacity` | How many more environments of each project fit on the server |
 | `url [env] [exposure]` | Prints a URL; `--with-token` adds the header that opens the protected URL |
 | `share [env]` | A link that opens the environment without an account, `--ttl 24h` by default |
 | `stop`, `start`, `down [env]` | Stops, starts, deletes. They wait for the job unless `--no-wait` |
@@ -100,6 +101,16 @@ spawner exec -i feat-login db -- psql -U app -d app < seed.sql
 
 The command is an argument array: no shell runs it on the server unless you call one (`-- sh -c "..."`). Its stdout and stderr come back (1 MiB each), and `spawner` exits with its exit code. `-i` sends the CLI's standard input (1 MiB at most). `--timeout` is 120 seconds by default, 600 at most.
 
+### status and capacity
+
+`status` ends with the timeline of the environment: services that crashed, ran out of memory or turned unhealthy (from Docker events), and the jobs that changed it. A service that crashed three times in ten minutes is called out with its cause:
+
+```text
+api failed 3 times in 10 minutes, last cause: out of memory (limit 512 MiB)
+```
+
+`capacity` answers "can I start another environment?": the memory the server can hand out (minus 1 GiB) and its free disk (minus 10 GiB), divided by what an environment of each project typically uses (the median of the last day, or its declared limits before any ran).
+
 ### url
 
 ```bash
@@ -115,9 +126,10 @@ With `--json`, stdout carries one JSON document (or one object per line for `log
 | Command | Output |
 |---|---|
 | `up` | `{ action: "created" \| "updated", environment, job, uploads: [{ source, files, bytes, archiveBytes }], warnings, waited, timedOut, logTail? }` |
-| `status` | `{ environment, services: ServiceState[] }` |
+| `status` | `{ environment, services: ServiceState[], events: TimelineEvent[], crashLoops: CrashLoop[] }` |
 | `ls` | `{ environments: Environment[] }` |
 | `stats` | `{ environment, services: ServiceUsage[] }` |
+| `capacity` | `{ host: { availableMemoryBytes, freeDiskBytes, reserves }, projects: [{ project, places, limitedBy, memoryBytes, diskBytes, basedOn }] }` |
 | `logs` | `{ lines: [{ service, stream, time, text }] }`; with `--follow`, one line object per line; with `--job`, `{ job, lines: string[] }`, or `{ job, text }` per line with `--follow` |
 | `exec` | `{ env, service, exitCode, stdout, stderr, truncated, timedOut }` |
 | `url` | `{ project, env, exposure, url, urls, header?: { name, value }, expiresAt? }` |
