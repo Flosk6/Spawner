@@ -1,7 +1,7 @@
 import type { Environment, Job, ServerInfo } from "@spawner/types";
 import { ApiClient } from "./api";
 import { credentialsPath, notLoggedIn, readCredentials, resolveConnection, type Connection } from "./config";
-import { CliError, usageError } from "./errors";
+import { CliError, EXIT, usageError } from "./errors";
 import { checkEnvName, envNameFromBranch, loadWorkspace, manifestProject, type Workspace } from "./workspace";
 
 /**
@@ -187,6 +187,45 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+const WAKE_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Wakes a sleeping environment up before a command that needs its services
+ * (exec, shell, url, logs --follow), and waits until it is ready.
+ *
+ * @returns The environment, awake (as it was when it did not sleep)
+ * @throws CliError with exit 4 when it cannot wake up, 5 when it takes too
+ *   long, 6 when the server lacks the memory
+ */
+export async function ensureAwake(ctx: Context, environment: Environment, onProgress?: (message: string) => void): Promise<Environment> {
+  if (environment.status !== "sleeping" && environment.status !== "waking") {
+    return environment;
+  }
+  const started = Date.now();
+  onProgress?.(`${environment.slug} is asleep: waking it up`);
+  const accepted = await ctx.api().post<{ environment: Environment; job: Job | null }>(`/envs/${environment.id}/wake`);
+  if (!accepted.job) {
+    return accepted.environment;
+  }
+  const waited = await waitForJob(ctx, accepted.job, accepted.environment, { timeoutMs: WAKE_TIMEOUT_MS });
+  if (waited.timedOut) {
+    throw new CliError(`${environment.slug} did not wake up within ${WAKE_TIMEOUT_MS / 60_000} minutes`, {
+      exit: EXIT.timeout,
+      code: "timeout",
+      hint: `spawner status ${environment.slug} shows where it is`,
+    });
+  }
+  if (waited.job.status !== "succeeded") {
+    throw new CliError(`${environment.slug} could not wake up: ${waited.job.error ?? "the job failed"}`, {
+      exit: EXIT.failed,
+      code: "wake_failed",
+      hint: `spawner logs ${environment.slug} --job ${waited.job.id} shows its log`,
+    });
+  }
+  onProgress?.(`${environment.slug} is awake (${Math.round((Date.now() - started) / 1000)}s)`);
+  return waited.environment;
 }
 
 /**

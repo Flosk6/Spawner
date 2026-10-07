@@ -169,7 +169,7 @@ export class ApiClient {
     } catch {
       body = null;
     }
-    const fields = (body ?? {}) as { message?: unknown; error?: unknown };
+    const fields = (body ?? {}) as { message?: unknown; error?: unknown; code?: unknown; hint?: unknown };
     const message = Array.isArray(fields.message)
       ? fields.message.join("; ")
       : typeof fields.message === "string"
@@ -177,7 +177,16 @@ export class ApiClient {
         : typeof fields.error === "string"
           ? fields.error
           : text.slice(0, 200) || response.statusText;
-    return new CliError(message, { ...describeStatus(response.status, this.server, Boolean(this.token)), status: response.status, details: body && typeof body === "object" ? { body } : undefined });
+    const limit =
+      fields.code === "quota" || fields.code === "capacity"
+        ? { exit: EXIT.capacity, code: fields.code, ...(typeof fields.hint === "string" ? { hint: fields.hint } : {}) }
+        : {};
+    return new CliError(message, {
+      ...describeStatus(response.status, this.server, Boolean(this.token)),
+      ...limit,
+      status: response.status,
+      details: body && typeof body === "object" ? { body } : undefined,
+    });
   }
 }
 

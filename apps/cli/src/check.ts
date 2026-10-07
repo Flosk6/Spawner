@@ -2,8 +2,10 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
+  alwaysOnIssues,
   buildVariables,
   defaultRealpath,
+  dockerfileLayerWarnings,
   isInside,
   parseManifest,
   prepareCompose,
@@ -23,6 +25,8 @@ export interface LocalCheck {
   issues: Issue[];
   /** Services of the compose file. */
   services: string[];
+  /** Dockerfiles that keep environments from sharing their dependencies: "app: the whole code is copied..." */
+  warnings?: string[];
 }
 
 /**
@@ -33,23 +37,24 @@ export interface LocalCheck {
  *
  * @param uploads - Local directory of each source sent from a worktree
  * @param project - What the server says of the project: whether it allows
- *   public URLs, and the names of its variables (their values stay there)
+ *   public URLs and environments that never sleep, and the names of its
+ *   variables (their values stay there)
  */
 export function checkProject(
   workspace: Workspace,
   env: string,
   info: ServerInfo,
   uploads: Record<string, string>,
-  project: { allowPublic: boolean; variables: string[] } = { allowPublic: true, variables: [] },
+  project: { allowPublic: boolean; allowAlwaysOn: boolean; variables: string[] } = { allowPublic: true, allowAlwaysOn: true, variables: [] },
 ): LocalCheck {
   const parsed = parseManifest(workspace.manifestText);
   if (!parsed.manifest) {
     return { issues: parsed.issues.map((issue) => ({ ...issue, path: issue.path ? `spawner.yaml: ${issue.path}` : "spawner.yaml" })), services: [] };
   }
   const manifest = parsed.manifest;
-  const publicIssues = publicExposureIssues(manifest, project.allowPublic);
-  if (publicIssues.length > 0) {
-    return { manifest, issues: publicIssues.map((issue) => ({ ...issue, path: `spawner.yaml: ${issue.path}` })), services: [] };
+  const permissionIssues = [...publicExposureIssues(manifest, project.allowPublic), ...alwaysOnIssues(manifest, project.allowAlwaysOn)];
+  if (permissionIssues.length > 0) {
+    return { manifest, issues: permissionIssues.map((issue) => ({ ...issue, path: `spawner.yaml: ${issue.path}` })), services: [] };
   }
 
   const sourceRoots: Record<string, string> = { [manifest.name]: workspace.projectRoot };
@@ -103,5 +108,30 @@ export function checkProject(
     limits,
     realpath,
   });
-  return { manifest, issues: prepared.issues, services: prepared.services };
+  return { manifest, issues: prepared.issues, services: prepared.services, warnings: layerWarnings(prepared.document ?? {}) };
+}
+
+/**
+ * Looks at the Dockerfiles of this machine's sources for a copy of the whole
+ * code before the dependencies are installed.
+ */
+function layerWarnings(document: Record<string, unknown>): string[] {
+  const services = (document.services ?? {}) as Record<string, { build?: { context?: string; dockerfile?: string } }>;
+  const warnings: string[] = [];
+  for (const [name, service] of Object.entries(services)) {
+    const context = service.build?.context;
+    if (!context || isInside(context, REMOTE_ROOT)) {
+      continue;
+    }
+    let text: string;
+    try {
+      text = fs.readFileSync(service.build?.dockerfile ?? path.join(context, "Dockerfile"), "utf8");
+    } catch {
+      continue;
+    }
+    for (const warning of dockerfileLayerWarnings(text)) {
+      warnings.push(`${name}: ${warning.message}. ${warning.hint}`);
+    }
+  }
+  return warnings;
 }

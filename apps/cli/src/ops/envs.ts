@@ -1,7 +1,7 @@
 import { parseDuration } from "@spawner/core";
 import type { Capacity, CrashLoop, CreatedShareLink, Environment, EnvironmentEvents, Job, JobAccepted, PreviewToken, ServiceState, ServiceUsage, TimelineEvent } from "@spawner/types";
 import { CliError, usageError } from "../errors";
-import { Context, findEnvironment, jobLogTail, resolveTarget, waitForJob, type TargetOptions } from "../context";
+import { Context, ensureAwake, findEnvironment, jobLogTail, resolveTarget, waitForJob, type TargetOptions } from "../context";
 
 /** What `spawner status --json` prints. */
 export interface StatusResult {
@@ -81,8 +81,11 @@ export interface UrlResult {
  * The URL of an exposure (the entrypoint by default), and with withToken
  * the header an agent sends to call it.
  */
-export async function url(ctx: Context, options: TargetOptions & { exposure?: string; withToken?: boolean }): Promise<UrlResult> {
-  const environment = await findEnvironment(ctx, await resolveTarget(ctx, options));
+export async function url(
+  ctx: Context,
+  options: TargetOptions & { exposure?: string; withToken?: boolean; onProgress?: (message: string) => void },
+): Promise<UrlResult> {
+  const environment = await ensureAwake(ctx, await findEnvironment(ctx, await resolveTarget(ctx, options)), options.onProgress);
   const exposure = options.exposure
     ? environment.exposures.find((candidate) => candidate.name === options.exposure)
     : (environment.exposures.find((candidate) => candidate.entrypoint) ?? environment.exposures[0]);
@@ -126,10 +129,11 @@ export async function share(ctx: Context, options: TargetOptions & { ttl?: strin
   return { env: environment.slug, ...link };
 }
 
-/** What stop, start and down print. */
+/** What stop, start, sleep, wake and down print. */
 export interface LifecycleResult {
   environment: Environment;
-  job: Job;
+  /** Null when there was nothing to do (waking an environment already awake). */
+  job: Job | null;
   waited: boolean;
   timedOut: boolean;
   logTail?: string[];
@@ -138,20 +142,22 @@ export interface LifecycleResult {
 const LIFECYCLE_TIMEOUT_SEC = 10 * 60;
 
 /**
- * Stops, starts or deletes an environment, and with wait follows the job to
- * its end.
+ * Stops, starts, puts to sleep, wakes up or deletes an environment, and with
+ * wait follows the job to its end.
  */
 export async function lifecycle(
   ctx: Context,
-  action: "stop" | "start" | "down",
+  action: "stop" | "start" | "sleep" | "wake" | "down",
   options: TargetOptions & { wait?: boolean; timeoutSec?: number; onProgress?: (message: string) => void },
 ): Promise<LifecycleResult> {
   const environment = await findEnvironment(ctx, await resolveTarget(ctx, options));
   const api = ctx.api();
   const accepted =
-    action === "down" ? await api.delete<JobAccepted>(`/envs/${environment.id}`) : await api.post<JobAccepted>(`/envs/${environment.id}/${action}`);
+    action === "down"
+      ? await api.delete<JobAccepted>(`/envs/${environment.id}`)
+      : await api.post<{ environment: Environment; job: Job | null }>(`/envs/${environment.id}/${action}`);
   const result: LifecycleResult = { environment: accepted.environment, job: accepted.job, waited: false, timedOut: false };
-  if (!options.wait) {
+  if (!options.wait || !accepted.job) {
     return result;
   }
   const waited = await waitForJob(ctx, accepted.job, accepted.environment, {

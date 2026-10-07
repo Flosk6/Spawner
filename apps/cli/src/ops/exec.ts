@@ -1,6 +1,6 @@
 import type { ExecResult } from "@spawner/types";
 import { CliError, usageError } from "../errors";
-import { Context, findEnvironment, resolveTarget, type TargetOptions } from "../context";
+import { Context, ensureAwake, findEnvironment, resolveTarget, type TargetOptions } from "../context";
 
 export interface ExecOptions extends TargetOptions {
   service: string;
@@ -8,6 +8,8 @@ export interface ExecOptions extends TargetOptions {
   timeoutSec?: number;
   /** Sent to the command's standard input, then closed. */
   stdin?: Buffer;
+  /** Told when the environment sleeps and is woken up first. */
+  onProgress?: (message: string) => void;
 }
 
 /**
@@ -18,7 +20,7 @@ export async function exec(ctx: Context, options: ExecOptions): Promise<ExecResu
   if (options.argv.length === 0) {
     throw usageError("no command to run", "put it after --: spawner exec <env> <service> -- <command> [args...]");
   }
-  const environment = await findEnvironment(ctx, await resolveTarget(ctx, options));
+  const environment = await ensureAwake(ctx, await findEnvironment(ctx, await resolveTarget(ctx, options)), options.onProgress);
   const info = await ctx.info();
   if (options.stdin && options.stdin.length > info.limits.exec.maxStdinBytes) {
     throw usageError(`the standard input is larger than ${info.limits.exec.maxStdinBytes / 1024 / 1024} MiB`);

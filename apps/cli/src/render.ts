@@ -13,7 +13,7 @@ export function statusLabel(status: string, style: Styles): string {
   if (status === "failed") {
     return style.red(status);
   }
-  if (status === "stopped" || status === "deleted") {
+  if (status === "stopped" || status === "deleted" || status === "sleeping") {
     return style.dim(status);
   }
   return style.yellow(status);
@@ -55,11 +55,18 @@ export function renderStatus(
   if (environment.status === "failed" && environment.error) {
     lines.push(style.red(`Failed${environment.phase ? ` during ${environment.phase}` : ""}: ${environment.error.split("\n")[0]}`));
   }
+  if (environment.status === "degraded" && environment.error) {
+    lines.push(style.yellow(`Degraded: ${environment.error}`));
+  }
+  if (environment.status === "sleeping") {
+    lines.push(style.dim("Asleep: its data stays, and the next visit to one of its URLs (or spawner wake) wakes it up."));
+  }
   const rows: [string, string[]][] = [
     ["Owner", [ownerLabel(environment)]],
     ["URLs", environment.exposures.length ? urlLines(environment, style) : [style.dim("none yet")]],
     ["Sources", environment.sources.map((source) => `${source.name}  ${sourceLabel(source)}`)],
     ["Expires", [environment.expiresAt ? `${relativeTime(environment.expiresAt)} (${new Date(environment.expiresAt).toLocaleString()})` : "-"]],
+    ["Sleeps", [sleepLabel(environment)]],
     ["Last job", [environment.lastJob ? `${environment.lastJob.type} ${environment.lastJob.status} ${relativeTime(environment.lastJob.finishedAt ?? environment.lastJob.createdAt)}` : "-"]],
   ];
   for (const [label, values] of rows) {
@@ -84,8 +91,26 @@ export function renderStatus(
 /**
  * Room for more environments of each project, for spawner capacity.
  */
+/** "in 1h 40m without activity", "never", "asleep". */
+function sleepLabel(environment: Environment): string {
+  if (environment.status === "sleeping") {
+    return "asleep";
+  }
+  if (environment.idleSeconds === 0) {
+    return "never";
+  }
+  if (!environment.sleepsAt) {
+    return `after ${Math.round(environment.idleSeconds / 60)} minutes without activity`;
+  }
+  return new Date(environment.sleepsAt).getTime() > Date.now() ? `${relativeTime(environment.sleepsAt)} without activity` : "within a minute, without activity";
+}
+
 export function renderCapacity(result: Capacity, style: Styles, formatBytes: (bytes: number) => string): string {
   const lines: string[] = [];
+  if (result.quota) {
+    const text = `Your environments: ${result.quota.used} of ${result.quota.limit} (sleeping ones included)`;
+    lines.push(result.quota.remaining === 0 ? style.red(text) : text, "");
+  }
   if (result.host) {
     lines.push(
       `Available: ${formatBytes(result.host.availableMemoryBytes)} of memory, ${formatBytes(result.host.freeDiskBytes)} of disk ` +

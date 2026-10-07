@@ -88,11 +88,13 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
   const project = await projectOf(ctx, parsed.manifest.project);
   const check = checkProject(workspace, env, info, sourceDirs, {
     allowPublic: project.allowPublic ?? true,
+    allowAlwaysOn: project.allowAlwaysOn ?? true,
     variables: (project.variables ?? []).map((variable) => variable.name),
   });
   if (check.issues.length > 0) {
     throw refused(check.issues);
   }
+  check.warnings?.forEach((warning) => options.onProgress?.(`Warning: ${warning}`));
   const manifest = check.manifest!;
   const primaryFromGit = manifest.name in refs;
   const declared = new Set([manifest.name, ...Object.keys(manifest.sources)]);
@@ -217,8 +219,8 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
  * the job failed, 6 for lack of capacity, 7 when the files were refused, 5
  * when the wait timed out.
  */
-export function jobExitCode(result: { waited: boolean; timedOut: boolean; job: Job }): ExitCode {
-  if (!result.waited) {
+export function jobExitCode(result: { waited: boolean; timedOut: boolean; job: Job | null }): ExitCode {
+  if (!result.waited || !result.job) {
     return EXIT.ok;
   }
   if (result.timedOut) {

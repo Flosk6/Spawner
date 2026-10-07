@@ -16,7 +16,7 @@ import { shell } from "./ops/shell";
 import { jobExitCode, up } from "./ops/up";
 import { Output } from "./output";
 import { renderCapacity, renderList, renderStatus, renderUsage, urlLines } from "./render";
-import { findEnvironment, resolveTarget } from "./context";
+import { ensureAwake, findEnvironment, resolveTarget } from "./context";
 import { loadWorkspace, manifestProject } from "./workspace";
 import { VERSION } from "./version";
 
@@ -439,7 +439,9 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
             };
 
             if (options.follow) {
-              const environment = await findEnvironment(context, await resolveTarget(context, query));
+              const environment = await ensureAwake(context, await findEnvironment(context, await resolveTarget(context, query)), (message) =>
+                output.note(output.err.dim(message)),
+              );
               for await (const line of followLogs(context, environment, query, interrupt.signal)) {
                 show(line);
               }
@@ -472,7 +474,15 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
     .action(
       run(async ({ output, ctx }, env: string, service: string, argv: string[], options: { project?: string; stdin?: boolean; timeout?: number }) => {
         const stdin = options.stdin ? await readAll(io.stdin) : undefined;
-        const result = await exec(ctx(), { env, project: options.project, service, argv, timeoutSec: options.timeout, stdin });
+        const result = await exec(ctx(), {
+          env,
+          project: options.project,
+          service,
+          argv,
+          timeoutSec: options.timeout,
+          stdin,
+          onProgress: (message) => output.note(output.err.dim(message)),
+        });
         if (output.json) {
           output.data(result);
         } else {
@@ -499,8 +509,12 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
     .argument("<service>", "service")
     .addOption(projectOption())
     .action(
-      run(async ({ ctx }, env: string, service: string, options: { project?: string }) => {
-        return shell(ctx(), { env, project: options.project, service }, { stdin: io.stdin, stdout: io.stdout });
+      run(async ({ output, ctx }, env: string, service: string, options: { project?: string }) => {
+        return shell(
+          ctx(),
+          { env, project: options.project, service, onProgress: (message) => output.note(output.err.dim(message)) },
+          { stdin: io.stdin, stdout: io.stdout },
+        );
       }),
     );
 
@@ -545,7 +559,13 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
     .option("--with-token", "also print the X-Spawner-Preview header, valid one hour")
     .action(
       run(async ({ output, ctx }, env: string | undefined, exposure: string | undefined, options: { project?: string; withToken?: boolean }) => {
-        const result = await url(ctx(), { env, project: options.project, exposure, withToken: options.withToken });
+        const result = await url(ctx(), {
+          env,
+          project: options.project,
+          exposure,
+          withToken: options.withToken,
+          onProgress: (message) => output.note(output.err.dim(message)),
+        });
         if (output.json) {
           output.data(result);
           return;
@@ -579,6 +599,8 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
   for (const [name, description] of [
     ["stop", "stop the containers of an environment (its data stays)"],
     ["start", "start a stopped environment"],
+    ["sleep", "put an environment to sleep now: its data stays, the next visit wakes it up"],
+    ["wake", "wake a sleeping environment up"],
     ["down", "delete an environment and everything it holds"],
   ] as const) {
     program
@@ -603,12 +625,14 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
           }
           if (output.json) {
             output.data(result);
+          } else if (!result.job) {
+            output.print(`${output.out.bold(result.environment.slug)} (${result.environment.project}) is already ${name === "wake" ? "awake" : "asleep"}.`);
           } else if (!result.waited) {
             output.print(`Job ${result.job.id} queued (${name} ${result.environment.slug}).`);
           } else if (code === EXIT.ok) {
-            const done = { stop: "stopped", start: "started", down: "deleted" }[name];
+            const done = { stop: "stopped", start: "started", sleep: "asleep: the next visit wakes it up", wake: "awake", down: "deleted" }[name];
             output.print(`${output.out.bold(result.environment.slug)} (${result.environment.project}) ${done}.`);
-            if (name === "start") {
+            if (name === "start" || name === "wake") {
               urlLines(result.environment, output.out).forEach((line) => output.print(`  ${line}`));
             }
           } else {

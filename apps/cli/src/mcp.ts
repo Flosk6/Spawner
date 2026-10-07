@@ -306,7 +306,7 @@ export function createMcpServer(options: { cwd: string; env: NodeJS.ProcessEnv; 
     async (args) => {
       try {
         const result = await lifecycle(context(), "down", { ...args, path: await workdir(args.path), wait: true });
-        if (result.job.status === "failed") {
+        if (result.job?.status === "failed") {
           return failure(new Error(`deleting ${args.env} failed: ${result.job.error ?? "unknown error"}`), result.logTail);
         }
         return json({ ...result });

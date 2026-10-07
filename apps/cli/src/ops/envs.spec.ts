@@ -105,6 +105,37 @@ describe("environment operations", () => {
     await expect(exec(ctx, { env: "feat-login", service: "db", argv: [] })).rejects.toMatchObject({ exit: EXIT.usage });
   });
 
+  it("wakes a sleeping environment up before running a command", async () => {
+    const calls: FakeRequest[] = [];
+    const ctx = context(
+      {
+        "GET /envs": () => [{ ...ENVIRONMENT, status: "sleeping" }],
+        "POST /envs/env-1/wake": () => ({ environment: { ...ENVIRONMENT, status: "waking" }, job: { id: "job-3", environmentId: "env-1", type: "wake", status: "queued" } }),
+        "GET /jobs/job-3": () => ({ id: "job-3", environmentId: "env-1", type: "wake", status: "succeeded" }),
+        "GET /envs/env-1": () => ({ ...ENVIRONMENT, status: "ready" }),
+        "POST /envs/env-1/exec": () => ({ exitCode: 0, stdout: "1", stderr: "", truncated: false, timedOut: false }),
+      },
+      calls,
+    );
+    const progress: string[] = [];
+    const result = await exec(ctx, { env: "feat-login", service: "db", argv: ["true"], onProgress: (message) => progress.push(message) });
+    expect(result.exitCode).toBe(0);
+    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(expect.arrayContaining(["POST /envs/env-1/wake", "POST /envs/env-1/exec"]));
+    expect(progress).toEqual(["feat-login is asleep: waking it up", expect.stringMatching(/^feat-login is awake \(\d+s\)$/)]);
+  });
+
+  it("does nothing to wake an environment already awake", async () => {
+    const ctx = context({ "POST /envs/env-1/wake": () => ({ environment: ENVIRONMENT, job: null }) });
+    expect(await lifecycle(ctx, "wake", { env: "feat-login", wait: true })).toMatchObject({ job: null, waited: false });
+  });
+
+  it("exits with 6 when the quota or the memory of the server refuses", async () => {
+    const ctx = context({
+      "POST /envs/env-1/start": () => reply(503, { statusCode: 503, code: "capacity", message: "Not enough memory on the server", hint: "put an environment to sleep" }),
+    });
+    await expect(lifecycle(ctx, "start", { env: "feat-login" })).rejects.toMatchObject({ exit: EXIT.capacity, code: "capacity", hint: "put an environment to sleep" });
+  });
+
   it("explains a service that is not running", async () => {
     const ctx = context({ "POST /envs/env-1/exec": () => reply(409, { message: 'service "db" is not running' }) });
     await expect(exec(ctx, { env: "feat-login", service: "db", argv: ["true"] })).rejects.toMatchObject({ code: "not_running", hint: expect.stringContaining("spawner status") });

@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 import { CliError, EXIT, usageError } from "../errors";
-import { Context, findEnvironment, resolveTarget, type TargetOptions } from "../context";
+import { Context, ensureAwake, findEnvironment, resolveTarget, type TargetOptions } from "../context";
 
 const MAX_INPUT_CHUNK = 4000;
 
@@ -16,11 +16,11 @@ interface Terminal {
  *
  * @returns The exit code of the shell
  */
-export async function shell(ctx: Context, options: TargetOptions & { service: string }, terminal: Terminal): Promise<number> {
+export async function shell(ctx: Context, options: TargetOptions & { service: string; onProgress?: (message: string) => void }, terminal: Terminal): Promise<number> {
   if (!terminal.stdin.isTTY || !terminal.stdout.isTTY) {
     throw usageError("spawner shell needs a terminal", "agents and scripts use: spawner exec <env> <service> -- <command>");
   }
-  const environment = await findEnvironment(ctx, await resolveTarget(ctx, options));
+  const environment = await ensureAwake(ctx, await findEnvironment(ctx, await resolveTarget(ctx, options)), options.onProgress);
   const api = ctx.api();
   const { ticket } = await api.post<{ ticket: string }>("/auth/ws-ticket");
 
