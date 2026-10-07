@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseManifest } from './manifest';
+import { parseManifest, publicExposureIssues } from './manifest';
 
 const MINIMAL = `
 version: 1
@@ -123,5 +123,21 @@ exposures:
   it('requires at least one exposure', () => {
     const { issues } = parseManifest('version: 1\nproject: blog\nexposures: []\n');
     expect(issues).toEqual([expect.objectContaining({ path: 'exposures', message: 'declare at least one exposure' })]);
+  });
+});
+
+describe('publicExposureIssues', () => {
+  const manifest = {
+    exposures: [
+      { name: 'web', service: 'app', port: 3000, entrypoint: true, auth: 'team' as const },
+      { name: 'hook', service: 'app', port: 4000, entrypoint: false, auth: 'none' as const },
+    ],
+  };
+
+  it('refuses public exposures unless the project allows them', () => {
+    expect(publicExposureIssues(manifest, false)).toEqual([
+      expect.objectContaining({ code: 'manifest.public_exposure', path: 'exposures[1].auth' }),
+    ]);
+    expect(publicExposureIssues(manifest, true)).toEqual([]);
   });
 });

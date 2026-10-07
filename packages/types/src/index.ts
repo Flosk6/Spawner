@@ -176,6 +176,8 @@ export interface Project {
   defaultRef: string;
   /** Directory holding .spawner/ in the repository ("." unless it is a monorepo). */
   rootDir: string;
+  /** Exposures may be public (auth: none). */
+  allowPublic: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -184,12 +186,49 @@ export interface ProjectSummary extends Project {
   environmentCount: number;
 }
 
+/** A project with the names of its variables (GET /projects/:slug). */
+export interface ProjectDetail extends Project {
+  variables: { name: string; secret: boolean }[];
+}
+
 export interface ProjectInput {
   slug?: string;
   name?: string;
   repoUrl?: string;
   defaultRef?: string;
   rootDir?: string;
+  allowPublic?: boolean;
+}
+
+/** A variable of the compose files of a project; secret values are never shown again. */
+export interface ProjectVariable {
+  name: string;
+  secret: boolean;
+  value: string | null;
+  updatedAt: string;
+}
+
+/** spawner.yaml of a project at a ref (GET /projects/:slug/manifest). */
+export interface ProjectManifest {
+  ref: string;
+  /** Name of the project's own source. */
+  name: string | null;
+  sources: { name: string; repo: string; defaultRef: string }[];
+  exposures: { name: string; service: string; port: number; entrypoint: boolean; auth: string }[];
+  issues: { code: string; path: string; message: string; hint?: string }[];
+}
+
+/** What a project uses, and what one of its environments typically costs. */
+export interface ProjectUsage {
+  environments: { total: number; byStatus: Record<string, number> };
+  now: { cpuPercent: number; memoryBytes: number; diskBytes: number };
+  typical: {
+    memoryBytes: number;
+    diskBytes: number;
+    /** Measured, or the declared limits and a default before any environment ran. */
+    basedOn: { memory: 'usage' | 'limits'; disk: 'usage' | 'default' };
+    buildSeconds: number | null;
+  };
 }
 
 // Environments
@@ -258,8 +297,12 @@ export interface Environment {
   expiresAt: string | null;
   /** Last request let through to one of its URLs. */
   lastActivityAt: string | null;
+  /** CPU and memory of its running containers at the last sample (every 30 seconds). */
+  usage: { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; at: string } | null;
   createdAt: string;
   updatedAt: string;
+  /** Set for an environment deleted in the last 7 days, still readable. */
+  deletedAt: string | null;
 }
 
 /** Where a source comes from when deploying from git: a branch, tag or commit. */
@@ -288,6 +331,8 @@ export interface Job {
   phase: JobPhase | null;
   error: string | null;
   errorCode: JobErrorCode | null;
+  /** Who asked for it: "Ada via claude-laptop". */
+  actor: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -367,11 +412,174 @@ export interface PreviewToken {
   expiresAt: string;
 }
 
-export interface UsagePoint {
+// Supervision
+
+export type TimelineEventType = 'crash' | 'oom' | 'unhealthy' | 'healthy' | 'job_started' | 'job_succeeded' | 'job_failed' | 'extended';
+
+/** Something that happened to an environment: a service, or a job. */
+export interface TimelineEvent {
+  id: string;
+  time: string;
+  type: TimelineEventType;
+  service: string | null;
+  message: string;
+  details: Record<string, unknown> | null;
+}
+
+/** A service that crashed or ran out of memory at least three times in ten minutes. */
+export interface CrashLoop {
+  service: string;
+  count: number;
+  windowMinutes: number;
+  /** "out of memory (limit 512 MiB)" or "exit code 1". */
+  lastCause: string;
+  lastAt: string;
+}
+
+export interface EnvironmentEvents {
+  events: TimelineEvent[];
+  crashLoops: CrashLoop[];
+}
+
+export type MetricRange = '1h' | '6h' | '24h' | '7d' | '30d';
+
+/** A point of a chart: a minute, or an average over a longer period. */
+export interface MetricPoint {
   time: string;
   cpuPercent: number;
-  memoryUsageGB: number;
-  memoryLimitGB: number;
+  memoryBytes: number;
+  /** Highest memory of the period, when it averages several minutes. */
+  memoryMaxBytes?: number;
+  memoryLimitBytes?: number | null;
+  /** Each service, up to 48 hours back. */
+  services?: Record<string, { cpu: number; memory: number }>;
+}
+
+export interface EnvironmentMetrics {
+  range: MetricRange;
+  points: MetricPoint[];
+  /** Highest memory of each service over the range. */
+  peaks: Record<string, number>;
+  now: { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; services: Record<string, { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number }>; at: string } | null;
+}
+
+/** What an environment holds on disk. */
+export interface EnvironmentDisk {
+  /** Layers of its built images no other image uses. */
+  imagesUniqueBytes: number;
+  /** Layers it shares with other images (dependencies, base images): stored once. */
+  imagesSharedBytes: number;
+  volumesBytes: number;
+  /** Files its containers wrote outside volumes. */
+  writableBytes: number;
+  sourcesBytes: number;
+  /** What it adds to the disk: everything but the shared layers. */
+  totalBytes: number;
+}
+
+export interface DiskBreakdown {
+  imagesBytes: number;
+  buildCacheBytes: number;
+  volumesBytes: number;
+  writableBytes: number;
+  sourcesBytes: number;
+  logsBytes: number;
+  spawnerBytes: number;
+  environments: Record<string, EnvironmentDisk>;
+}
+
+export interface DiskSnapshot {
+  time: string;
+  totalBytes: number;
+  freeBytes: number;
+  details: DiskBreakdown;
+}
+
+export interface HostSnapshot {
+  cpus: number;
+  cpuModel: string | null;
+  cpuPercent: number | null;
+  load: [number, number, number];
+  memory: { totalBytes: number; availableBytes: number; cacheBytes: number; swapTotalBytes: number; swapUsedBytes: number };
+  disk: { path: string; totalBytes: number; freeBytes: number };
+  uptimeSeconds: number;
+}
+
+export interface ContainerUsage {
+  name: string;
+  image: string;
+  cpuPercent: number;
+  memoryBytes: number;
+  memoryLimitBytes: number;
+}
+
+export interface SystemAlert {
+  level: 'warning' | 'critical';
+  kind: 'disk' | 'memory' | 'crash_loop' | 'oom';
+  message: string;
+  environmentId?: string;
+}
+
+/** The host now (GET /api/v1/system, admins). */
+export interface SystemOverview {
+  at: string | null;
+  host: HostSnapshot | null;
+  usage: {
+    environments: { count: number; cpuPercent: number; memoryBytes: number };
+    spawner: { cpuPercent: number; memoryBytes: number; containers: ContainerUsage[] };
+    others: { cpuPercent: number; memoryBytes: number; containers: ContainerUsage[] };
+  } | null;
+  disk: DiskSnapshot | null;
+  alerts: SystemAlert[];
+  projects: { slug: string; name: string; environments: number; running: number; cpuPercent: number; memoryBytes: number; diskBytes: number }[];
+}
+
+export interface SystemMetrics {
+  range: MetricRange;
+  points: {
+    time: string;
+    cpuPercent: number;
+    /** Memory the host uses (total minus available). */
+    memoryBytes: number;
+    memoryTotalBytes: number | null;
+    environments: number;
+    spawner: number;
+    others: number;
+  }[];
+}
+
+/** Room for more environments of each project (GET /api/v1/system/capacity). */
+export interface Capacity {
+  host: { availableMemoryBytes: number; freeDiskBytes: number; reserves: { memoryBytes: number; diskBytes: number } } | null;
+  projects: {
+    project: string;
+    name: string;
+    /** Typical memory and disk of one of its environments. */
+    memoryBytes: number;
+    diskBytes: number;
+    basedOn: { memory: 'usage' | 'limits'; disk: 'usage' | 'default' };
+    /** null until the first sample of the host. */
+    places: number | null;
+    byMemory?: number;
+    byDisk?: number;
+    byQuota?: number | null;
+    limitedBy?: 'memory' | 'disk' | 'quota';
+  }[];
+}
+
+/** A terminal opened in a service, and its recording (admins). */
+export interface TerminalSessionInfo {
+  id: string;
+  environmentId: string | null;
+  environment: string;
+  service: string;
+  actor: string;
+  startedAt: string;
+  endedAt: string | null;
+  endReason: string | null;
+  exitCode: number | null;
+  recordedBytes: number;
+  truncated: boolean;
 }
 
 // Git

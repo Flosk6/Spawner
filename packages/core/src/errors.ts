@@ -2,6 +2,7 @@ export type IssueCode =
   | 'yaml.invalid'
   | 'yaml.too_large'
   | 'manifest.invalid'
+  | 'manifest.public_exposure'
   | 'slug.invalid'
   | 'variables.invalid'
   | 'interpolation.invalid'

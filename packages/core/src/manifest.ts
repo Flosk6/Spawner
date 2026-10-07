@@ -182,3 +182,25 @@ export function parseManifest(text: string): { manifest?: Manifest; issues: Issu
   };
   return { manifest, issues: [] };
 }
+
+/**
+ * Exposures that would be public (auth: none) in a project whose admins did
+ * not allow public URLs: by default, every preview needs a login.
+ */
+export function publicExposureIssues(manifest: Pick<Manifest, 'exposures'>, allowPublic: boolean): Issue[] {
+  if (allowPublic) {
+    return [];
+  }
+  return manifest.exposures.flatMap((exposure, index) =>
+    exposure.auth === 'none'
+      ? [
+          {
+            code: 'manifest.public_exposure' as const,
+            path: keyPath(keyPath('exposures', index), 'auth'),
+            message: `exposure "${exposure.name}" is public (auth: none), which this project does not allow`,
+            hint: 'remove auth: none, or ask an admin to allow public URLs in the project settings',
+          },
+        ]
+      : [],
+  );
+}
