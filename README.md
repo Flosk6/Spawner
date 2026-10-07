@@ -4,11 +4,22 @@
 >
 > **License:** AGPL-3.0 | **Copyright © 2025 Florian-mfr**
 
-Spawner runs a copy of your application for each branch on a VPS, with its own URL, database and logs, so the whole team can test any branch in real time. Developers and coding agents create, update and delete environments from the dashboard or the API, run commands in them and read their logs, while the code keeps living in their local worktrees.
+Spawner runs a copy of your application for each branch on a VPS, with its own URL, database and logs, so the whole team can test any branch in real time. Developers and coding agents create, update and delete environments from the `spawner` CLI, its MCP server, the dashboard or the API, run commands in them and read their logs, while the code keeps living in their local worktrees: uncommitted changes included, nothing to push.
+
+```text
+$ cd ~/code/blog-feat-login            # an agent's worktree, branch feat/login
+$ spawner up --wait
+feat-login (blog) is ready
+  web  https://feat-login--blog.preview.example.com
+$ spawner exec feat-login db -- psql -U app -c "insert into users (name) values ('ada')"
+$ spawner logs feat-login api --errors
+$ spawner share feat-login             # a link for someone without an account
+$ spawner down feat-login
+```
 
 Previews are protected: teammates open them once logged in, agents with a short token, and anyone else through a temporary share link.
 
-**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine and its API (milestone M1) and team access (M2: invitations, passkeys, tokens, protected previews) are done; the CLI and the installer come next.
+**Status:** the v1 rewrite is under way on the `v1` branch. The environment engine (milestone M1), team access (M2: invitations, passkeys, tokens, protected previews) and the CLI with its MCP server (M3) are done; the supervision screens, the lifecycle (sleep, expiry) and the installer come next.
 
 ## How it works
 
@@ -47,6 +58,25 @@ For each environment, Spawner:
 
 Updates keep the data; `fresh` starts from scratch. See [examples/node-postgres](examples/node-postgres) for a complete project.
 
+## The CLI, for people and agents
+
+Every server serves its CLI (Node.js 20 or later):
+
+```bash
+curl -fsSL https://spawner.preview.example.com/api/v1/cli/spawner -o ~/.local/bin/spawner && chmod +x ~/.local/bin/spawner
+spawner login https://spawner.preview.example.com     # approve the code in the dashboard
+cd my-project && spawner init                          # .spawner/, and the instructions for coding agents
+spawner up --wait --json                               # the environment of the current branch
+```
+
+`spawner up` checks `.spawner/` locally with the server's rules before sending the worktree, then follows the build. Every command has a `--json` output and stable exit codes (4: the environment failed, with the end of the build log; 7: the compose file was refused). For agents that prefer tools, `spawner mcp` is an MCP server with the same operations:
+
+```json
+{ "mcpServers": { "spawner": { "command": "spawner", "args": ["mcp"] } } }
+```
+
+See [docs/cli.md](docs/cli.md) for every command and output, and [docs/manifest.md](docs/manifest.md) for `.spawner/`.
+
 ## Quick start (local)
 
 Requirements: Docker with Compose v2, Node.js 22 and pnpm 8.
@@ -59,7 +89,7 @@ docker logs spawner     # shows the link that creates the first admin account
 
 The dashboard is at `http://spawner.localtest.me` (every subdomain of localtest.me resolves to 127.0.0.1). Open the first admin link there; accounts have no password, they log in with passkeys (over plain HTTP, browsers allow passkeys on `localhost` only, so a local install lets invitations log in without one). Invite the team from the Team page.
 
-With the API, using the bootstrap token of the installation (personal tokens are created from your account page):
+Then install the CLI from `http://spawner.localtest.me/api/v1/cli/spawner` and log in to `http://spawner.localtest.me`, as above. With the API directly, using the bootstrap token of the installation (personal tokens are created from your account page):
 
 ```bash
 TOKEN=<your SPAWNER_BOOTSTRAP_TOKEN>
@@ -104,7 +134,7 @@ The script prints the dashboard URL, `https://spawner.preview.yourdomain.com`, a
 - **No shell**: git and Docker Compose run with argument arrays and a minimal environment; the host environment never reaches the compose files
 - **Uploads**: archives are checked entry by entry (no absolute paths, `..`, escaping links, devices)
 - **Accounts**: no passwords. Invitation links create accounts with a passkey; GitHub login (by organization and team) is optional. Members manage their own environments, admins everything; everything is in an audit trail
-- **Tokens**: personal API tokens with scopes (`envs:read`, `envs:write`, `envs:exec`, `preview`, `admin`), an expiry and an optional project; only their hash is stored. The CLI logs in through a device code approved in the browser
+- **Tokens**: personal API tokens with scopes (`envs:read`, `envs:write`, `envs:exec`, `preview`, `admin`), an expiry and an optional project; only their hash is stored. The CLI logs in through a device code approved in the browser and stores its token readable by its owner only
 - **Previews**: Traefik asks Spawner before each request to a protected URL; teammates pass with a cookie set by the dashboard, agents with a one-hour header token, guests with a share link that expires
 - **CSRF**: the dashboard session is a `__Host-` cookie, and every change made without a token needs a header that other origins, previews included, cannot send
 - **Deploy keys**: read-only SSH keys per repository
@@ -115,7 +145,8 @@ Run Spawner on a server dedicated to previews: environments run code from branch
 
 ```
 apps/
-├── api/        # NestJS, Prisma (PostgreSQL), environment engine; serves the web app in production
+├── api/        # NestJS, Prisma (PostgreSQL), environment engine; serves the web app and the CLI in production
+├── cli/        # The spawner CLI and MCP server, bundled into one file
 └── web/        # Vue 3, Vite, Tailwind CSS, PrimeVue
 packages/
 ├── core/       # Manifest, compose policy and rendering (pure, shared with the CLI)
@@ -128,7 +159,7 @@ examples/       # Projects ready to deploy
 pnpm install && pnpm build
 pnpm dev                    # API on :3000, web on :8080
 pnpm lint && pnpm typecheck && pnpm test
-scripts/e2e-engine.sh       # creates, calls, updates and deletes an environment on a local stack
+scripts/e2e-engine.sh       # a local stack, then environments through the API, the CLI and MCP
 ```
 
 ## License

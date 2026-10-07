@@ -14,6 +14,7 @@ A project is a git repository holding a `.spawner/` directory: a manifest (`spaw
 - One Docker network per environment; Traefik routes through its `file` provider, without the Docker socket
 - Job queue in Postgres: create, update, stop, start and delete run as jobs with streamed logs
 - API (`/api/v1`) for the dashboard, scripts and the CLI: logs, exec in a service, resource usage
+- `spawner` CLI and MCP server (`apps/cli`), for people and coding agents: `up` from a worktree (uncommitted changes included, checked locally first), `--json` everywhere, stable exit codes; served by each server at `/api/v1/cli/spawner`
 - Browser terminal into any service, CPU and memory graphs, memory guard before builds
 - Accounts without passwords: invitation links, then passkeys; GitHub login optional
 - Personal API tokens with scopes, and a device flow to log the CLI in
@@ -26,7 +27,8 @@ This is a **pnpm + Turborepo** monorepo:
 
 - **apps/api**: NestJS backend (port 3000) with Prisma + PostgreSQL; also serves the built interface in production
 - **apps/web**: Vue 3 interface (Vite + Tailwind CSS + PrimeVue)
-- **packages/core**: Manifest, interpolation, compose policy and rendering. Pure functions, no I/O, shared by the API and the coming CLI
+- **apps/cli**: the `spawner` CLI and MCP server, bundled by esbuild into one CommonJS file (`dist/spawner.cjs`) with no runtime dependency
+- **packages/core**: Manifest, interpolation, compose policy and rendering, log error filter. Pure functions (no I/O but `realpath`), shared by the API and the CLI
 - **packages/types**: Shapes returned by the API, shared by the interface and the CLI
 - **packages/utils**: Validators for git inputs (repository URLs, refs)
 
@@ -50,7 +52,10 @@ The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens
 - M0 (done): cleanup, CI, single image, test harness
 - M1 (done): environment engine, `/api/v1`, interface on the new API
 - M2 (done): accounts (invitations, passkeys, optional GitHub), roles, tokens, device flow, protected previews, share links, CSRF, audit
-- Next: M3 CLI and MCP, M4 interface and supervision, M5 lifecycle and density, M6 installer and release
+- M3 (done): the CLI (upload, `--json`, exit codes, logs with an error filter, stats, init and the agent instructions) and the MCP server
+- Next: M4 interface and supervision, M5 lifecycle and density, M6 installer and release
+
+Public documentation is in `docs/` (in English): `docs/cli.md` (commands, JSON outputs, exit codes, MCP) and `docs/manifest.md` (`.spawner/`).
 
 ## Code Style
 
@@ -105,6 +110,7 @@ pnpm build                # Build all packages (required!)
 pnpm dev                  # Start API + Web in parallel
 pnpm api:dev              # Start only backend (watch mode)
 pnpm web:dev              # Start only frontend (Vite dev server, port 8080, proxies /api and the terminal to VITE_API_URL)
+pnpm --filter @spawner/cli build   # Bundle the CLI: apps/cli/dist/spawner.cjs (link it into your PATH as spawner)
 ```
 
 The full stack (Postgres, Traefik, Spawner) runs with `docker compose up -d --build` from the root, with `SPAWNER_DATA_DIR` set to an absolute path (see `.env.example`). The dashboard is then at `http://spawner.localtest.me` and environments at `http://<env>--<project>.localtest.me` (every subdomain of localtest.me resolves to 127.0.0.1).
@@ -139,8 +145,9 @@ pnpm --filter @spawner/core add <package>   # Shared package
 - Engine services are tested against real programs where it matters: `git-mirror.service.spec.ts` uses local `file://` repositories, `upload.service.spec.ts` builds hostile archives by hand.
 - Passkeys are tested for real: `src/testing/soft-authenticator.ts` is a software authenticator (P-256, attestation "none") whose answers go through the actual WebAuthn verification. `src/testing/` is not built.
 - Specs are excluded from builds through `tsconfig.build.json`.
+- CLI (`apps/cli`): archives and workspaces are tested on real git repositories (`src/testing/repo.ts`); operations, the commands and the MCP server run against `fakeFetch` (`src/testing/fake-api.ts`), which answers routes such as `"GET /envs/:id"`; MCP tools are called by the SDK's client over an in-memory transport. `src/testing/` is not bundled (only what `src/main.ts` imports is).
 - API specs load `reflect-metadata` (see `apps/api/vitest.config.mts`); instantiate services directly rather than through the Nest container when possible.
-- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard. With `scripts/e2e-fixtures/bind-mount`, it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
+- `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard; it also approves the login of the real CLI. Then an agent's turn: the CLI downloaded from the server, logged in as the teammate, runs `up --wait --json` from a git worktree with an uncommitted change, calls the protected URL with `url --with-token`, `exec` (stdin, exit codes), `logs`, `status`, `stats`, `ls`, `share`, a compose file refused before upload (exit 7), `logout`; `scripts/e2e/mcp.mjs` drives `spawner mcp` over stdio (status, url, exec, logs with errors_only after breaking the database, up with progress, down). With `scripts/e2e-fixtures/bind-mount`, it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build and the end-to-end test on every pull request and on pushes to `master` and `v1`.
 
 ## Backend Architecture (apps/api)
@@ -172,6 +179,7 @@ NestJS application with feature modules:
 - **system**: host stats (CPU, RAM, disk) and the memory guard used before builds
 - **stats**: per-environment CPU and memory sampling (cron, every minute)
 - **health**: `/api/v1/healthz` and `/api/v1/readyz`
+- **meta**: `/api/v1/info` (version, domain, limits: what the CLI checks locally with) and the CLI download
 
 ### Key Files
 
@@ -182,7 +190,8 @@ NestJS application with feature modules:
 - **common/auth.guard.ts**: global guard; routes are authenticated unless marked `@Public()`, and need the scopes of `@Scopes()`
 - **common/secrets.service.ts**: the master secret and the keys derived from it (signed tokens, encrypted settings, session)
 - **common/spawner.config.ts**: settings from the environment
-- **common/docker.service.ts**: Dockerode: containers by environment label, exec, logs, stats, networks
+- **common/docker.service.ts**: Dockerode: containers by environment label, exec (with stdin), logs (structured, followed), usage, networks
+- **common/docker-logs.ts**: decodes the Docker logs stream (multiplexed frames or TTY text) into lines with stream and time
 - **prisma/schema.prisma**: Database schema; migrations in `prisma/migrations/`
 
 ### Database (PostgreSQL + Prisma)
@@ -203,7 +212,7 @@ Connection configured via `DATABASE_URL` environment variable.
 - `environments`: slug, status, phase and error of the last failure, owner and token name, manifest, expiry, last activity; a deleted environment keeps its row (`deleted_at`), and its slug is unique among live environments through a partial index
 - `environment_sources`: what each source runs (git ref and commit, or upload digest and size)
 - `exposures`: name, service, port, host and entrypoint of each URL
-- `jobs`: the queue and its history (type, status, phase, error, payload)
+- `jobs`: the queue and its history (type, status, phase, error, error code for machines, payload)
 - `EnvironmentStats`: CPU and memory samples
 - `settings`: Key-value store
 
@@ -221,6 +230,7 @@ Connection configured via `DATABASE_URL` environment variable.
 - `DATABASE_URL`: PostgreSQL connection string
 - `DOCKER_SOCKET`: Docker socket (default: /var/run/docker.sock)
 - `WEB_DIST_PATH`: Built web interface served by the API (set to `/app/web` in the image; unset in development)
+- `SPAWNER_CLI_PATH`: CLI bundle served at `/api/v1/cli/spawner` (set to `/app/cli/spawner` in the image; `apps/cli/dist/spawner.cjs` in development)
 
 **Engine:**
 - `SPAWNER_DATA_DIR`: Data directory (default: /var/lib/spawner). Must be mounted at the same path in the Spawner container: the compose files Spawner renders use these paths
@@ -255,7 +265,7 @@ Vue 3 with Composition API, Vue Router 4, Tailwind CSS and PrimeVue.
 - **Login.vue**: passkey login, GitHub when configured
 - **InviteAccept.vue**: an invitation link: name, then a passkey
 - **DeviceApproval.vue**: approves a CLI login (`/device?code=`)
-- **Account.vue**: name, passkeys, linked GitHub, API tokens
+- **Account.vue**: name, passkeys, linked GitHub, how to install the CLI and the MCP server, API tokens
 - **Team.vue** (admin): members, roles, deactivation, links for a new passkey, invitations
 - **Settings.vue**, **Audit.vue**, **GitSettings.vue** (admin): GitHub login, audit trail, deploy keys
 - **SystemOverview.vue**: host and environment resource usage
@@ -343,7 +353,7 @@ The environment ends `ready` (with an expiry) or `failed` (with the phase and th
 - CLI login (device flow, RFC 8628): the CLI gets a code, its user approves it at `/device` from a dashboard session, and the CLI receives a token named after the machine.
 - CSRF: every request that changes something without a bearer token must carry `X-Spawner-Client`, which a page on another origin cannot add without a CORS preflight that only the dashboard origin passes. The session cookie is `__Host-spawner_session` over HTTPS, so previews can neither receive nor overwrite it.
 - Rate limits apply per user (per IP without one), tighter on the login routes.
-- Terminal: the WebSocket checks the Origin header and needs a one-time ticket (`POST /api/v1/auth/ws-ticket`, 30 seconds); it opens only where the user may run commands, and is audited.
+- Terminal: the WebSocket needs a one-time ticket (`POST /api/v1/auth/ws-ticket`, 30 seconds) that keeps the scopes and project of the token that asked for it, and the dashboard origin when the client sends an Origin (browsers always do; the CLI does not); it opens only where the user may run commands, and is audited.
 
 ### Previews
 
@@ -369,6 +379,7 @@ Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` he
 ### Access (`/api/v1/auth`)
 
 - `GET /session` - The logged-in user and the login methods available (public)
+- `GET /whoami` - Who makes the request: `{ via, user, scopes, token }` (any actor; what `spawner whoami` shows)
 - `POST /logout`
 - `POST /passkey/options`, `POST /passkey` - Passkey login (public)
 - `GET /github`, `GET /github/callback` - GitHub login, or `?link=true` to link GitHub to the account (`/api/auth/github/callback`, the route before v1, forwards to it)
@@ -403,15 +414,17 @@ Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` he
 - `GET /` - List (`?project=blog`, `?project=blog&slug=feat-login`, `?mine=true`)
 - `GET /:id` - Get: status, owner and token, URLs, exposures, sources, last job
 - `POST /` - Create (multipart, answers 202 with `{ environment, job }`):
-  - fields `project`, `env`, `createdVia` (`ui`, `cli`, `mcp`, `api`)
+  - fields `project`, `env`, `createdVia` (`ui`, `cli`, `mcp`, `api`), `ttl` (lifetime such as `24h`, instead of the manifest's)
   - `primary`: JSON `{ "ref": "feat/login" }` to deploy the project repository from git (default branch when absent)
   - `sources`: JSON `{ "front": { "ref": "develop" } }` for the other sources taken from git
   - files `primary` and `source:<name>`: gzip tar archives of worktrees, instead of git
 - `POST /:id/update` - Redeploy (same fields, plus `fresh=true` to drop the data, `reseed=true` to replay the seed)
 - `POST /:id/stop`, `POST /:id/start`, `DELETE /:id` - Jobs (202)
-- `POST /:id/exec` - `{ "service": "db", "argv": ["psql", "-c", "select 1"], "timeoutSec": 120 }`, answers `{ exitCode, stdout, stderr, truncated, timedOut }`
-- `GET /:id/services` - Containers and their state
-- `GET /:id/logs/:service?tail=200` - Service output (text)
+- `POST /:id/extend` - `{ "ttl": "24h" }`: the environment now expires 24 hours from now (10 minutes to the maximum)
+- `POST /:id/exec` - `{ "service": "db", "argv": ["psql", "-c", "select 1"], "timeoutSec": 120, "stdin": "<base64>" }`, answers `{ exitCode, stdout, stderr, truncated, timedOut }`; stdin is optional (1 MiB), JSON bodies may reach 2 MiB
+- `GET /:id/services` - Containers: state, health, restarts, out-of-memory kill, exit code; `?usage=true` adds CPU, memory (without reclaimable cache), limit and writable layer size, measured right now
+- `GET /:id/logs?service=api,db&tail=200&since=<ISO>&grep=users&errors=true` - Output of the services as `{ lines: [{ service, stream, time, text }] }`, merged in time order; with filters, the last matches among the last 5000 lines of each service, and with `errors=true` an error cut by the tail is kept from its first line. `follow=true` streams server-sent events (one line per event, `: keep-alive` comments every 15 s, `event: end` when every service stopped). The error filter is `isErrorLine` in `packages/core/src/logs.ts`
+- `GET /:id/logs/:service?tail=200` - Service output (text), for the dashboard
 - `GET /:id/stats?minutes=60` - CPU and memory samples
 - `POST /:id/preview-token` - `{ header: "X-Spawner-Preview", token, expiresAt }`, for agents calling a protected preview
 - `POST /:id/share` (`{ "ttlHours": 24 }`), `GET /:id/shares`, `DELETE /:id/shares/:shareId` - Share links
@@ -420,9 +433,9 @@ Changing an environment, sharing it, running commands in it and opening its term
 
 ### Jobs (`/api/v1/jobs`)
 
-- `GET /:id` - Status, phase, error
+- `GET /:id` - Status, phase, error, `errorCode` for machines (`invalid`, `capacity`, `upload`, `interrupted`)
 - `GET /:id/logs` - Log (text)
-- `GET /:id/logs/stream` - Log as server-sent events, one line per event, until the job ends
+- `GET /:id/logs/stream` - Log as server-sent events, one line per event, until the job ends; a `ping` event every 15 s
 
 ### Git (`/api/v1/git`, admins)
 
@@ -434,17 +447,35 @@ Changing an environment, sharing it, running commands in it and opening its term
 
 - `GET /api/v1/system/host/stats`, `GET /api/v1/system/spawner/environments-stats`
 - `GET /api/v1/healthz`, `GET /api/v1/readyz` (public)
+- `GET /api/v1/info` - Version, dashboard URL, preview domain, scheme, and the limits the CLI checks a deploy with (compose, upload, ttl, exec, share)
+- `GET /api/v1/cli/spawner` (public) - The CLI bundle, to save as `spawner`
 
 ### Terminal (WebSocket)
 
 **Namespace:** `/terminal`
-**Auth:** the dashboard origin, and a ticket from `POST /api/v1/auth/ws-ticket` in the `token` query parameter
+**Auth:** a ticket from `POST /api/v1/auth/ws-ticket` in the `token` query parameter, and the dashboard origin when an Origin header is sent
 
 **Events:**
-- Client → `start-terminal`: `{ environmentId, resourceName }` (`resourceName` is the compose service)
+- Client → `start-terminal`: `{ environmentId, resourceName, cols, rows }` (`resourceName` is the compose service)
 - Client → `terminal-input`: `{ input, resourceName }`
+- Client → `terminal-resize`: `{ resourceName, cols, rows }`
 - Client → `stop-terminal`: `{ resourceName }`
 - Server → `terminal-output`, `terminal-error`, `terminal-exit`
+
+## CLI Architecture (apps/cli)
+
+One bundle, `dist/spawner.cjs` (esbuild, CommonJS so that it runs saved without an extension, minified: the MCP SDK brings three variants of zod). Everything is a dev dependency: nothing is installed at runtime.
+
+- `src/main.ts`, `src/cli.ts`: commander program; each action gets `{ output, cwd, ctx }` first, returns its exit code, and never calls `process.exit`
+- `src/ops/`: the operations, shared by the commands and the MCP server: `up.ts` (local check, packing, create or update, wait), `envs.ts` (status, list, stats, url, share, stop/start/down, extend), `logs.ts`, `exec.ts`, `auth.ts` (device login, whoami, logout, tokens), `init.ts`, `shell.ts` (Socket.IO terminal)
+- `src/mcp.ts`: `spawner mcp`, the nine tools of the specification on the same operations, stdio transport
+- `src/context.ts`: the server connection, target resolution (project from `spawner.yaml` or `--project`, environment from the branch), waiting for jobs
+- `src/archive.ts`: what is sent (`git ls-files`, default excludes, `upload.include`) and the tar.gz (no hard links, symlinks checked)
+- `src/check.ts`: `spawner.yaml` and the compose file validated with `@spawner/core` and the server's limits (`GET /info`)
+- `src/config.ts`: `~/.config/spawner/credentials.json` (0600), `SPAWNER_URL` and `SPAWNER_TOKEN`
+- `src/errors.ts`: `CliError` and the exit codes (0 ok, 1 error, 2 usage, 3 auth, 4 environment failed, 5 timeout, 6 capacity, 7 refused)
+
+Rules: human messages on stderr, results on stdout (only JSON with `--json`); errors carry a stable `code` and a `hint`; external programs (git, open) run through `execFile` with argument arrays.
 
 ## Common Tasks
 
