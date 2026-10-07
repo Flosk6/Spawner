@@ -215,6 +215,22 @@ export class PreviewsService implements OnModuleInit {
 }
 
 /**
+ * The cookies of a request without Spawner's own (the team's preview cookie
+ * and the share cookies): what the application of a preview may receive.
+ * Null when none is left.
+ */
+export function applicationCookies(header: string | undefined): string | null {
+  const kept = (header ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => {
+      const name = (part.includes("=") ? part.slice(0, part.indexOf("=")) : part).trim();
+      return name !== "" && name !== PREVIEW_COOKIE && !name.startsWith(SHARE_COOKIE_PREFIX);
+    });
+  return kept.length > 0 ? kept.join("; ") : null;
+}
+
+/**
  * Reads a Cookie header into a map; the last value of a repeated name wins.
  */
 export function parseCookies(header: string | undefined): Record<string, string> {

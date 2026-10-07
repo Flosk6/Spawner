@@ -17,11 +17,14 @@ import { WsTicketsService } from "./ws-tickets.service";
 })
 export class AuthModule implements NestModule {
   /**
-   * Every API route learns its actor, except the check Traefik runs before
-   * each preview request: it carries the preview's own headers, such as an
+   * Every API route learns its actor, except the checks Traefik runs before
+   * each preview request: they carry the preview's own headers, such as an
    * Authorization header meant for the application.
    */
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(ActorMiddleware).exclude({ path: "v1/auth/verify", method: RequestMethod.GET }).forRoutes("*");
+    consumer
+      .apply(ActorMiddleware)
+      .exclude({ path: "v1/auth/verify", method: RequestMethod.GET }, { path: "v1/auth/verify-public", method: RequestMethod.GET })
+      .forRoutes("*");
   }
 }

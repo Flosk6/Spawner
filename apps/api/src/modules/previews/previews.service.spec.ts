@@ -6,7 +6,7 @@ import type { PrismaService } from "../../common/prisma.service";
 import { SecretsService, sha256 } from "../../common/secrets.service";
 import type { SpawnerConfig } from "../../common/spawner.config";
 import { ActivityService } from "../lifecycle/activity.service";
-import { PreviewsService, parseCookies, type PreviewRequest } from "./previews.service";
+import { PreviewsService, applicationCookies, parseCookies, type PreviewRequest } from "./previews.service";
 
 const config = {
   scheme: "https",
@@ -138,5 +138,14 @@ describe("parseCookies", () => {
   it("reads a Cookie header", () => {
     expect(parseCookies("a=1; spawner_preview=x.y; b = 2")).toEqual({ a: "1", spawner_preview: "x.y", b: "2" });
     expect(parseCookies(undefined)).toEqual({});
+  });
+});
+
+describe("applicationCookies", () => {
+  it("keeps the application's cookies and drops Spawner's", () => {
+    expect(applicationCookies("theme=dark; spawner_preview=x.y; spawner_share_env1=z; laravel_session=abc")).toBe("theme=dark; laravel_session=abc");
+    expect(applicationCookies("spawner_preview=x.y; spawner_share_env1=z")).toBeNull();
+    expect(applicationCookies(undefined)).toBeNull();
+    expect(applicationCookies("a=1;;  ; b=2")).toBe("a=1; b=2");
   });
 });

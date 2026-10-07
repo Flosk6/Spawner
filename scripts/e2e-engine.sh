@@ -297,6 +297,8 @@ git -C "$AGENT_REPO" worktree add -q -b feat/cli-demo "$WORKTREE"
 sed -i.bak "s/const GREETING = 'Hello from Spawner';/const GREETING = process.env.GREETING;/" "$WORKTREE/server.js" && rm "$WORKTREE/server.js.bak"
 node -e "const fs = require('fs'); const f = process.argv[1]; fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('      ENV_NAME: \${SPAWNER_ENV}\n', '      ENV_NAME: \${SPAWNER_ENV}\n      GREETING: \${GREETING}\n      SECRET_TOKEN: \${SECRET_TOKEN}\n'))" "$WORKTREE/.spawner/compose.yaml"
 sed -i.bak "s/  console.log('seeded 1 user');/  console.log('seeded 1 user, token', process.env.SECRET_TOKEN);/" "$WORKTREE/seed.js" && rm "$WORKTREE/seed.js.bak"
+# A route that shows the cookies the application receives.
+node -e "const fs = require('fs'); const f = process.argv[1]; fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(\"    if (request.url === '/users') {\", \"    if (request.url === '/cookies') {\\n      response.writeHead(200, { 'content-type': 'text/plain' }).end(request.headers.cookie ?? '');\\n      return;\\n    }\\n    if (request.url === '/users') {\"))" "$WORKTREE/server.js"
 api PUT /projects/agent/variables/GREETING -H 'Content-Type: application/json' -d '{"value":"Hello from a project variable"}' >/dev/null
 api PUT /projects/agent/variables/SECRET_TOKEN -H 'Content-Type: application/json' -d '{"value":"s3cr3t-token-value","secret":true}' >/dev/null
 cd "$WORKTREE"
@@ -358,6 +360,9 @@ answer=$(curl -s -D - -o /dev/null -H "Host: $agent_host" "http://127.0.0.1:${SP
 share_cookie=$(echo "$answer" | grep -i '^set-cookie: spawner_share_' | sed -E 's/^[^:]+: ([^;]+).*/\1/' | tr -d '\r')
 [ "$(status "$agent_host" -H "Cookie: $share_cookie" -H 'Accept: text/html')" = "200" ] || fail "the share link of spawner share should open the URL"
 pass "spawner share gives a link that opens the environment"
+cookies=$(curl -s --max-time 10 -H "Host: $agent_host" -H "Cookie: theme=dark; $share_cookie; spawner_preview=anything" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/cookies")
+[ "$cookies" = "theme=dark" ] || fail "the application should receive its own cookies only, not Spawner's: $cookies"
+pass "the application receives its own cookies, never Spawner's"
 
 cp .spawner/compose.yaml "$WORK/compose.yaml"
 node -e "const fs = require('fs'); const f = '.spawner/compose.yaml'; fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^  app:\n/m, '  app:\n    privileged: true\n'))"

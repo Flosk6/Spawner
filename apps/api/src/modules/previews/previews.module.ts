@@ -7,7 +7,7 @@ import { PrismaService } from "../../common/prisma.service";
 import { EngineModule } from "../engine/engine.module";
 import { ActivityService } from "../lifecycle/activity.service";
 import { SupervisionModule } from "../supervision/supervision.module";
-import { PREVIEW_HEADER, PreviewsService, parseCookies } from "./previews.service";
+import { PREVIEW_HEADER, PreviewsService, applicationCookies, parseCookies } from "./previews.service";
 import { SharesService } from "./shares.service";
 import { WakeController } from "./wake.controller";
 
@@ -22,8 +22,11 @@ export class PreviewAuthController {
 
   /**
    * forwardAuth of Traefik, before every request to a protected preview.
-   * Answers 200 to let the request through; any other answer goes back to
-   * the browser as is (a redirect with its cookie, or a 401).
+   * Answers 200 to let the request through, with the request's cookies
+   * without Spawner's own, which the routes of the applications pass on
+   * instead of the original ones (no Cookie header: none left). Any other
+   * answer goes back to the browser as is (a redirect with its cookie, or a
+   * 401).
    */
   @Public()
   @SkipThrottle()
@@ -45,10 +48,31 @@ export class PreviewAuthController {
       }
       response.redirect(302, decision.location);
     } else if (decision.status === 200) {
+      const cookies = applicationCookies(header(request, "cookie"));
+      if (cookies) {
+        response.setHeader("Cookie", cookies);
+      }
       response.status(200).end();
     } else {
       response.status(decision.status).json(decision.body);
     }
+  }
+
+  /**
+   * forwardAuth of Traefik before every request to a public preview: lets
+   * it through, with its cookies without Spawner's own, so that a public
+   * application does not see what opens the other previews either.
+   */
+  @Public()
+  @SkipThrottle()
+  @Get("verify-public")
+  verifyPublic(@Req() request: Request, @Res() response: Response) {
+    const cookies = applicationCookies(header(request, "cookie"));
+    if (cookies) {
+      response.setHeader("Cookie", cookies);
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).end();
   }
 
   /**

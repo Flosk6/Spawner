@@ -20,11 +20,18 @@ export interface RoutedExposure {
 
 /**
  * Traefik middlewares of the protected exposures, declared once in the
- * dashboard's file: Spawner checks each request (forwardAuth), then the
- * preview token header is removed before the request reaches the
- * application.
+ * dashboard's file: Spawner checks each request (forwardAuth) and hands its
+ * cookies back without Spawner's own, which replace the original ones; then
+ * the preview token header is removed. The application of a branch never
+ * sees what opens the other previews.
  */
-const PREVIEW_MIDDLEWARES = ["spawner-preview-auth", "spawner-preview-strip"];
+const PREVIEW_MIDDLEWARES = ["spawner-preview-gate", "spawner-preview-strip"];
+
+/**
+ * Middlewares of the public exposures: every request passes, without
+ * Spawner's cookies and the preview token header either.
+ */
+const PUBLIC_MIDDLEWARES = ["spawner-public-gate", "spawner-preview-strip"];
 
 /**
  * Rewrites a request for a sleeping or stopped environment into one for
@@ -66,11 +73,10 @@ export class RouterService implements OnModuleInit {
           routers: { spawner: this.router(this.config.dashboardHost, "spawner") },
           services: { spawner: { loadBalancer: { servers: [{ url: this.config.dashboardUpstream }] } } },
           middlewares: {
-            "spawner-preview-auth": {
-              forwardAuth: {
-                address: `${this.config.dashboardUpstream}/api/v1/auth/verify`,
-                authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview"],
-              },
+            "spawner-preview-auth": { forwardAuth: this.forwardAuth() },
+            "spawner-preview-gate": { forwardAuth: { ...this.forwardAuth(), authResponseHeaders: ["Cookie"] } },
+            "spawner-public-gate": {
+              forwardAuth: { address: `${this.config.dashboardUpstream}/api/v1/auth/verify-public`, authRequestHeaders: ["Cookie"], authResponseHeaders: ["Cookie"] },
             },
             "spawner-preview-strip": { headers: { customRequestHeaders: { "X-Spawner-Preview": "" } } },
             [WAKE_MIDDLEWARE]: { replacePath: { path: WAKE_PATH } },
@@ -102,7 +108,7 @@ export class RouterService implements OnModuleInit {
         throw new Error(`No container found for exposed service "${exposure.service}"`);
       }
       const id = `${environmentId}-${exposure.name}`;
-      routers[id] = { ...this.router(exposure.host, id), ...(exposure.auth === "none" ? {} : { middlewares: PREVIEW_MIDDLEWARES }) };
+      routers[id] = { ...this.router(exposure.host, id), middlewares: exposure.auth === "none" ? PUBLIC_MIDDLEWARES : PREVIEW_MIDDLEWARES };
       services[id] = { loadBalancer: { servers: [{ url: `http://${container.Names[0].replace(/^\//, "")}:${exposure.port}` }] } };
     }
     this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers, services } }));
@@ -112,7 +118,8 @@ export class RouterService implements OnModuleInit {
    * Routes the hosts of a sleeping or stopped environment to Spawner's
    * waiting page, which wakes it up (team URLs) or says how to, and takes
    * Traefik off its network. Team URLs keep their protection; the preview
-   * header is not removed, since it only reaches Spawner.
+   * header and Spawner's cookies are left in place, since they only reach
+   * Spawner, whose waiting page checks them again.
    */
   async publishPlaceholder(environmentId: string, composeProject: string, exposures: RoutedExposure[]): Promise<void> {
     const routers: Record<string, unknown> = {};
@@ -188,6 +195,14 @@ export class RouterService implements OnModuleInit {
       request.on("timeout", () => request.destroy());
       request.end();
     });
+  }
+
+  /**
+   * Asks Spawner whether a request to a protected preview may pass, with
+   * the only headers it decides on.
+   */
+  private forwardAuth(): Record<string, unknown> {
+    return { address: `${this.config.dashboardUpstream}/api/v1/auth/verify`, authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview"] };
   }
 
   private router(host: string, service: string): Record<string, unknown> {
