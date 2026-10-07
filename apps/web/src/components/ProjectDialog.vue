@@ -54,6 +54,14 @@
         </span>
       </label>
 
+      <label class="flex items-start gap-3 text-sm">
+        <Checkbox v-model="form.allowAlwaysOn" binary input-id="project-always-on" class="mt-0.5" />
+        <span>
+          <span class="font-medium">Allow environments that never sleep</span>
+          <span class="block text-xs text-slate-500">With <code>idle: never</code> in spawner.yaml, an environment keeps its memory even when nobody uses it. Otherwise it sleeps after a while without visits.</span>
+        </span>
+      </label>
+
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
       <div class="flex justify-end gap-2 pt-2">
@@ -78,7 +86,7 @@ import { PROJECT_SLUG_MAX_LENGTH, PROJECT_SLUG_PATTERN } from '../utils/environm
 const props = defineProps<{ visible: boolean; project?: Project | null }>();
 const emit = defineEmits<{ 'update:visible': [visible: boolean]; saved: [project: Project] }>();
 
-const form = reactive({ name: '', slug: '', repoUrl: '', defaultRef: 'main', rootDir: '.', allowPublic: false });
+const form = reactive({ name: '', slug: '', repoUrl: '', defaultRef: 'main', rootDir: '.', allowPublic: false, allowAlwaysOn: false });
 const slugEdited = ref(false);
 const saving = ref(false);
 const testing = ref(false);
@@ -102,6 +110,7 @@ watch(
       defaultRef: project?.defaultRef ?? 'main',
       rootDir: project?.rootDir ?? '.',
       allowPublic: project?.allowPublic ?? false,
+      allowAlwaysOn: project?.allowAlwaysOn ?? false,
     });
     slugEdited.value = false;
     access.value = null;
@@ -149,6 +158,7 @@ async function submit() {
     defaultRef: form.defaultRef.trim() || 'main',
     rootDir: form.rootDir.trim() || '.',
     allowPublic: form.allowPublic,
+    allowAlwaysOn: form.allowAlwaysOn,
   };
   try {
     const saved = props.project ? await projectsApi.update(props.project.slug, input) : await projectsApi.create({ ...input, slug: form.slug });

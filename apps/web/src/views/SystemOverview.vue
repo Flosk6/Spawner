@@ -113,6 +113,8 @@
         <p class="field-hint">Room for: (available memory - 1 GiB) and (free disk - 10 GiB), divided by what one environment of the project uses.</p>
       </section>
 
+      <CleanupPanel />
+
       <!-- Containers -->
       <div v-if="overview.usage" class="grid gap-6 lg:grid-cols-2">
         <section v-for="group in containerGroups" :key="group.title" class="panel">
@@ -142,6 +144,7 @@ import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import SelectButton from 'primevue/selectbutton';
 import BreakdownBar from '../components/BreakdownBar.vue';
+import CleanupPanel from '../components/CleanupPanel.vue';
 import UsageChart, { type ChartSeries } from '../components/UsageChart.vue';
 import { systemApi } from '../services/api';
 import type { Capacity, MetricRange, SystemMetrics, SystemOverview } from '../types';

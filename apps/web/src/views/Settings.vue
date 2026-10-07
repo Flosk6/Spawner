@@ -2,8 +2,10 @@
   <div class="max-w-3xl mx-auto space-y-6">
     <div>
       <h1 class="text-4xl font-bold mb-2">Settings</h1>
-      <p class="text-lg opacity-70">Optional ways to log in</p>
+      <p class="text-lg opacity-70">Limits of the environments, and optional ways to log in</p>
     </div>
+
+    <LimitsSettings />
 
     <section class="panel">
       <h2 class="panel-title"><i class="pi pi-github text-sm"></i>GitHub login</h2>
@@ -69,6 +71,7 @@ import Message from 'primevue/message';
 import Password from 'primevue/password';
 import ProgressSpinner from 'primevue/progressspinner';
 import ToggleSwitch from 'primevue/toggleswitch';
+import LimitsSettings from '../components/LimitsSettings.vue';
 import { useNotification } from '../composables/useNotification';
 import { errorMessage, settingsApi } from '../services/api';
 import { useAuthStore } from '../stores/auth';

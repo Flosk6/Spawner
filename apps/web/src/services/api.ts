@@ -30,6 +30,10 @@ import type {
   TeamMember,
   User,
   Capacity,
+  CleanupResult,
+  CleanupScan,
+  Limits,
+  LimitsView,
   EnvironmentDisk,
   EnvironmentEvents,
   EnvironmentMetrics,
@@ -53,14 +57,19 @@ const api = axios.create({
 });
 
 /** The message of an API error, for a toast or a form. */
+/**
+ * The message of an API error, with its hint when it has one (a quota or
+ * the room left on the server).
+ */
 export function errorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
     const message = error.response?.data?.message;
+    const hint = error.response?.data?.hint;
     if (Array.isArray(message)) {
       return message.join(', ');
     }
     if (typeof message === 'string') {
-      return message;
+      return typeof hint === 'string' && hint ? `${message}. ${hint.charAt(0).toUpperCase()}${hint.slice(1)}.` : message;
     }
   }
   return fallback;
@@ -126,6 +135,10 @@ export const settingsApi = {
   github: () => api.get<GithubSettings>('/v1/settings/github').then((res) => res.data),
   updateGithub: (body: { enabled: boolean; clientId: string; clientSecret?: string; org: string; team: string }) =>
     api.put<GithubSettings>('/v1/settings/github', body).then((res) => res.data),
+  /** Lifetimes, sleep, quotas, memory and build guards. */
+  limits: () => api.get<LimitsView>('/v1/settings/limits').then((res) => res.data),
+  /** Durations as "72h" or seconds, sizes as "2g" or bytes; null goes back to the server's default. */
+  updateLimits: (body: Partial<Record<keyof Limits, string | number | null>>) => api.put<LimitsView>('/v1/settings/limits', body).then((res) => res.data),
 };
 
 export const auditApi = {
@@ -138,6 +151,9 @@ export const systemApi = {
   metrics: (range: MetricRange) => api.get<SystemMetrics>('/v1/system/metrics', { params: { range } }).then((res) => res.data),
   /** Room for more environments of each project (everyone). */
   capacity: () => api.get<Capacity>('/v1/system/capacity').then((res) => res.data),
+  /** What Spawner owns and no longer needs (admins). */
+  cleanup: () => api.get<CleanupScan>('/v1/system/cleanup').then((res) => res.data),
+  runCleanup: () => api.post<CleanupResult>('/v1/system/cleanup').then((res) => res.data),
 };
 
 export const terminalsApi = {
@@ -228,6 +244,8 @@ export const environmentsApi = {
   remove: (id: string) => api.delete<JobAccepted>(`/v1/envs/${id}`).then((res) => res.data),
   stop: (id: string) => api.post<JobAccepted>(`/v1/envs/${id}/stop`).then((res) => res.data),
   start: (id: string) => api.post<JobAccepted>(`/v1/envs/${id}/start`).then((res) => res.data),
+  sleep: (id: string) => api.post<{ environment: Environment; job: Job | null }>(`/v1/envs/${id}/sleep`).then((res) => res.data),
+  wake: (id: string) => api.post<{ environment: Environment; job: Job | null }>(`/v1/envs/${id}/wake`).then((res) => res.data),
   services: (id: string) => api.get<ServiceState[]>(`/v1/envs/${id}/services`).then((res) => res.data),
   logs: (id: string, service: string, tail = 300) =>
     api.get<string>(`/v1/envs/${id}/logs/${service}`, { params: { tail }, responseType: 'text' }).then((res) => res.data),

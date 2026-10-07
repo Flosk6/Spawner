@@ -65,6 +65,7 @@
           @view="open"
           @stop="act($event, 'stop')"
           @start="act($event, 'start')"
+          @wake="act($event, 'wake')"
           @redeploy="redeploy"
           @delete="confirmRemove"
         />
@@ -122,6 +123,8 @@ const statusFilters = computed(() => {
   return [
     { value: 'all' as const, label: 'All', count: ofProject.value.length, dot: '' },
     { value: 'ready' as const, label: 'Ready', count: count('ready'), dot: TONE_CLASSES.ready.dot },
+    { value: 'degraded' as const, label: 'Degraded', count: count('degraded'), dot: TONE_CLASSES.degraded.dot },
+    { value: 'sleeping' as const, label: 'Sleeping', count: count('sleeping'), dot: TONE_CLASSES.sleeping.dot },
     { value: 'busy' as const, label: 'In progress', count: count('busy'), dot: TONE_CLASSES.busy.dot },
     { value: 'stopped' as const, label: 'Stopped', count: count('stopped'), dot: TONE_CLASSES.stopped.dot },
     { value: 'failed' as const, label: 'Failed', count: count('failed'), dot: TONE_CLASSES.failed.dot },
@@ -175,11 +178,11 @@ function created(result: JobAccepted) {
   open(result.environment);
 }
 
-function replace(result: JobAccepted) {
+function replace(result: { environment: Environment }) {
   environments.value = environments.value.map((environment) => (environment.id === result.environment.id ? result.environment : environment));
 }
 
-async function act(environment: Environment, action: 'stop' | 'start') {
+async function act(environment: Environment, action: 'stop' | 'start' | 'wake') {
   try {
     replace(await environmentsApi[action](environment.id));
   } catch (err) {

@@ -28,6 +28,7 @@
             Created {{ timeAgo(environment.createdAt) }} by {{ ownerLabel(environment) }}, from the {{ environment.createdVia }}
             <template v-if="environment.usage"> · {{ formatSize(environment.usage.memoryBytes) }} of memory now</template>
             <template v-if="environment.expiresAt && !deleted && environment.status !== 'failed'"> · expires {{ timeLeft(environment.expiresAt) }}</template>
+            <template v-if="environment.sleepsAt && new Date(environment.sleepsAt) > new Date()"> · sleeps {{ timeLeft(environment.sleepsAt) }} without activity</template>
           </p>
         </div>
 
@@ -64,6 +65,17 @@
             :disabled="busy || acting"
             @click="act('start')"
           />
+          <Button
+            v-if="manageable && (environment.status === 'ready' || environment.status === 'degraded')"
+            v-tooltip.bottom="'Stop its containers now to free memory: the next visit wakes it up'"
+            label="Sleep"
+            icon="pi pi-moon"
+            severity="secondary"
+            outlined
+            :disabled="busy || acting"
+            @click="act('sleep')"
+          />
+          <Button v-if="manageable && environment.status === 'sleeping'" label="Wake up" icon="pi pi-sun" :disabled="acting" @click="act('wake')" />
           <Button v-if="manageable && environment.expiresAt" label="Extend" icon="pi pi-clock" severity="secondary" outlined :disabled="acting" @click="extendMenu?.toggle($event)" />
           <Menu ref="extendMenu" :model="extendOptions" popup />
           <Button
@@ -86,6 +98,12 @@
         <span class="font-semibold">{{ loop.service }}</span> failed {{ loop.count }} times in {{ loop.windowMinutes }} minutes, last cause:
         {{ loop.lastCause }}.
         <button class="underline ml-1" @click="showLogs(loop.service, true)">See its errors</button>
+      </Message>
+      <Message v-if="environment.status === 'sleeping'" severity="secondary" :closable="false" class="mb-6">
+        Asleep after {{ formatIdle(environment.idleSeconds) }} without activity: its containers are stopped, its data stays. The next visit to one of its URLs wakes it up.
+      </Message>
+      <Message v-if="environment.status === 'degraded' && environment.error" severity="warn" :closable="false" class="mb-6">
+        <span class="font-semibold">Degraded:</span> {{ environment.error }}. Its timeline and logs say why.
       </Message>
       <Message v-if="environment.status === 'failed' && environment.error" severity="error" :closable="false" class="mb-6">
         <div class="font-semibold mb-1">Failed{{ environment.phase ? ` during ${environment.phase}` : '' }}</div>
@@ -150,6 +168,10 @@
                       </span>
                     </li>
                   </ul>
+                  <p v-if="environment.sources.some((source) => !source.onDisk)" class="field-hint mt-3">
+                    The code of {{ environment.sources.filter((source) => !source.onDisk).map((source) => source.name).join(', ') }} was removed after the build, which alone
+                    needed it: the next deploy brings it back.
+                  </p>
                 </section>
               </div>
 
@@ -476,11 +498,19 @@ async function loadCrashLoops() {
   crashLoops.value = deleted.value ? [] : await environmentsApi.events(id.value).then((result) => result.crashLoops).catch(() => []);
 }
 
-function accepted(result: JobAccepted) {
-  environment.value = { ...result.environment, lastJob: result.job };
+function accepted(result: { environment: Environment; job: JobAccepted['job'] | null }) {
+  environment.value = { ...result.environment, lastJob: result.job ?? result.environment.lastJob };
 }
 
-async function act(action: 'stop' | 'start') {
+/** "2 hours", "45 minutes". */
+function formatIdle(seconds: number): string {
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600} hour${seconds === 3600 ? '' : 's'}`;
+  }
+  return `${Math.round(seconds / 60)} minutes`;
+}
+
+async function act(action: 'stop' | 'start' | 'sleep' | 'wake') {
   acting.value = true;
   try {
     accepted(await environmentsApi[action](id.value));

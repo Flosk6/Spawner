@@ -1,21 +1,18 @@
 import type { GitDeploy } from '../services/api';
 import type { Environment, EnvironmentStatus, User } from '../types';
 
-export type StatusTone = 'ready' | 'busy' | 'stopped' | 'failed';
+export type StatusTone = 'ready' | 'degraded' | 'busy' | 'sleeping' | 'stopped' | 'failed';
 
 /** Statuses during which a job is working on the environment. */
-const BUSY: EnvironmentStatus[] = ['queued', 'preparing', 'validating', 'building', 'seeding', 'routing', 'stopping', 'starting', 'deleting'];
+const BUSY: EnvironmentStatus[] = ['queued', 'preparing', 'validating', 'building', 'seeding', 'routing', 'stopping', 'starting', 'waking', 'deleting'];
 
 export function isBusy(status: EnvironmentStatus): boolean {
   return BUSY.includes(status);
 }
 
 export function statusTone(status: EnvironmentStatus): StatusTone {
-  if (status === 'ready') {
-    return 'ready';
-  }
-  if (status === 'failed') {
-    return 'failed';
+  if (status === 'ready' || status === 'degraded' || status === 'sleeping' || status === 'failed') {
+    return status;
   }
   return isBusy(status) ? 'busy' : 'stopped';
 }
@@ -26,6 +23,16 @@ export const TONE_CLASSES: Record<StatusTone, { dot: string; text: string; borde
     dot: 'bg-green-500',
     text: 'text-green-600 dark:text-green-400',
     border: 'bg-gradient-to-br from-emerald-500 via-green-500 to-teal-600 hover:shadow-green-500/20',
+  },
+  degraded: {
+    dot: 'bg-amber-500',
+    text: 'text-amber-600 dark:text-amber-400',
+    border: 'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 hover:shadow-amber-500/20',
+  },
+  sleeping: {
+    dot: 'bg-indigo-400',
+    text: 'text-indigo-600 dark:text-indigo-300',
+    border: 'bg-gradient-to-br from-indigo-400 via-violet-500 to-indigo-600 hover:shadow-indigo-500/20',
   },
   busy: {
     dot: 'bg-blue-500',

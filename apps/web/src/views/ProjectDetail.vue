@@ -16,6 +16,7 @@
             Default branch <span class="font-mono">{{ project.defaultRef }}</span>
             <template v-if="project.rootDir !== '.'"> · <span class="font-mono">.spawner/</span> in <span class="font-mono">{{ project.rootDir }}</span></template>
             · URLs {{ project.allowPublic ? 'may be public (auth: none)' : 'always need a login' }}
+            · environments {{ project.allowAlwaysOn ? 'may never sleep (idle: never)' : 'sleep when idle' }}
           </p>
         </div>
         <div class="flex flex-wrap gap-2">

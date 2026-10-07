@@ -46,6 +46,14 @@
           <i class="pi pi-times-circle text-xs mt-1"></i>
           <span class="line-clamp-2">{{ environment.phase ? `${environment.phase}: ` : '' }}{{ environment.error }}</span>
         </div>
+        <div v-else-if="environment.status === 'degraded' && environment.error" class="flex items-start gap-2 text-amber-600 dark:text-amber-400">
+          <i class="pi pi-exclamation-triangle text-xs mt-1"></i>
+          <span class="line-clamp-2">{{ environment.error }}</span>
+        </div>
+        <div v-else-if="environment.status === 'sleeping'" class="flex items-center gap-2">
+          <i class="pi pi-moon text-xs"></i>
+          <span>Asleep: the next visit wakes it up</span>
+        </div>
         <div v-else-if="environment.expiresAt" class="flex items-center gap-2">
           <i class="pi pi-clock text-xs"></i>
           <span>Expires {{ timeLeft(environment.expiresAt) }}</span>
@@ -54,7 +62,7 @@
 
       <div class="mt-auto space-y-3">
         <a
-          v-if="environment.url && environment.status === 'ready'"
+          v-if="environment.url && ['ready', 'degraded', 'sleeping'].includes(environment.status)"
           :href="environment.url"
           target="_blank"
           rel="noopener"
@@ -74,6 +82,9 @@
           </button>
           <button v-if="manageable && environment.status === 'stopped'" :class="actionClass" :disabled="busy" @click="$emit('start', environment)" v-tooltip.top="'Start'">
             <i class="pi pi-play"></i>
+          </button>
+          <button v-if="manageable && environment.status === 'sleeping'" :class="actionClass" @click="$emit('wake', environment)" v-tooltip.top="'Wake up'">
+            <i class="pi pi-sun"></i>
           </button>
           <button
             v-if="manageable && redeployable"
@@ -114,6 +125,7 @@ defineEmits<{
   view: [environment: Environment];
   stop: [environment: Environment];
   start: [environment: Environment];
+  wake: [environment: Environment];
   redeploy: [environment: Environment];
   delete: [environment: Environment];
 }>();

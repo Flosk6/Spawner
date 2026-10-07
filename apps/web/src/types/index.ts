@@ -1,5 +1,10 @@
 export type {
   Account,
+  CleanupItem,
+  CleanupResult,
+  CleanupScan,
+  Limits,
+  LimitsView,
   ApiTokenInfo,
   AuditEvent,
   AuthSession,
