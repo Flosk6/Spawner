@@ -22,7 +22,8 @@ A project is a git repository holding a `.spawner/` directory: a manifest (`spaw
 - Project variables for the compose files (secrets encrypted, masked in job logs); public URLs (`auth: none`) only where an admin allows them
 - Accounts without passwords: invitation links, then passkeys; GitHub login optional
 - Personal API tokens with scopes, and a device flow to log the CLI in
-- Protected previews: Traefik asks Spawner before each request (forwardAuth); share links for guests
+- Protected previews: Traefik asks Spawner before each request (forwardAuth); share links for guests; Spawner's cookies never reach the applications
+- One-command installer (`install.sh`): Docker and its settings, a wildcard certificate through the DNS provider, the stack from the images on GHCR, upgrades with a database backup, removal
 - Audit trail of logins, tokens, environments, commands and terminals
 
 ## Monorepo Architecture
@@ -59,9 +60,9 @@ The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens
 - M3 (done): the CLI (upload, `--json`, exit codes, logs with an error filter, stats, init and the agent instructions) and the MCP server
 - M4 (done): supervision (metrics, timeline, disk, capacity, alerts), archived logs, terminal limits and recordings, project variables and public URLs, the screens of spec 11.5
 - M5 (done): sleep and wake-up, expiry, quotas and room checks, build guards, limits an admin can change, reconciliation, targeted cleanup, density (replaced images removed, sources removed after the build, Dockerfile layer warnings)
-- Next: M6 installer and release
+- M6 (done): `install.sh` (checks, Docker settings, zram, wildcard certificate by DNS-01, `spawner.env`, upgrades with a backup, removal), images on GHCR and the CLI on npm (`spawner-cli`) from a tag, `examples/laravel-next-mysql`, the installer's end-to-end test (two branches at once), the capacity counting the build guards, Spawner's cookies kept from the applications, the public docs
 
-Public documentation is in `docs/` (in English): `docs/cli.md` (commands, JSON outputs, exit codes, MCP) and `docs/manifest.md` (`.spawner/`).
+Public documentation is in `docs/` (in English): `install.md`, `concepts.md`, `manifest.md` (`.spawner/` and the compose rules), `cli.md` (commands, JSON outputs, exit codes, MCP), `agents.md`, `security.md`, `operations.md` (backups, restores, disk), `density.md`, `comparison.md`. Releases are described in `CHANGELOG.md`.
 
 ## Code Style
 
@@ -133,6 +134,9 @@ pnpm test                 # Run the test suites (Vitest)
 pnpm format               # Format with Prettier
 pnpm clean                # Clean build artifacts + node_modules
 scripts/e2e-engine.sh     # End-to-end test of the engine (needs Docker; KEEP=1 leaves the stack up)
+scripts/e2e-installer.sh  # End-to-end test of install.sh (a throwaway Ubuntu machine with sudo: CI)
+scripts/capacity-check.sh # Fills a real server up to its announced capacity, then cleans up
+scripts/release.sh 2.1.0  # Versions, commit and tag of a release (write its CHANGELOG.md section first)
 ```
 
 ### Adding Dependencies
@@ -156,7 +160,10 @@ pnpm --filter @spawner/core add <package>   # Shared package
 - Lifecycle: `lifecycle.service.spec.ts` (sleep after the idle time, expiry), `reconcile.service.spec.ts` (degraded, ready again, failed without containers), `cleanup.service.spec.ts` (what deleted environments left goes automatically; resources of unknown environments and unused mirrors wait for an admin), `limits.service.spec.ts`, `wake-page.spec.ts`, room and quota checks in `usage.spec.ts`; `packages/core` tests `dockerfileLayerWarnings`, `alwaysOnIssues` and `runtimeSources`.
 - Supervision is tested on its pure parts: `samples.spec.ts` (CPU and memory from Docker stats, minute buckets, a fake `/proc`), `docker-events.spec.ts` (`interpretDockerEvent`: a die during a job, the exit 137 that follows an OOM kill; `detectCrashLoops`), `disk.spec.ts` (`attributeDisk` on a `docker system df` answer), `usage.spec.ts` (ranges, downsampling), `retention.spec.ts` (rollups and purges, with a fake Prisma and data directory). The collectors do not start under `NODE_ENV=test`; the end-to-end test covers them.
 - `scripts/e2e-engine.sh` starts the local stack, then creates `examples/node-postgres` from an uploaded archive, calls its URL through Traefik (with an agent's preview token), checks its protection (anonymous browsers go to the dashboard, API clients get a 401, a share link opens it, an invited teammate opens it), runs a command in its database, updates it (the data must survive), and deletes it (nothing may be left: containers, volumes, network, images, routing file, sources). `scripts/e2e/teammate.mjs` plays the teammate with Node built-ins only: invitation with a software passkey, passkey login, CSRF check, device login of the CLI, then the preview through the dashboard; it also approves the login of the real CLI. Then an agent's turn: the CLI downloaded from the server, logged in as the teammate, runs `up --wait --json` from a git worktree with an uncommitted change (and two project variables, one secret, which must be masked in the job log), calls the protected URL with `url --with-token`, `exec` (stdin, exit codes), `logs`, `status`, `stats`, `ls`, `share`, a compose file refused before upload (exit 7); then supervision: the terminal session recorded, the jobs in the timeline, three out-of-memory kills that the timeline, `spawner status` and the system alerts report as a crash loop, minute metrics of each service, the disk of the environment, `spawner capacity` and the project usage; then `logout`; `scripts/e2e/mcp.mjs` drives `spawner mcp` over stdio (status, url, exec, logs with errors_only after breaking the database, up with progress, down), after which the deleted environment stays listed with its archived logs (the error found through MCP) and its timeline. Before MCP, the lifecycle: a service stopped with `docker stop` makes the environment degraded until it runs again; `spawner sleep` stops it and a visit gets the waiting page and wakes it up, data kept; with the idle time set to a minute it sleeps by itself and `spawner exec` wakes it up first; with a quota of one, a second `spawner up` exits with 6. With `scripts/e2e-fixtures/bind-mount` (a project allowed public URLs), the capacity is announced at 0 and the creation refused (503) while an environment costs 512 GiB, then back; once its expiry is moved to the past (psql in the Postgres container), the environment disappears without leftovers; a volume labelled for it is removed by the automatic cleanup while an unlabelled one stays; it checks that an update reaches files mounted from a source and that a delete removes what a container wrote there as root (only visible on Linux: Docker Desktop and OrbStack map ownership).
-- CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build and the end-to-end test on every pull request and on pushes to `master` and `v1`.
+- The engine e2e also checks that an application receives its own cookies and never Spawner's (a `/cookies` route added to the agent's worktree).
+- `packages/core/src/examples.spec.ts` checks that every `examples/*/.spawner/` passes the compose policy and that their Dockerfiles share their dependencies (no layer warning).
+- `scripts/e2e-installer.sh` runs `install.sh --tls off --domain localtest.me --image spawner:ci` on the CI runner, deploys `examples/node-postgres` with the CLI the server serves and asks `spawner mcp` its status (`scripts/e2e/mcp-status.mjs`); then two agents deploy `examples/laravel-next-mysql` from two branches of one repository at once and update both at once (each serves its own branch from its own MySQL, behind a token; `exec` in MySQL; the data survives), and the disk view must show that each environment's own part holds neither `vendor` nor `node_modules`; then `--upgrade` (a backup, the secrets, `spawner.env` and the environments kept), a second run without options, and `--uninstall --purge` (nothing left).
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests, build, the Docker image build, the engine end-to-end test and the installer end-to-end test on every pull request and on pushes to `master` and `v1`. A tag `v*` runs `.github/workflows/release.yml`: multi-arch images on GHCR, the CLI on npm (when the `NPM_TOKEN` secret is set), a GitHub release with `install.sh`, the CLI bundle and their checksums.
 
 ## Backend Architecture (apps/api)
 
@@ -252,12 +259,14 @@ Connection configured via `DATABASE_URL` environment variable.
 - `DOCKER_SOCKET`: Docker socket (default: /var/run/docker.sock)
 - `WEB_DIST_PATH`: Built web interface served by the API (set to `/app/web` in the image; unset in development)
 - `SPAWNER_CLI_PATH`: CLI bundle served at `/api/v1/cli/spawner` (set to `/app/cli/spawner` in the image; `apps/cli/dist/spawner.cjs` in development)
+- `SPAWNER_VERSION`: version reported by `/api/v1/info`, set in the image by the release build (default: the version of `apps/api/package.json`)
 
 **Engine:**
 - `SPAWNER_DATA_DIR`: Data directory (default: /var/lib/spawner). Must be mounted at the same path in the Spawner container: the compose files Spawner renders use these paths
 - `GIT_KEYS_PATH`: Deploy keys (default: `<data dir>/keys`)
 - `SPAWNER_PREVIEW_DOMAIN`: Domain of the previews (default: localtest.me)
 - `SPAWNER_TLS`: `letsencrypt` or `off` (default: off); `SPAWNER_TLS_RESOLVER`: Traefik resolver name (default: letsencrypt)
+- `SPAWNER_TLS_WILDCARD`: `true` when Traefik gets one wildcard certificate by DNS-01 (set by the installer with a DNS provider): routes then ask for `*.<preview domain>` rather than a certificate per host
 - `SPAWNER_TRAEFIK_ENTRYPOINT`: Traefik entrypoint of the routes (default: `web`, or `websecure` with TLS)
 - `SPAWNER_TRAEFIK_CONTAINER`: Traefik container, attached to each environment network (default: spawner-traefik)
 - `SPAWNER_DASHBOARD_HOST`, `SPAWNER_DASHBOARD_UPSTREAM`: dashboard route (default: `spawner.<preview domain>` to `http://spawner:3000`)
@@ -390,7 +399,7 @@ The environment ends `ready` (with an expiry) or `failed` (with the phase and th
 
 ### Previews
 
-Before each request to an exposure with `auth: team` (the default), Traefik asks `GET /api/v1/auth/verify` (forwardAuth, with only the Accept, Cookie and X-Spawner-Preview headers). It lets through, in this order: CORS preflights; the `X-Spawner-Preview` header (a one-hour token for one environment, from `POST /api/v1/envs/:id/preview-token`, removed before the request reaches the application); a share link (`?__spawner_share=`), answered by a redirect without the parameter and a cookie valid for that environment only; the team cookie `spawner_preview` (12 hours, for active users); a share cookie. Otherwise a browser goes to `<dashboard>/api/v1/auth/preview?next=`, which sets the team cookie on the preview domain for a logged-in user (or sends them to log in first), and other clients get a 401. Each request let through records the environment's last activity (at most once a minute). Exposures with `auth: none` are public; they need the project's `allowPublic`, set by an admin. While an environment sleeps or is stopped, its routes keep the forwardAuth (team URLs) and lead to the waiting page (`GET /api/v1/wake`, which checks access again: the preview header is not removed there).
+Before each request to an exposure with `auth: team` (the default), Traefik asks `GET /api/v1/auth/verify` (forwardAuth, with only the Accept, Cookie and X-Spawner-Preview headers). It lets through, in this order: CORS preflights; the `X-Spawner-Preview` header (a one-hour token for one environment, from `POST /api/v1/envs/:id/preview-token`, removed before the request reaches the application); a share link (`?__spawner_share=`), answered by a redirect without the parameter and a cookie valid for that environment only; the team cookie `spawner_preview` (12 hours, for active users); a share cookie. Otherwise a browser goes to `<dashboard>/api/v1/auth/preview?next=`, which sets the team cookie on the preview domain for a logged-in user (or sends them to log in first), and other clients get a 401. Each request let through records the environment's last activity (at most once a minute). Exposures with `auth: none` are public; they need the project's `allowPublic`, set by an admin. The routes of the applications use `spawner-preview-gate` (`spawner-public-gate` for public ones, through `GET /api/v1/auth/verify-public`, which lets everything through): Spawner answers with the request's cookies without `spawner_preview` and the share cookies, and Traefik (`authResponseHeaders: Cookie`) passes those on instead, so an application never sees what opens the other previews. While an environment sleeps or is stopped, its routes keep `spawner-preview-auth` (team URLs, cookies left in place) and lead to the waiting page (`GET /api/v1/wake`, which checks access again: the preview header is not removed there).
 
 ### Audit
 
@@ -420,7 +429,8 @@ Base: `/api`. Changes made without a bearer token need the `X-Spawner-Client` he
 - `POST /device/token` (public) - Polled by the CLI: `{ "deviceCode": "..." }`, a 400 `{ error: "authorization_pending" | "slow_down" | "access_denied" | "expired_token" }` until it gives the token
 - `GET /device/:userCode`, `POST /device/approve` - Approval from the dashboard: `{ "userCode": "BCDF-GHJK", "approve": true }`
 - `POST /ws-ticket` - One-time ticket for the terminal WebSocket
-- `GET /verify` - forwardAuth of Traefik (public, internal)
+- `GET /verify` - forwardAuth of Traefik (public, internal); answers 200 with the request's cookies without Spawner's
+- `GET /verify-public` - forwardAuth of the public exposures: 200 with the request's cookies without Spawner's (public, internal)
 - `GET /preview?next=<preview URL>` - Sets the preview cookie for a logged-in user (public)
 
 ### Team and account
@@ -490,7 +500,7 @@ Changing an environment, sharing it, running commands in it and opening its term
 - `GET /api/v1/system/metrics?range=24h` (admin) - The host, Spawner and the other containers over time
 - `GET /api/v1/system/cleanup`, `POST /api/v1/system/cleanup` (admin) - What Spawner owns and no longer needs (`automatic` items go every minute anyway), then remove it all
 - `GET|POST... /api/v1/wake` (public, internal) - The waiting page of a sleeping or stopped environment, reached through its routes (`?__spawner_wake=status` answers its state)
-- `GET /api/v1/system/capacity` - How many more environments of each project fit, within the reader's quota (`quota: { limit, used, remaining }`): `min((available memory - 1 GiB) / typical memory, (free disk - 10 GiB) / typical disk, quota)`, and what limits it
+- `GET /api/v1/system/capacity` - How many more environments of each project fit, within the reader's quota (`quota: { limit, used, remaining }`): `min((available memory - 1 GiB) / typical memory, (free disk - 10 GiB) / typical disk, quota)`, each environment also having to find the build guards free before its build (`buildGuards`), and what limits it
 - `GET /api/v1/terminals`, `GET /api/v1/terminals/:id/recording` (admin) - Terminal sessions and what they showed (text, escape codes included)
 - `GET /api/v1/healthz`, `GET /api/v1/readyz` (public)
 - `GET /api/v1/info` - Version, dashboard URL, preview domain, scheme, and the limits the CLI checks a deploy with (compose, upload, ttl, exec, share)
@@ -557,9 +567,9 @@ docker logs spawner
 
 ### Deployment Requirements
 
-- Ubuntu 22.04+ VPS dedicated to previews
-- Docker with Compose v2
-- A DNS record `*.preview.yourdomain.com` pointing to the VPS (the dashboard is `spawner.preview.yourdomain.com`)
+- A server dedicated to previews: Ubuntu 22.04 or 24.04, Debian 12, amd64 or arm64; 2 GiB of memory at least (8 advised), 20 GiB of free disk, ports 80 and 443
+- A DNS record `*.preview.yourdomain.com` pointing to it (the dashboard is `spawner.preview.yourdomain.com`), and for a wildcard certificate an API token of the DNS provider
+- `install.sh` installs Docker if needed; nothing else goes on the host (no Node.js)
 - Node.js 22.x with pnpm 8 for development only (the image bundles its own Node and the Docker CLI)
 
 ### Container Image
@@ -568,8 +578,12 @@ One image built from the root `Dockerfile` runs the API and serves the web inter
 
 ### Stacks
 
-- `docker-compose.yml`: local stack over HTTP (Postgres, Traefik, Spawner)
-- `docker-compose.production.yml`: HTTPS with a certificate per host (Let's Encrypt TLS challenge), configured by `configure.sh` into `.env.production`, which also prints the link of the first admin. The wildcard certificate (DNS-01) and the new installer come in M6
+- `docker-compose.yml`: local stack over HTTP (Postgres, Traefik, Spawner), built from the sources, for development and `scripts/e2e-engine.sh`
+- `install.sh`: a server. It writes `/opt/spawner` (`compose.yaml` pinned to a version of `ghcr.io/flosk6/spawner`, `.env` with the secrets, `dns.env` for Traefik, `spawner.env` for the admin's own settings, never overwritten, `backups/`) and `/var/lib/spawner`, adds its settings to `/etc/docker/daemon.json` (local log driver, build cache limit, /24 address pools, live-restore; overlay2 on a Docker it installed), offers zram below 8 GiB, starts the stack and prints the first admin link. `--upgrade` backs the database up first (5 kept); `--uninstall [--purge]`; `--tls off --domain localtest.me` is the local mode the CI tests. Options and environment variables: `install.sh --help` and `docs/install.md`
+
+### Releases
+
+`scripts/release.sh <version>` sets the version of every `package.json` and `DEFAULT_VERSION` in `install.sh`, commits and tags (a prerelease such as `2.1.0-rc.1` only tags). Pushing the tag runs `.github/workflows/release.yml`: it checks the versions, builds `linux/amd64` and `linux/arm64` images to `ghcr.io/flosk6/spawner:<version>` (with `SPAWNER_VERSION`), publishes the CLI to npm as `spawner-cli` with provenance when `NPM_TOKEN` is set (dist-tag `next` for prereleases), and creates the GitHub release with `install.sh`, the `spawner` bundle, `SHA256SUMS` and the notes of the version's `CHANGELOG.md` section. The installer of a release installs that release by default; `https://github.com/Flosk6/Spawner/releases/latest/download/install.sh` is the latest.
 
 ### Reverse Proxy
 

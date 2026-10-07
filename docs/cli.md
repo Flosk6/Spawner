@@ -4,7 +4,13 @@
 
 ## Install
 
-The CLI is one JavaScript file that needs Node.js 20 or later. Every Spawner server serves the CLI of its own version:
+The CLI is one JavaScript file that needs Node.js 20 or later:
+
+```bash
+npm install -g spawner-cli
+```
+
+Every Spawner server also serves the CLI of its own version, for machines without npm:
 
 ```bash
 mkdir -p ~/.local/bin
@@ -12,7 +18,7 @@ curl -fsSL https://spawner.preview.example.com/api/v1/cli/spawner -o ~/.local/bi
 chmod +x ~/.local/bin/spawner
 ```
 
-From a clone of this repository: `pnpm install && pnpm build`, then link `apps/cli/dist/spawner.cjs` into your `PATH`. The npm package comes with the first release.
+From a clone of this repository: `pnpm install && pnpm build`, then link `apps/cli/dist/spawner.cjs` into your `PATH`. `spawner whoami` shows the version of the CLI and of the server: keep them on the same version.
 
 ## Log in
 
@@ -116,7 +122,7 @@ Requests to its URLs, deploys, commands, logs and terminals count as activity; r
 api failed 3 times in 10 minutes, last cause: out of memory (limit 512 MiB)
 ```
 
-`capacity` answers "can I start another environment?": the memory the server can hand out (minus 1 GiB) and its free disk (minus 10 GiB), divided by what an environment of each project typically uses (the median of the last day, or its declared limits before any ran), within what your quota leaves (5 environments a person by default, sleeping ones included). The server checks the same when you create an environment, start it or wake it up, and refuses with exit code 6.
+`capacity` answers "can I start another environment?": the memory the server can hand out (minus 1 GiB) and its free disk (minus 10 GiB), divided by what an environment of each project typically uses (the median of the last day, or its declared limits before any ran), within what your quota leaves (5 environments a person by default, sleeping ones included). Each environment is built first, so the count also leaves the last one the memory a build waits for (2 GiB by default). The server checks the same when you create an environment, start it or wake it up, and refuses with exit code 6.
 
 ### url
 
@@ -136,7 +142,7 @@ With `--json`, stdout carries one JSON document (or one object per line for `log
 | `status` | `{ environment, services: ServiceState[], events: TimelineEvent[], crashLoops: CrashLoop[] }` |
 | `ls` | `{ environments: Environment[] }` |
 | `stats` | `{ environment, services: ServiceUsage[] }` |
-| `capacity` | `{ host: { availableMemoryBytes, freeDiskBytes, reserves }, quota: { limit, used, remaining } \| null, projects: [{ project, places, limitedBy, memoryBytes, diskBytes, basedOn }] }` |
+| `capacity` | `{ host: { availableMemoryBytes, freeDiskBytes, reserves, buildGuards }, quota: { limit, used, remaining } \| null, projects: [{ project, places, limitedBy, memoryBytes, diskBytes, basedOn }] }` |
 | `logs` | `{ lines: [{ service, stream, time, text }] }`; with `--follow`, one line object per line; with `--job`, `{ job, lines: string[] }`, or `{ job, text }` per line with `--follow` |
 | `exec` | `{ env, service, exitCode, stdout, stderr, truncated, timedOut }` |
 | `url` | `{ project, env, exposure, url, urls, header?: { name, value }, expiresAt? }` |
