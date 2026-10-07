@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Single Spawner image: NestJS API + Vue interface served on the same origin.
+# Single Spawner image: NestJS API + Vue interface served on the same origin,
+# plus the CLI bundle it serves for download (/api/v1/cli/spawner).
 
 FROM node:22-bookworm-slim AS base
 RUN apt-get update \
@@ -15,6 +16,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.
 COPY packages ./packages
 COPY apps/api ./apps/api
 COPY apps/web ./apps/web
+COPY apps/cli ./apps/cli
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @spawner/api exec prisma generate
 RUN pnpm build
@@ -31,9 +33,11 @@ COPY --from=docker:29-cli /usr/local/libexec/docker/cli-plugins /usr/local/libex
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 COPY --from=build --chown=node:node /repo/apps/web/dist ./web
+COPY --from=build --chown=node:node /repo/apps/cli/dist/spawner.cjs ./cli/spawner
 ENV NODE_ENV=production \
     PORT=3000 \
-    WEB_DIST_PATH=/app/web
+    WEB_DIST_PATH=/app/web \
+    SPAWNER_CLI_PATH=/app/cli/spawner
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/api/v1/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
