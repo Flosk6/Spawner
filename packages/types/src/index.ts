@@ -178,6 +178,8 @@ export interface Project {
   rootDir: string;
   /** Exposures may be public (auth: none). */
   allowPublic: boolean;
+  /** Environments may never sleep (idle: never). */
+  allowAlwaysOn: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -198,6 +200,7 @@ export interface ProjectInput {
   defaultRef?: string;
   rootDir?: string;
   allowPublic?: boolean;
+  allowAlwaysOn?: boolean;
 }
 
 /** A variable of the compose files of a project; secret values are never shown again. */
@@ -233,9 +236,14 @@ export interface ProjectUsage {
 
 // Environments
 
-/** Stable states, then the step a running job is at. */
+/**
+ * Stable states (degraded: a service is down; sleeping: stopped after its
+ * idle time, the next visit wakes it up), then the step a running job is at.
+ */
 export type EnvironmentStatus =
   | 'ready'
+  | 'degraded'
+  | 'sleeping'
   | 'stopped'
   | 'failed'
   | 'deleted'
@@ -247,9 +255,20 @@ export type EnvironmentStatus =
   | 'routing'
   | 'stopping'
   | 'starting'
+  | 'waking'
   | 'deleting';
 
-export type JobPhase = 'preparing' | 'validating' | 'building' | 'seeding' | 'routing' | 'deleting' | 'stopping' | 'starting';
+export type JobPhase =
+  | 'preparing'
+  | 'validating'
+  | 'building'
+  | 'seeding'
+  | 'routing'
+  | 'deleting'
+  | 'stopping'
+  | 'starting'
+  | 'sleeping'
+  | 'waking';
 
 export type CreatedVia = 'ui' | 'cli' | 'mcp' | 'api';
 
@@ -272,6 +291,8 @@ export interface EnvironmentSource {
   commit: string | null;
   digest: string | null;
   sizeBytes: number | null;
+  /** False once its code was removed after the build, which alone needed it. */
+  onDisk: boolean;
 }
 
 export interface Environment {
@@ -295,8 +316,12 @@ export interface Environment {
   sources: EnvironmentSource[];
   lastJob: Job | null;
   expiresAt: string | null;
-  /** Last request let through to one of its URLs. */
+  /** Last request let through to one of its URLs, or last action on it. */
   lastActivityAt: string | null;
+  /** Time without activity before it sleeps; 0 when it never does. */
+  idleSeconds: number;
+  /** When it goes to sleep if nothing happens before (awake environments). */
+  sleepsAt: string | null;
   /** CPU and memory of its running containers at the last sample (every 30 seconds). */
   usage: { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; at: string } | null;
   createdAt: string;
@@ -312,7 +337,7 @@ export interface SourceRef {
 
 // Jobs
 
-export type JobType = 'create' | 'update' | 'delete' | 'stop' | 'start';
+export type JobType = 'create' | 'update' | 'delete' | 'stop' | 'start' | 'sleep' | 'wake';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -551,6 +576,8 @@ export interface SystemMetrics {
 /** Room for more environments of each project (GET /api/v1/system/capacity). */
 export interface Capacity {
   host: { availableMemoryBytes: number; freeDiskBytes: number; reserves: { memoryBytes: number; diskBytes: number } } | null;
+  /** The environments the reader may still create; null without a user or a limit. */
+  quota: { limit: number; used: number; remaining: number } | null;
   projects: {
     project: string;
     name: string;
@@ -565,6 +592,52 @@ export interface Capacity {
     byQuota?: number | null;
     limitedBy?: 'memory' | 'disk' | 'quota';
   }[];
+}
+
+/**
+ * Lifetimes, sleep, quotas, memory and build guards (GET and PUT
+ * /api/v1/settings/limits). Durations in seconds, sizes in bytes; 0 turns
+ * sleeping, the quota or a guard off.
+ */
+export interface Limits {
+  ttlSeconds: number;
+  ttlMaxSeconds: number;
+  idleSeconds: number;
+  envsPerUser: number;
+  envMemoryBytes: number;
+  envMemoryMaxBytes: number;
+  buildMinFreeMemoryBytes: number;
+  buildMinFreeDiskBytes: number;
+}
+
+export interface LimitsView {
+  values: Limits;
+  /** What the environment of the server sets. */
+  defaults: Limits;
+  /** The limits an admin changed. */
+  overridden: (keyof Limits)[];
+}
+
+/** Something Spawner owns and no longer needs (GET /api/v1/system/cleanup). */
+export interface CleanupItem {
+  kind: 'container' | 'volume' | 'network' | 'image' | 'routes' | 'directory' | 'upload' | 'mirror';
+  id: string;
+  name: string;
+  sizeBytes: number | null;
+  reason: string;
+  /** Removed every minute anyway; the others wait for an admin. */
+  automatic: boolean;
+}
+
+export interface CleanupScan {
+  items: CleanupItem[];
+  totalBytes: number;
+}
+
+export interface CleanupResult {
+  removed: CleanupItem[];
+  failed: (CleanupItem & { error: string })[];
+  freedBytes: number;
 }
 
 /** A terminal opened in a service, and its recording (admins). */

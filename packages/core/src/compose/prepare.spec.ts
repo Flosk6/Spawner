@@ -115,12 +115,17 @@ describe('rendering', () => {
     });
     expect((document.networks as any).default.labels['dev.spawner.env']).toBe('env_test');
     expect((document.volumes as any)['db-data'].labels['dev.spawner.env']).toBe('env_test');
+    expect(api.build.labels).toMatchObject({ 'dev.spawner.env': 'env_test', 'dev.spawner.service': 'api' });
   });
 
   it('drops the image name of built services so builds never overwrite another tag', () => {
     const api = service(render('laravel-next-mysql.yaml').document, 'api');
     expect(api.image).toBeUndefined();
     expect(api.build.context).toBe(fs.realpathSync(app));
+  });
+
+  it('keeps the sources a built environment needs: mounted ones and those holding an env_file', () => {
+    expect(render('laravel-next-mysql.yaml').runtimeSources).not.toContain('front');
   });
 
   it('injects the exposure URLs', () => {
@@ -137,6 +142,7 @@ describe('rendering', () => {
     const api = service(result.document, 'api');
 
     expect(result.bindSources).toEqual(['app']);
+    expect(result.runtimeSources).toEqual(['app']);
     expect(result.servicesMountingSources).toEqual(['api']);
     expect(api.volumes[2].source).toBe(fs.realpathSync(path.join(app, 'docker', 'nginx.conf')));
     expect(api.volumes[3]).toBe(`${fs.realpathSync(path.join(app, 'docker'))}:/docker:ro`);

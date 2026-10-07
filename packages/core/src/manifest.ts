@@ -7,6 +7,8 @@ import { keyPath } from './util';
 
 export const MANIFEST_PATH = '.spawner/spawner.yaml';
 const MAX_MANIFEST_BYTES = 64 * 1024;
+/** Shortest idle time before an environment goes to sleep. */
+export const MIN_IDLE_SECONDS = 10 * 60;
 
 export interface ManifestSource {
   repo: string;
@@ -102,7 +104,9 @@ const manifestSchema = z
       )
       .default([]),
     ttl: duration.optional(),
-    idle: z.union([z.literal('never'), duration]).optional(),
+    idle: z
+      .union([z.literal('never'), duration.refine((seconds) => seconds >= MIN_IDLE_SECONDS, 'idle must be at least 10m (or never)')])
+      .optional(),
     upload: z.strictObject({ include: z.array(z.string()).default([]) }).default({ include: [] }),
     limits: z.strictObject({ memory: size.optional() }).default({}),
   })
@@ -181,6 +185,24 @@ export function parseManifest(text: string): { manifest?: Manifest; issues: Issu
     limits: data.limits,
   };
   return { manifest, issues: [] };
+}
+
+/**
+ * An environment that never sleeps (idle: never) in a project whose admins
+ * did not allow it: by default, idle environments sleep to free memory.
+ */
+export function alwaysOnIssues(manifest: Pick<Manifest, 'idle'>, allowAlwaysOn: boolean): Issue[] {
+  if (allowAlwaysOn || manifest.idle !== 'never') {
+    return [];
+  }
+  return [
+    {
+      code: 'manifest.always_on',
+      path: 'idle',
+      message: 'idle: never keeps the environment awake, which this project does not allow',
+      hint: 'remove idle: never, or ask an admin to allow environments that never sleep in the project settings',
+    },
+  ];
 }
 
 /**

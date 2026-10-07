@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseManifest, publicExposureIssues } from './manifest';
+import { alwaysOnIssues, parseManifest, publicExposureIssues } from './manifest';
 
 const MINIMAL = `
 version: 1
@@ -123,6 +123,23 @@ exposures:
   it('requires at least one exposure', () => {
     const { issues } = parseManifest('version: 1\nproject: blog\nexposures: []\n');
     expect(issues).toEqual([expect.objectContaining({ path: 'exposures', message: 'declare at least one exposure' })]);
+  });
+});
+
+describe('idle', () => {
+  const base = 'version: 1\nproject: blog\nexposures:\n  - { name: web, service: app, port: 3000 }\n';
+
+  it('reads a duration or never, at least 10 minutes', () => {
+    expect(parseManifest(`${base}idle: 45m\n`).manifest?.idle).toBe(45 * 60);
+    expect(parseManifest(`${base}idle: never\n`).manifest?.idle).toBe('never');
+    expect(parseManifest(`${base}idle: 5m\n`).issues).toMatchObject([{ code: 'manifest.invalid', path: 'idle' }]);
+  });
+
+  it('keeps an environment awake only where an admin allowed it', () => {
+    const { manifest } = parseManifest(`${base}idle: never\n`);
+    expect(alwaysOnIssues(manifest!, false)).toMatchObject([{ code: 'manifest.always_on', path: 'idle' }]);
+    expect(alwaysOnIssues(manifest!, true)).toEqual([]);
+    expect(alwaysOnIssues(parseManifest(base).manifest!, false)).toEqual([]);
   });
 });
 

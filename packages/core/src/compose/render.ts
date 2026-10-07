@@ -8,7 +8,8 @@ const LOGGING = { driver: 'local', options: { 'max-size': '10m', 'max-file': '3'
  * Builds the compose document Spawner runs: the validated services plus the
  * settings it always imposes (memory, CPU and process limits,
  * no-new-privileges, capped local logs, restart policy) and the labels it
- * uses to find the environment's containers, volumes and network again.
+ * uses to find the environment's containers, built images, volumes and
+ * network again.
  */
 export function renderCompose(model: NormalizedCompose, ctx: ComposeContext): Record<string, unknown> {
   const baseLabels = {
@@ -20,9 +21,11 @@ export function renderCompose(model: NormalizedCompose, ctx: ComposeContext): Re
   const services: Record<string, unknown> = {};
   for (const service of model.services) {
     const userLabels = isPlainObject(service.spec.labels) ? (service.spec.labels as Record<string, string>) : {};
+    const labels = { ...baseLabels, 'dev.spawner.service': service.name };
     services[service.name] = {
       ...service.spec,
-      labels: { ...userLabels, ...baseLabels, 'dev.spawner.service': service.name },
+      ...(isPlainObject(service.spec.build) ? { build: withLabels(service.spec.build as Record<string, unknown>, labels) } : {}),
+      labels: { ...userLabels, ...labels },
       mem_limit: service.memoryBytes,
       cpus: service.cpus,
       pids_limit: service.pids,

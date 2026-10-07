@@ -153,6 +153,8 @@ export interface NormalizedCompose {
   networks: Record<string, Record<string, unknown>>;
   /** Sources with files mounted in a service: they must stay on disk. */
   bindSources: string[];
+  /** Sources holding an env_file: Compose reads them whenever it loads the project. */
+  envFileSources: string[];
   /** Services that mount files of a source: they see new code only once recreated. */
   servicesMountingSources: string[];
 }
@@ -190,6 +192,7 @@ class ComposeValidator {
   private readonly limits: ComposeLimits;
   private readonly resolver: SourceResolver;
   private readonly bindSources = new Set<string>();
+  private readonly envFileSources = new Set<string>();
   private readonly mountingServices = new Set<string>();
   private declaredVolumes = new Set<string>();
   private declaredNetworks = new Set<string>(['default']);
@@ -219,7 +222,14 @@ class ComposeValidator {
     const drafts = this.services(doc.services);
     const services = this.crossCheck(drafts);
 
-    return { services, volumes, networks, bindSources: [...this.bindSources], servicesMountingSources: [...this.mountingServices] };
+    return {
+      services,
+      volumes,
+      networks,
+      bindSources: [...this.bindSources],
+      envFileSources: [...this.envFileSources],
+      servicesMountingSources: [...this.mountingServices],
+    };
   }
 
   private topLevelVolumes(value: unknown): Record<string, Record<string, unknown>> {
@@ -587,6 +597,7 @@ class ComposeValidator {
         const resolved = this.resolver.resolve(entry, this.ctx.composeDir, 'env file', entryPath, this.issues);
         if (resolved) {
           output.push(resolved.path);
+          this.envFileSources.add(resolved.source);
         }
         return;
       }
@@ -603,6 +614,7 @@ class ComposeValidator {
       const resolved = this.resolver.resolve(entry.path, this.ctx.composeDir, 'env file', keyPath(entryPath, 'path'), this.issues, required);
       if (resolved) {
         output.push({ ...entry, path: resolved.path });
+        this.envFileSources.add(resolved.source);
       }
     });
     spec.env_file = output;
