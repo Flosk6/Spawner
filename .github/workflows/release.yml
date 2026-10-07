@@ -1,0 +1,174 @@
+name: Release
+
+# A tag v2.0.0 (or v2.0.0-rc.1) publishes the images on GHCR, the CLI on npm
+# (spawner-cli, when the NPM_TOKEN secret is set) and a GitHub release with
+# install.sh, the CLI bundle and their checksums. scripts/release.sh prepares
+# the versions and the tag.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/flosk6/spawner
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        name: Check that the tag matches the versions of the repository
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::$GITHUB_REF_NAME is not a version tag"; exit 1; }
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+          if [ "$prerelease" = false ]; then
+            for file in package.json apps/api/package.json apps/cli/package.json; do
+              [ "$(node -p "require('./$file').version")" = "$version" ] || { echo "::error::$file is not at $version: run scripts/release.sh $version"; exit 1; }
+            done
+            grep -q "^DEFAULT_VERSION=\"$version\"$" install.sh || { echo "::error::install.sh does not install $version by default"; exit 1; }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  image:
+    name: Images on GHCR
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+      - name: Build and push linux/amd64 and linux/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: SPAWNER_VERSION=${{ needs.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  cli:
+    name: CLI
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TURBO_TELEMETRY_DISABLED: 1
+      SPAWNER_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run build --filter=@spawner/cli...
+      - name: Prepare the npm package
+        run: |
+          mkdir -p release/npm
+          cp apps/cli/dist/spawner.cjs release/npm/spawner.cjs
+          cp apps/cli/README.md LICENSE release/npm/
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync("release/npm/package.json", JSON.stringify({
+              name: "spawner-cli",
+              version: process.env.SPAWNER_VERSION,
+              description: "Spawner CLI and MCP server: preview environments from a worktree, on your own server",
+              keywords: ["preview", "environments", "docker", "compose", "mcp", "coding agents"],
+              homepage: "https://github.com/Flosk6/Spawner",
+              repository: { type: "git", url: "git+https://github.com/Flosk6/Spawner.git", directory: "apps/cli" },
+              license: "AGPL-3.0-only",
+              bin: { spawner: "spawner.cjs" },
+              files: ["spawner.cjs", "README.md", "LICENSE"],
+              engines: { node: ">=20" },
+            }, null, 2) + "\n");
+          '
+          node release/npm/spawner.cjs --version
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN is not set: the CLI is not published to npm"
+            exit 0
+          fi
+          cd release/npm
+          npm publish --provenance --access public --tag ${{ needs.version.outputs.prerelease == 'true' && 'next' || 'latest' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli
+          path: apps/cli/dist/spawner.cjs
+
+  release:
+    name: GitHub release
+    needs: [version, image, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli
+          path: release
+      - name: Assets and notes
+        run: |
+          mv release/spawner.cjs release/spawner
+          cp install.sh release/install.sh
+          (cd release && sha256sum install.sh spawner > SHA256SUMS)
+          awk -v version="$VERSION" '
+            $0 ~ "^## " { if (found) exit; found = ($2 == version) ; next }
+            found { print }
+          ' CHANGELOG.md > release/notes.md
+          [ -s release/notes.md ] || echo "Spawner $VERSION." > release/notes.md
+          cat >> release/notes.md <<EOF
+
+          ## Install or upgrade
+
+          \`\`\`bash
+          curl -fsSL https://github.com/Flosk6/Spawner/releases/download/v$VERSION/install.sh | sudo bash -s -- --version $VERSION
+          \`\`\`
+
+          Image: \`${IMAGE}:${VERSION}\` (linux/amd64, linux/arm64). CLI: \`npm install -g spawner-cli@$VERSION\`, or the \`spawner\` file below.
+          EOF
+      - name: Create the release
+        run: |
+          gh release create "v$VERSION" release/install.sh release/spawner release/SHA256SUMS \
+            --title "Spawner $VERSION" --notes-file release/notes.md \
+            ${{ needs.version.outputs.prerelease == 'true' && '--prerelease' || '--latest' }}
