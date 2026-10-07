@@ -56,7 +56,7 @@ describe("TokensService", () => {
     expect(token).toMatch(/^spn_[a-z0-9]{8}_[A-Za-z0-9_-]{43}$/);
     const row = rows.get(info.id) as Row;
     expect(row.hash).toBe(sha256(token));
-    expect(JSON.stringify(row)).not.toContain(token.split("_")[2]);
+    expect(JSON.stringify(row)).not.toContain(token.slice(`spn_${row.prefix}_`.length));
     expect(info).toMatchObject({ name: "claude-laptop", hint: `spn_${row.prefix}_...`, scopes: ["envs:read", "envs:write", "envs:exec", "preview"] });
     expect(Math.round((row.expiresAt!.getTime() - Date.now()) / 86_400_000)).toBe(90);
   });
