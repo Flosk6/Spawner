@@ -64,6 +64,14 @@ export class ComposeRunner {
   }
 
   /**
+   * Creates and starts the containers of an environment from the images
+   * already built, without its sources.
+   */
+  async upWithoutBuild(project: string, file: string, onLine: (line: string) => void): Promise<void> {
+    await this.compose(["-p", project, "-f", file, "up", "-d", "--no-build", "--wait", "--wait-timeout", String(this.config.startTimeoutSeconds)], onLine);
+  }
+
+  /**
    * Removes the containers, volumes and network of an environment, then the
    * images Compose built for it.
    */

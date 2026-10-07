@@ -89,7 +89,10 @@ export class DiskService implements OnApplicationBootstrap, OnModuleDestroy {
   private async take(): Promise<DiskSnapshotView> {
     const [usage, environments, ownProject, logsBytes] = await Promise.all([
       this.docker.client.df() as Promise<DockerDiskUsage>,
-      this.prisma.environment.findMany({ where: { deletedAt: null }, include: { project: { select: { slug: true } }, sources: { select: { sizeBytes: true } } } }),
+      this.prisma.environment.findMany({
+        where: { deletedAt: null },
+        include: { project: { select: { slug: true } }, sources: { where: { onDisk: true }, select: { sizeBytes: true } } },
+      }),
       this.docker.ownComposeProject(),
       Promise.all([this.storage.jobsDir, this.storage.archivesDir, this.storage.terminalsDir].map(directorySize)).then((sizes) => sizes.reduce((sum, size) => sum + size, 0)),
     ]);

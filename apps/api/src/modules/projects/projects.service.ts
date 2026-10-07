@@ -16,6 +16,7 @@ export interface ProjectInput {
   defaultRef?: string;
   rootDir?: string;
   allowPublic?: boolean;
+  allowAlwaysOn?: boolean;
 }
 
 const VARIABLE_NAME = /^[A-Z_][A-Z0-9_]*$/;
@@ -222,6 +223,12 @@ export class ProjectsService {
         throw new BadRequestException("allowPublic must be true or false");
       }
       data.allowPublic = input.allowPublic;
+    }
+    if (input.allowAlwaysOn !== undefined) {
+      if (typeof input.allowAlwaysOn !== "boolean") {
+        throw new BadRequestException("allowAlwaysOn must be true or false");
+      }
+      data.allowAlwaysOn = input.allowAlwaysOn;
     }
     if (input.rootDir !== undefined) {
       const rootDir = path.posix.normalize(input.rootDir || ".");

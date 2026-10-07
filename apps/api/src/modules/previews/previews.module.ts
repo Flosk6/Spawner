@@ -4,8 +4,12 @@ import type { Request, Response } from "express";
 import { assertInProject, type Actor } from "../../common/actor";
 import { CurrentActor, Public, Scopes } from "../../common/auth.guard";
 import { PrismaService } from "../../common/prisma.service";
+import { EngineModule } from "../engine/engine.module";
+import { ActivityService } from "../lifecycle/activity.service";
+import { SupervisionModule } from "../supervision/supervision.module";
 import { PREVIEW_HEADER, PreviewsService, parseCookies } from "./previews.service";
 import { SharesService } from "./shares.service";
+import { WakeController } from "./wake.controller";
 
 const header = (request: Request, name: string) => {
   const value = request.headers[name];
@@ -72,6 +76,7 @@ export class PreviewAccessController {
     private readonly previews: PreviewsService,
     private readonly shares: SharesService,
     private readonly prisma: PrismaService,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -86,6 +91,7 @@ export class PreviewAccessController {
       throw new NotFoundException(`environment "${id}" not found`);
     }
     assertInProject(actor, environment.projectId);
+    this.activity.touch(environment.id);
     return this.previews.headerToken(actor, environment.id);
   }
 
@@ -108,7 +114,8 @@ export class PreviewAccessController {
 }
 
 @Module({
-  controllers: [PreviewAuthController, PreviewAccessController],
+  imports: [EngineModule, SupervisionModule],
+  controllers: [PreviewAuthController, PreviewAccessController, WakeController],
   providers: [PreviewsService, SharesService],
 })
 export class PreviewsModule {}

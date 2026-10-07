@@ -3,6 +3,7 @@ import { hasScope, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
 import { SecretsService, sha256 } from "../../common/secrets.service";
 import { SpawnerConfig } from "../../common/spawner.config";
+import { ActivityService } from "../lifecycle/activity.service";
 
 export const PREVIEW_COOKIE = "spawner_preview";
 export const SHARE_COOKIE_PREFIX = "spawner_share_";
@@ -13,7 +14,6 @@ const PREVIEW_COOKIE_SECONDS = 12 * 3600;
 const PREVIEW_HEADER_SECONDS = 3600;
 const HOST_CACHE_MS = 30_000;
 const USER_CACHE_MS = 60_000;
-const ACTIVITY_WRITE_MS = 60_000;
 
 /** The original request, as Traefik describes it to forwardAuth. */
 export interface PreviewRequest {
@@ -52,12 +52,12 @@ export class PreviewsService implements OnModuleInit {
   private readonly logger = new Logger(PreviewsService.name);
   private readonly hosts = new Map<string, { environmentId: string | null; until: number }>();
   private readonly users = new Map<number, { active: boolean; until: number }>();
-  private readonly activity = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: SecretsService,
     private readonly config: SpawnerConfig,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -165,11 +165,7 @@ export class PreviewsService implements OnModuleInit {
   }
 
   private allow(environmentId: string): PreviewDecision {
-    const now = Date.now();
-    if (now - (this.activity.get(environmentId) ?? 0) > ACTIVITY_WRITE_MS) {
-      this.activity.set(environmentId, now);
-      void this.prisma.environment.update({ where: { id: environmentId }, data: { lastActivityAt: new Date(now) } }).catch(() => undefined);
-    }
+    this.activity.touch(environmentId);
     return { status: 200, environmentId };
   }
 

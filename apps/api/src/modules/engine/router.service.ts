@@ -5,6 +5,7 @@ import * as https from "https";
 import * as path from "path";
 import { stringify } from "yaml";
 import { DockerService } from "../../common/docker.service";
+import { SecretsService } from "../../common/secrets.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
@@ -25,9 +26,19 @@ export interface RoutedExposure {
  */
 const PREVIEW_MIDDLEWARES = ["spawner-preview-auth", "spawner-preview-strip"];
 
+/**
+ * Rewrites a request for a sleeping or stopped environment into one for
+ * Spawner's waiting page (Traefik keeps the original path in
+ * X-Replaced-Path).
+ */
+const WAKE_MIDDLEWARE = "spawner-wake";
+export const WAKE_PATH = "/api/v1/wake";
+
 /** Traefik applies a changed file within a couple of seconds. */
 const ROUTE_WAIT_MS = 15_000;
 const ROUTE_POLL_MS = 250;
+/** Header of the answers of Spawner's waiting page. */
+export const WAKE_HEADER = "x-spawner-wake";
 
 /**
  * Publishes environments through Traefik's file provider: one dynamic
@@ -43,6 +54,7 @@ export class RouterService implements OnModuleInit {
     private readonly config: SpawnerConfig,
     private readonly storage: StorageService,
     private readonly docker: DockerService,
+    private readonly secrets: SecretsService,
   ) {}
 
   onModuleInit() {
@@ -61,6 +73,7 @@ export class RouterService implements OnModuleInit {
               },
             },
             "spawner-preview-strip": { headers: { customRequestHeaders: { "X-Spawner-Preview": "" } } },
+            [WAKE_MIDDLEWARE]: { replacePath: { path: WAKE_PATH } },
           },
         },
       }),
@@ -96,14 +109,40 @@ export class RouterService implements OnModuleInit {
   }
 
   /**
-   * Waits until Traefik serves each host, so that an environment announced
-   * ready answers on its URLs. A host is not served yet while Traefik
-   * answers its own "404 page not found" for it.
+   * Routes the hosts of a sleeping or stopped environment to Spawner's
+   * waiting page, which wakes it up (team URLs) or says how to, and takes
+   * Traefik off its network. Team URLs keep their protection; the preview
+   * header is not removed, since it only reaches Spawner.
    */
-  async waitUntilServed(hosts: string[], log: (line: string) => void): Promise<void> {
+  async publishPlaceholder(environmentId: string, composeProject: string, exposures: RoutedExposure[]): Promise<void> {
+    const routers: Record<string, unknown> = {};
+    for (const exposure of exposures) {
+      const id = `${environmentId}-${exposure.name}`;
+      routers[id] = {
+        ...this.router(exposure.host, "spawner"),
+        middlewares: exposure.auth === "none" ? [WAKE_MIDDLEWARE] : ["spawner-preview-auth", WAKE_MIDDLEWARE],
+      };
+    }
+    this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers } }));
+    try {
+      await this.docker.disconnectNetwork(`${composeProject}_default`, this.config.traefikContainer);
+    } catch (error) {
+      this.logger.warn(`Could not disconnect Traefik from ${composeProject}_default: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Waits until Traefik serves each host from the environment's containers,
+   * so that an environment announced ready answers on its URLs. A host is
+   * not served yet while Traefik answers its own "404 page not found" for it,
+   * or while the answer still comes from Spawner's waiting page. The probe
+   * carries a preview token, so that protected URLs let it through.
+   */
+  async waitUntilServed(environmentId: string, hosts: string[], log: (line: string) => void): Promise<void> {
     const deadline = Date.now() + ROUTE_WAIT_MS;
+    const token = this.secrets.sign("preview-header", { exp: Math.floor(Date.now() / 1000) + 120, env: environmentId });
     for (const host of hosts) {
-      while (!(await this.isServed(host))) {
+      while (!(await this.isServed(host, token))) {
         if (Date.now() > deadline) {
           log(`Traefik does not serve ${host} yet; it should within seconds`);
           return;
@@ -125,7 +164,7 @@ export class RouterService implements OnModuleInit {
     }
   }
 
-  private isServed(host: string): Promise<boolean> {
+  private isServed(host: string, token: string): Promise<boolean> {
     const secure = this.config.tls !== "off";
     return new Promise((resolve) => {
       const request = (secure ? https : http).request(
@@ -133,7 +172,7 @@ export class RouterService implements OnModuleInit {
           host: this.config.traefikContainer,
           port: secure ? 443 : 80,
           path: "/",
-          headers: { host, accept: "application/json" },
+          headers: { host, accept: "application/json", "x-spawner-preview": token },
           servername: host,
           rejectUnauthorized: false,
           timeout: 2000,
@@ -141,7 +180,7 @@ export class RouterService implements OnModuleInit {
         (response) => {
           let body = "";
           response.on("data", (chunk) => (body += chunk));
-          response.on("end", () => resolve(!(response.statusCode === 404 && body.trim() === "404 page not found")));
+          response.on("end", () => resolve(!(response.statusCode === 404 && body.trim() === "404 page not found") && !response.headers[WAKE_HEADER]));
         },
       );
       // Without Traefik's name (Spawner started outside Docker) there is nothing to wait for.

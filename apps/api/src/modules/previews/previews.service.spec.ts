@@ -5,6 +5,7 @@ import { sessionActor } from "../../common/actor";
 import type { PrismaService } from "../../common/prisma.service";
 import { SecretsService, sha256 } from "../../common/secrets.service";
 import type { SpawnerConfig } from "../../common/spawner.config";
+import { ActivityService } from "../lifecycle/activity.service";
 import { PreviewsService, parseCookies, type PreviewRequest } from "./previews.service";
 
 const config = {
@@ -38,7 +39,7 @@ describe("PreviewsService", () => {
       shareLink: { findUnique: async ({ where }: { where: { tokenHash: string } }) => shares.find((share) => share.tokenHash === where.tokenHash) ?? null },
       environment: { update: async ({ where }: { where: { id: string } }) => activity.push(where.id) },
     };
-    service = new PreviewsService(prisma as unknown as PrismaService, secrets, config);
+    service = new PreviewsService(prisma as unknown as PrismaService, secrets, config, new ActivityService(prisma as unknown as PrismaService));
   });
 
   const request = (overrides: Partial<PreviewRequest> = {}): PreviewRequest => ({

@@ -10,8 +10,25 @@ function integer(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** A count where 0 means no limit. */
+function count(value: string | undefined, fallback: number): number {
+  const parsed = value === undefined ? NaN : parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/** Idle time before an environment sleeps; "never" or 0 turn sleeping off. */
+function idleSeconds(value: string | undefined): number {
+  if (value === "never" || value === "0") {
+    return 0;
+  }
+  return parseDuration(value || "2h") ?? 2 * 3600;
+}
+
 /**
- * Engine settings, read once from the environment at startup.
+ * Engine settings, read from the environment at startup. The limits an admin
+ * may change from the settings page (lifetimes, sleep, quotas, memory, build
+ * guards) start from the environment, then the settings table overrides them
+ * (LimitsService).
  */
 @Injectable()
 export class SpawnerConfig {
@@ -41,19 +58,26 @@ export class SpawnerConfig {
   readonly secret = process.env.SPAWNER_SECRET || null;
 
   readonly buildConcurrency = integer(process.env.SPAWNER_BUILD_CONCURRENCY, os.totalmem() < 8 * GiB ? 1 : 2);
-  readonly minFreeMemoryBytes = integer(process.env.MIN_REQUIRED_FREE_MEMORY_GB, 2) * GiB;
+  /** Memory a build needs available before it starts (0: no check). */
+  minFreeMemoryBytes = count(process.env.MIN_REQUIRED_FREE_MEMORY_GB, 2) * GiB;
+  /** Disk a build needs free before it starts (0: no check). */
+  minFreeDiskBytes = count(process.env.MIN_REQUIRED_FREE_DISK_GB, 10) * GiB;
   readonly memoryCheckEnabled = process.env.ENABLE_MEMORY_CHECK !== "false";
   readonly startTimeoutSeconds = integer(process.env.SPAWNER_START_TIMEOUT_SECONDS, 300);
   readonly jobTimeoutSeconds = integer(process.env.SPAWNER_JOB_TIMEOUT_SECONDS, 30 * 60);
 
-  readonly envTtlSeconds = parseDuration(process.env.SPAWNER_ENV_TTL || "72h") ?? 72 * 3600;
-  readonly envTtlMaxSeconds = parseDuration(process.env.SPAWNER_ENV_TTL_MAX || "14d") ?? 14 * 86400;
+  envTtlSeconds = parseDuration(process.env.SPAWNER_ENV_TTL || "72h") ?? 72 * 3600;
+  envTtlMaxSeconds = parseDuration(process.env.SPAWNER_ENV_TTL_MAX || "14d") ?? 14 * 86400;
+  /** Time without activity before an environment sleeps (0: never). */
+  envIdleSeconds = idleSeconds(process.env.SPAWNER_ENV_IDLE);
+  /** Live environments a person may own, sleeping ones included (0: no limit). */
+  envsPerUser = count(process.env.SPAWNER_ENVS_PER_USER, 5);
 
   readonly composeLimits: ComposeLimits = {
     ...DEFAULT_COMPOSE_LIMITS,
     envMemoryBytes: parseSize(process.env.SPAWNER_ENV_MEMORY || "") ?? DEFAULT_COMPOSE_LIMITS.envMemoryBytes,
   };
-  readonly envMemoryMaxBytes = parseSize(process.env.SPAWNER_ENV_MEMORY_MAX || "") ?? 4 * GiB;
+  envMemoryMaxBytes = parseSize(process.env.SPAWNER_ENV_MEMORY_MAX || "") ?? 4 * GiB;
 
   readonly uploadMaxBytes = parseSize(process.env.SPAWNER_UPLOAD_MAX || "100m") ?? 100 * 1024 ** 2;
   readonly uploadMaxFiles = integer(process.env.SPAWNER_UPLOAD_MAX_FILES, 50_000);

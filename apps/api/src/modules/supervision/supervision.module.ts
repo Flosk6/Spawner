@@ -88,12 +88,12 @@ export class SystemController {
 
   /**
    * How many more environments of each project fit: read by everyone, the
-   * CLI included (spawner capacity).
+   * CLI included (spawner capacity), within what the reader's quota leaves.
    */
   @Get("capacity")
   @Scopes("envs:read")
-  capacity() {
-    return this.usage.capacity();
+  capacity(@CurrentActor() actor: Actor) {
+    return this.usage.capacity(actor);
   }
 }
 
@@ -124,6 +124,6 @@ export class ProjectUsageController {
   imports: [EngineModule],
   controllers: [EnvironmentSupervisionController, SystemController, ProjectUsageController],
   providers: [MetricsCollector, DiskService, DockerEventsService, UsageService, RetentionService],
-  exports: [MetricsCollector, DiskService],
+  exports: [MetricsCollector, DiskService, UsageService],
 })
 export class SupervisionModule {}

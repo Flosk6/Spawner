@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { capacity, CAPACITY_RESERVES, median } from "@spawner/core";
+import type { Actor } from "../../common/actor";
+import { LimitReachedException } from "../../common/limit-reached";
 import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { TimelineService } from "../timeline/timeline.service";
@@ -193,21 +195,95 @@ export class UsageService {
    * host can hand out and its free disk, divided by what an environment of
    * the project typically uses.
    */
-  async capacity() {
+  /**
+   * How many more environments of each project fit; for a person, within
+   * what their quota leaves.
+   */
+  async capacity(actor?: Actor) {
     const host = this.collector.host()?.host ?? null;
     const projects = await this.prisma.project.findMany({ orderBy: { slug: "asc" } });
     const snapshot = await this.disk.latest();
     const typical = await this.typicalUsage(projects.map((project) => project.id), snapshot?.details.environments ?? {});
+    const quota = await this.quota(actor);
     return {
       host: host ? { availableMemoryBytes: host.memory.availableBytes, freeDiskBytes: host.disk.freeBytes, reserves: CAPACITY_RESERVES } : null,
+      quota,
       projects: projects.map((project) => {
         const cost = typical.get(project.id)!;
         const places = host
-          ? capacity({ availableMemoryBytes: host.memory.availableBytes, freeDiskBytes: host.disk.freeBytes, envMemoryBytes: cost.memoryBytes, envDiskBytes: cost.diskBytes })
+          ? capacity({
+              availableMemoryBytes: host.memory.availableBytes,
+              freeDiskBytes: host.disk.freeBytes,
+              envMemoryBytes: cost.memoryBytes,
+              envDiskBytes: cost.diskBytes,
+              quotaRemaining: quota?.remaining ?? null,
+            })
           : null;
         return { project: project.slug, name: project.name, ...cost, ...(places ?? { places: null }) };
       }),
     };
+  }
+
+  /**
+   * The environments a person may still create: their live environments,
+   * sleeping ones included, against the limit. Null without a user (the
+   * installation token) or without a limit.
+   */
+  async quota(actor?: Actor): Promise<{ limit: number; used: number; remaining: number } | null> {
+    const limit = this.config.envsPerUser;
+    if (!actor?.user || limit === 0) {
+      return null;
+    }
+    const used = await this.prisma.environment.count({ where: { ownerId: actor.user.id, deletedAt: null } });
+    return { limit, used, remaining: Math.max(0, limit - used) };
+  }
+
+  /**
+   * Refuses a new environment, or the start or wake-up of one, when the
+   * person's quota is used up (new ones only) or when the server lacks the
+   * memory (and, for a new one, the disk) of a typical environment of the
+   * project, its reserves kept. Without a sample of the host yet, nothing is
+   * refused.
+   *
+   * @throws LimitReachedException with the code "quota" or "capacity"
+   */
+  async ensureRoom(projectId: string, kind: "create" | "resume", actor?: Actor): Promise<void> {
+    if (kind === "create") {
+      const quota = await this.quota(actor);
+      if (quota && quota.remaining === 0) {
+        throw new LimitReachedException(
+          "quota",
+          `You have ${quota.used} environments, the most a person may have (sleeping ones included)`,
+          "delete one you no longer need (spawner ls, then spawner down <env>), or ask an admin to raise the limit",
+        );
+      }
+    }
+    const host = this.collector.host()?.host;
+    if (!host) {
+      return;
+    }
+    const snapshot = await this.disk.latest();
+    const cost = (await this.typicalUsage([projectId], snapshot?.details.environments ?? {})).get(projectId)!;
+    const room = capacity({
+      availableMemoryBytes: host.memory.availableBytes,
+      freeDiskBytes: kind === "create" ? host.disk.freeBytes : Number.MAX_SAFE_INTEGER,
+      envMemoryBytes: cost.memoryBytes,
+      envDiskBytes: cost.diskBytes,
+    });
+    if (room.byMemory < 1) {
+      throw new LimitReachedException(
+        "capacity",
+        `Not enough memory on the server: ${formatGiB(host.memory.availableBytes)} available, about ${formatGiB(cost.memoryBytes)} needed with ${formatGiB(CAPACITY_RESERVES.memoryBytes)} kept free`,
+        "put an environment to sleep or delete one (spawner ls), or try again later",
+      );
+    }
+    if (kind === "create" && room.byDisk < 1) {
+      throw new LimitReachedException(
+        "capacity",
+        `Not enough disk on the server: ${formatGiB(host.disk.freeBytes)} free, about ${formatGiB(cost.diskBytes)} needed with ${formatGiB(CAPACITY_RESERVES.diskBytes)} kept free`,
+        "delete environments you no longer need, or ask an admin to clean up the server",
+      );
+    }
   }
 
   /**

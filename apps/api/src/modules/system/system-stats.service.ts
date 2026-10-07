@@ -27,10 +27,17 @@ export interface MemoryCheckResult {
   };
 }
 
+/** What a disk guard found. */
+export interface DiskCheckResult {
+  available: boolean;
+  message: string;
+  freeBytes: number;
+}
+
 /**
- * The memory guard of builds: a build waits until enough memory is
- * available. Available means what the kernel can hand out (MemAvailable on
- * Linux, page cache included), not only the free pages.
+ * The guards of builds: a build waits until enough memory is available and
+ * enough disk is free. Available memory is what the kernel can hand out
+ * (MemAvailable on Linux, page cache included), not only the free pages.
  */
 @Injectable()
 export class SystemStatsService {
@@ -96,6 +103,25 @@ export class SystemStatsService {
         minRequiredGB,
       },
     };
+  }
+
+  /**
+   * Checks that the disk holding a directory has enough free space (for an
+   * unprivileged user, as statfs reports it).
+   */
+  checkDiskAvailability(directory: string, minFreeBytes: number): DiskCheckResult {
+    let freeBytes: number;
+    try {
+      const stats = fs.statfsSync(directory);
+      freeBytes = stats.bavail * stats.bsize;
+    } catch {
+      return { available: true, message: "Disk check skipped: the data directory cannot be measured", freeBytes: 0 };
+    }
+    const freeGB = bytesToGB(freeBytes).toFixed(1);
+    const requiredGB = bytesToGB(minFreeBytes).toFixed(1);
+    return freeBytes >= minFreeBytes
+      ? { available: true, message: `Disk check passed: ${freeGB}GB free (${requiredGB}GB required)`, freeBytes }
+      : { available: false, message: `Insufficient disk: ${freeGB}GB free, ${requiredGB}GB required`, freeBytes };
   }
 
   getCpuInfo() {

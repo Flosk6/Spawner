@@ -11,6 +11,7 @@ import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
 import { WsTicketsService } from "../auth/ws-tickets.service";
 import { TerminalSessionsService, type TerminalEndReason, type TerminalRecorder } from "./terminal-sessions.service";
+import { ActivityService } from "../lifecycle/activity.service";
 
 const MAX_TERMINALS_PER_USER = 3;
 const MAX_INPUT_LENGTH = 4096;
@@ -64,6 +65,7 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
     private readonly config: SpawnerConfig,
     private readonly audit: AuditService,
     private readonly recordings: TerminalSessionsService,
+    private readonly activity: ActivityService,
   ) {
     this.limits = setInterval(() => this.enforceLimits(), LIMITS_CHECK_MS);
     this.limits.unref();
@@ -179,6 +181,7 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
       this.close(sessionId, "closed");
       const label = `${environment.project.slug}/${environment.slug}`;
       const recorder = await this.recordings.open(actor, { id: environment.id, label }, data.resourceName);
+      this.activity.touch(environment.id);
       const now = Date.now();
       this.sessions.set(sessionId, {
         environmentId: environment.id,

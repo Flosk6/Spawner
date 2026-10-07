@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type Environment, type EnvironmentSource, type Exposure, type Job, type Project, type User } from "@prisma/client";
-import { ErrorLineFilter, matchesGrep, parseDuration, slugIssue } from "@spawner/core";
+import { ErrorLineFilter, matchesGrep, parseDuration, slugIssue, type Manifest } from "@spawner/core";
 import { sanitizeGitBranch } from "@spawner/utils";
 import type Docker from "dockerode";
 import { assertCanAct, assertInProject, describeActor, type Actor } from "../../common/actor";
@@ -12,7 +12,10 @@ import type { DeployPayload, SourceRequest } from "../engine/pipeline.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
 import { LogArchiveService } from "../engine/log-archive.service";
+import { ActivityService } from "../lifecycle/activity.service";
+import { idleSecondsOf } from "../lifecycle/lifecycle.service";
 import { MetricsCollector } from "../supervision/metrics-collector.service";
+import { UsageService } from "../supervision/usage.service";
 import { TimelineService } from "../timeline/timeline.service";
 
 const EXEC_DEFAULT_SECONDS = 120;
@@ -127,6 +130,8 @@ export class EnvironmentsService {
     private readonly audit: AuditService,
     private readonly archives: LogArchiveService,
     private readonly timeline: TimelineService,
+    private readonly usage: UsageService,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -183,6 +188,7 @@ export class EnvironmentsService {
       throw new NotFoundException(`project "${input.project}" not found`);
     }
     assertInProject(actor, project.id);
+    await this.usage.ensureRoom(project.id, "create", actor);
 
     let environment: Environment;
     try {
@@ -221,6 +227,7 @@ export class EnvironmentsService {
     this.ensureNotDeleting(environment);
     const expiresAt = new Date(Date.now() + seconds * 1000);
     await this.prisma.environment.update({ where: { id: environment.id }, data: { expiresAt } });
+    this.activity.touch(environment.id);
     await this.audit.record(actor, "env.extend", { target: this.label(environment), details: { ttlSeconds: seconds } });
     await this.timeline.record(environment.id, "extended", `Expiry postponed to ${expiresAt.toISOString()} by ${describeActor(actor)}`, { details: { expiresAt } });
     return this.get(actor, environment.id);
@@ -248,15 +255,38 @@ export class EnvironmentsService {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:write", environment);
     this.ensureNotDeleting(environment);
+    this.activity.touch(environment.id);
     const job = await this.queue.enqueue(environment.id, "update", this.payload(request), actor.user?.id ?? null, describeActor(actor));
     await this.audit.record(actor, "env.update", { target: this.label(environment), details: { ...this.auditSources(request), fresh: request.fresh, reseed: request.reseed } });
     return { environment: await this.get(actor, environment.id), job: this.presentJob(job) };
   }
 
-  async enqueue(actor: Actor, id: string, type: Extract<JobType, "delete" | "stop" | "start">) {
+  /**
+   * Queues a stop, start, sleep, wake-up or deletion. Starting or waking
+   * needs the memory of a typical environment of the project; putting to
+   * sleep an environment already asleep, or waking one already awake, does
+   * nothing (job: null).
+   */
+  async enqueue(actor: Actor, id: string, type: Extract<JobType, "delete" | "stop" | "start" | "sleep" | "wake">) {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:write", environment);
     this.ensureNotDeleting(environment);
+    const pending = environment.jobs[0] && ["queued", "running"].includes(environment.jobs[0].status) ? environment.jobs[0] : null;
+    if (type === "wake" || type === "sleep") {
+      const target = type === "wake" ? "ready" : "sleeping";
+      const already = pending ? pending.type === type : type === "wake" ? ["ready", "degraded"].includes(environment.status) : environment.status === "sleeping";
+      if (already) {
+        return { environment: this.present(environment), job: pending ? this.presentJob(pending) : null };
+      }
+      const from = type === "wake" ? ["sleeping"] : ["ready", "degraded"];
+      if (!pending && !from.includes(environment.status)) {
+        throw new ConflictException(`${environment.slug} is ${environment.status}: only a ${from.join(" or ")} environment can become ${target}`);
+      }
+    }
+    if (type === "wake" || type === "start") {
+      await this.usage.ensureRoom(environment.projectId, "resume", actor);
+      this.activity.touch(environment.id);
+    }
     const job = await this.queue.enqueue(environment.id, type, null, actor.user?.id ?? null, describeActor(actor));
     await this.audit.record(actor, `env.${type}`, { target: this.label(environment) });
     return { environment: this.present(environment), job: this.presentJob(job) };
@@ -276,6 +306,7 @@ export class EnvironmentsService {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:exec", environment);
     const container = await this.runningContainer(environment, body.service);
+    this.activity.touch(environment.id);
     const command = (body.argv as string[]).join(" ");
     await this.audit.record(actor, "env.exec", {
       target: this.label(environment),
@@ -310,7 +341,11 @@ export class EnvironmentsService {
    * the last that match the filters among the lines read.
    */
   async logLines(actor: Actor, id: string, query: LogQuery): Promise<{ lines: LogLine[] }> {
-    const snapshot = await this.logSnapshot(await this.find(actor, id, { deleted: true }), query);
+    const environment = await this.find(actor, id, { deleted: true });
+    const snapshot = await this.logSnapshot(environment, query);
+    if (!environment.deletedAt) {
+      this.activity.touch(environment.id);
+    }
     return { lines: snapshot.lines };
   }
 
@@ -329,7 +364,11 @@ export class EnvironmentsService {
     query: LogQuery,
   ): Promise<(send: (line: LogLine) => void, onEnd: () => void) => Promise<() => void>> {
     const startedAt = Math.floor(Date.now() / 1000) - 1;
-    const snapshot = await this.logSnapshot(await this.find(actor, id, { deleted: true }), query);
+    const environment = await this.find(actor, id, { deleted: true });
+    const snapshot = await this.logSnapshot(environment, query);
+    if (!environment.deletedAt) {
+      this.activity.touch(environment.id);
+    }
     return (send, onEnd) => this.follow(snapshot, startedAt, send, onEnd);
   }
 
@@ -612,6 +651,17 @@ export class EnvironmentsService {
     };
   }
 
+  /**
+   * How long the environment stays awake without activity, and when it goes
+   * to sleep if nothing happens before.
+   */
+  private sleep(environment: EnvironmentWithRelations): { idleSeconds: number; sleepsAt: Date | null } {
+    const idleSeconds = idleSecondsOf(environment.manifest as Pick<Manifest, "idle"> | null, this.config.envIdleSeconds);
+    const awake = ["ready", "degraded"].includes(environment.status) && !environment.deletedAt;
+    const since = environment.lastActivityAt ?? environment.updatedAt;
+    return { idleSeconds, sleepsAt: awake && idleSeconds > 0 ? new Date(since.getTime() + idleSeconds * 1000) : null };
+  }
+
   private present(environment: EnvironmentWithRelations) {
     const urls = Object.fromEntries(environment.exposures.map((exposure) => [exposure.name, `${this.config.scheme}://${exposure.host}`]));
     const entrypoint = environment.exposures.find((exposure) => exposure.entrypoint);
@@ -646,10 +696,12 @@ export class EnvironmentsService {
         commit: source.commit,
         digest: source.digest,
         sizeBytes: source.sizeBytes === null ? null : Number(source.sizeBytes),
+        onDisk: source.onDisk,
       })),
       lastJob: environment.jobs[0] ? this.presentJob(environment.jobs[0]) : null,
       expiresAt: environment.expiresAt,
       lastActivityAt: environment.lastActivityAt,
+      ...this.sleep(environment),
       usage: now ? { cpuPercent: now.cpuPercent, memoryBytes: now.memoryBytes, memoryLimitBytes: now.memoryLimitBytes, at: now.at } : null,
       createdAt: environment.createdAt,
       updatedAt: environment.updatedAt,

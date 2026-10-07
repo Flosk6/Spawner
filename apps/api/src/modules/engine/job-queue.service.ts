@@ -6,15 +6,16 @@ import { JobLogsService } from "./job-logs.service";
 import { PipelineError, PipelineService } from "./pipeline.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 
-export type JobType = "create" | "update" | "delete" | "stop" | "start";
+export type JobType = "create" | "update" | "delete" | "stop" | "start" | "sleep" | "wake";
 
 const HEAVY_JOBS: JobType[] = ["create", "update"];
-const LIGHT_JOBS: JobType[] = ["delete", "stop", "start"];
+const LIGHT_JOBS: JobType[] = ["delete", "stop", "start", "sleep", "wake"];
 const LIGHT_CONCURRENCY = 4;
-const TRANSITIONAL_STATUSES = ["queued", "preparing", "validating", "building", "seeding", "routing", "deleting", "stopping", "starting"];
+/** Statuses an environment has only while one of its jobs runs. */
+export const TRANSITIONAL_STATUSES = ["queued", "preparing", "validating", "building", "seeding", "routing", "deleting", "stopping", "starting", "waking"];
 /** Job logs kept for each environment, the newest. */
 const KEPT_JOB_LOGS = 5;
-const JOB_NAMES: Record<string, string> = { create: "Creation", update: "Update", delete: "Deletion", stop: "Stop", start: "Start" };
+const JOB_NAMES: Record<string, string> = { create: "Creation", update: "Update", delete: "Deletion", stop: "Stop", start: "Start", sleep: "Sleep", wake: "Wake-up" };
 
 /**
  * Job queue stored in the jobs table. A job is claimed with

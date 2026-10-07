@@ -119,6 +119,27 @@ export class EnvironmentsController {
   }
 
   /**
+   * Puts the environment to sleep now: its containers stop, its data stays,
+   * and the next visit to one of its URLs wakes it up.
+   */
+  @Post(":id/sleep")
+  @Scopes("envs:write")
+  @HttpCode(202)
+  sleep(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.enqueue(actor, id, "sleep");
+  }
+
+  /**
+   * Wakes a sleeping environment up; job is null when it is already awake.
+   */
+  @Post(":id/wake")
+  @Scopes("envs:write")
+  @HttpCode(202)
+  wake(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.environments.enqueue(actor, id, "wake");
+  }
+
+  /**
    * Postpones the expiry: { "ttl": "24h" } makes the environment expire 24
    * hours from now.
    */

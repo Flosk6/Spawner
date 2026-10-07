@@ -133,6 +133,17 @@ export class GitMirrorService {
   }
 
   /**
+   * Removes the mirror of a repository that nothing uses any more, once no
+   * checkout of it runs.
+   */
+  async removeMirror(mirror: string): Promise<void> {
+    if (path.dirname(path.resolve(mirror)) !== path.resolve(this.storage.mirrorsDir)) {
+      throw new Error(`${mirror} is not a mirror`);
+    }
+    await this.locks.run(mirror, () => this.storage.removeTree(mirror));
+  }
+
+  /**
    * Lists the branches of a repository without cloning it.
    */
   async listBranches(repoUrl: string): Promise<string[]> {

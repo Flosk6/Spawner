@@ -154,6 +154,8 @@ model Project {
   rootDir      String            @default(".") @map("root_dir") @db.VarChar
   /// Exposures may be public (auth: none in spawner.yaml) only when an admin allows it.
   allowPublic  Boolean           @default(false) @map("allow_public")
+  /// Environments may never sleep (idle: never in spawner.yaml) only when an admin allows it.
+  allowAlwaysOn Boolean          @default(false) @map("allow_always_on")
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   environments Environment[]
@@ -195,7 +197,9 @@ model Environment {
   tokenName      String?             @map("token_name") @db.VarChar(40)
   manifest       Json?
   expiresAt      DateTime?           @map("expires_at") @db.Timestamptz(6)
-  /// Last request let through to one of its URLs.
+  /// Last request let through to one of its URLs, or last action on it
+  /// (deploy, start, wake, command, logs, terminal): it sleeps when this is
+  /// older than its idle time.
   lastActivityAt DateTime?           @map("last_activity_at") @db.Timestamptz(6)
   createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -243,6 +247,9 @@ model EnvironmentSource {
   commit        String?     @db.VarChar(64)
   digest        String?     @db.VarChar(64)
   sizeBytes     BigInt?     @map("size_bytes")
+  /// False once the code was removed after a successful build: it is only
+  /// needed to build, unless a service mounts it.
+  onDisk        Boolean     @default(true) @map("on_disk")
   updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
   environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
 
@@ -265,9 +272,9 @@ model Exposure {
   @@map("exposures")
 }
 
-/// An operation on an environment (create, update, stop, start, delete,
-/// reseed). The queue lives in this table; one job runs per environment at
-/// a time.
+/// An operation on an environment (create, update, stop, start, sleep, wake,
+/// delete). The queue lives in this table; one job runs per environment at a
+/// time.
 model Job {
   id            String      @id @default(cuid())
   environmentId String      @map("environment_id")

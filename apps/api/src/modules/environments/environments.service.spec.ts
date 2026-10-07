@@ -9,6 +9,8 @@ import type { AuditService } from "../audit/audit.service";
 import type { JobQueueService } from "../engine/job-queue.service";
 import type { LogArchiveService } from "../engine/log-archive.service";
 import type { MetricsCollector } from "../supervision/metrics-collector.service";
+import type { ActivityService } from "../lifecycle/activity.service";
+import type { UsageService } from "../supervision/usage.service";
 import type { TimelineService } from "../timeline/timeline.service";
 import { EnvironmentsService, type LogLine } from "./environments.service";
 
@@ -82,6 +84,8 @@ describe("EnvironmentsService", () => {
       audit as unknown as AuditService,
       { read: () => archived } as unknown as LogArchiveService,
       timeline as unknown as TimelineService,
+      { ensureRoom: async () => undefined } as unknown as UsageService,
+      { touch: () => undefined } as unknown as ActivityService,
     );
   });
 

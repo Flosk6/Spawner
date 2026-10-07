@@ -3,8 +3,10 @@ import type { Job, Prisma } from "@prisma/client";
 import * as fs from "fs";
 import * as path from "path";
 import {
+  alwaysOnIssues,
   buildVariables,
   composeProjectName,
+  dockerfileLayerWarnings,
   formatIssue,
   MANIFEST_PATH,
   parseManifest,
@@ -53,7 +55,7 @@ export interface DeployPayload {
   ttlSeconds?: number;
 }
 
-export type JobPhase = "preparing" | "validating" | "building" | "seeding" | "routing" | "deleting" | "stopping" | "starting";
+export type JobPhase = "preparing" | "validating" | "building" | "seeding" | "routing" | "deleting" | "stopping" | "starting" | "sleeping" | "waking";
 
 /**
  * Why a job failed, for machines (the CLI turns it into an exit code):
@@ -97,6 +99,11 @@ interface SourceRecord {
 type Log = (line: string) => void;
 
 const SEED_TIMEOUT_MS = 10 * 60 * 1000;
+/** How long a build waits for memory or disk before giving up. */
+const GUARD_WAIT_MS = 2 * 60 * 1000;
+const GUARD_POLL_MS = 5000;
+/** Largest Dockerfile read to look at the order of its layers. */
+const DOCKERFILE_MAX_BYTES = 256 * 1024;
 /** Secret values shorter than this are not masked: they would hide common words. */
 const MASKED_MIN_LENGTH = 4;
 
@@ -147,6 +154,10 @@ export class PipelineService {
         return this.stop(job, log);
       case "start":
         return this.start(job, log);
+      case "sleep":
+        return this.sleep(job, log);
+      case "wake":
+        return this.wake(job, log);
       default:
         throw new PipelineError("preparing", `unknown job type "${job.type}"`);
     }
@@ -176,7 +187,7 @@ export class PipelineService {
 
     try {
       await this.setStatus(env.id, "preparing");
-      this.checkMemory(log);
+      await this.checkBuildGuards(log);
 
       const primaryDir = this.storage.sourceDir(env.id, PRIMARY_DIR);
       const primary = await this.prepareSource(
@@ -185,7 +196,7 @@ export class PipelineService {
       );
       const projectRoot = this.projectRoot(primaryDir, env.project.rootDir);
       const manifest = this.readManifest(projectRoot, env.project.slug, log);
-      this.rejectIfIssues(publicExposureIssues(manifest, env.project.allowPublic), "spawner.yaml", log);
+      this.rejectIfIssues([...publicExposureIssues(manifest, env.project.allowPublic), ...alwaysOnIssues(manifest, env.project.allowAlwaysOn)], "spawner.yaml", log);
 
       const undeclared = Object.keys(payload.sources ?? {}).filter((name) => !(name in manifest.sources));
       if (undeclared.length > 0) {
@@ -232,6 +243,7 @@ export class PipelineService {
         },
       });
       this.rejectIfIssues(prepared.issues, "compose file", log);
+      this.warnAboutLayers(prepared.document ?? {}, log);
 
       const renderedPath = this.storage.renderedComposePath(env.id);
       this.storage.writeAtomic(renderedPath, prepared.yaml as string);
@@ -243,6 +255,7 @@ export class PipelineService {
       await this.saveExposures(env.id, exposures);
 
       await this.setStatus(env.id, "building");
+      const previousImages = isCreate ? [] : await this.imagesOf(env.id);
       if (!isCreate && payload.fresh) {
         log("Removing containers and volumes before redeploying (--fresh)");
         await this.compose.down(projectName, renderedPath, log);
@@ -268,11 +281,19 @@ export class PipelineService {
       } catch (error) {
         throw new PipelineError("routing", (error as Error).message);
       }
-      await this.router.waitUntilServed(exposures.map((exposure) => exposure.host), log);
+      await this.router.waitUntilServed(env.id, exposures.map((exposure) => exposure.host), log);
 
+      await this.removeReplacedImages(env.id, projectName, previousImages, log);
+      await this.dropBuildSources(env.id, records, prepared.runtimeSources, manifest.name, log);
       await this.prisma.environment.update({
         where: { id: env.id },
-        data: { status: "ready", phase: null, error: null, expiresAt: this.expiry(env.expiresAt, payload.ttlSeconds ?? null, manifest) },
+        data: {
+          status: "ready",
+          phase: null,
+          error: null,
+          expiresAt: this.expiry(env.expiresAt, payload.ttlSeconds ?? null, manifest),
+          lastActivityAt: new Date(),
+        },
       });
       exposures.forEach((exposure) => log(`Ready: ${exposure.name} ${this.config.scheme}://${exposure.host}`));
     } catch (error) {
@@ -321,12 +342,16 @@ export class PipelineService {
     }
   }
 
+  /**
+   * Stops an environment until someone starts it again. Its URLs then lead
+   * to a page that says so.
+   */
   private async stop(job: Job, log: Log): Promise<void> {
     const env = await this.environment(job.environmentId);
     const projectName = composeProjectName(env.project.slug, env.slug);
     try {
       await this.setStatus(env.id, "stopping");
-      await this.router.unpublish(env.id, projectName);
+      await this.router.publishPlaceholder(env.id, projectName, env.exposures);
       await this.compose.stop(projectName, this.storage.renderedComposePath(env.id), log);
       await this.prisma.environment.update({ where: { id: env.id }, data: { status: "stopped", phase: null, error: null } });
     } catch (error) {
@@ -336,16 +361,56 @@ export class PipelineService {
   }
 
   private async start(job: Job, log: Log): Promise<void> {
+    await this.resume(job, log, "starting");
+  }
+
+  /**
+   * Puts an environment to sleep: its containers stop, its volumes and
+   * images stay, and its URLs lead to a page that wakes it up. The status is
+   * "sleeping" from the start, so that a visit during the job queues a
+   * wake-up after it.
+   */
+  private async sleep(job: Job, log: Log): Promise<void> {
     const env = await this.environment(job.environmentId);
     const projectName = composeProjectName(env.project.slug, env.slug);
     try {
-      await this.setStatus(env.id, "starting");
-      await this.compose.start(projectName, this.storage.renderedComposePath(env.id), log);
-      await this.router.publish(env.id, projectName, env.exposures);
-      await this.router.waitUntilServed(env.exposures.map((exposure) => exposure.host), log);
-      await this.prisma.environment.update({ where: { id: env.id }, data: { status: "ready", phase: null, error: null } });
+      await this.setStatus(env.id, "sleeping");
+      await this.router.publishPlaceholder(env.id, projectName, env.exposures);
+      await this.compose.stop(projectName, this.storage.renderedComposePath(env.id), log);
+      log("Asleep: the next visit to one of its URLs wakes it up");
     } catch (error) {
-      await this.fail(env.id, error, "starting");
+      await this.fail(env.id, error, "sleeping");
+      throw error;
+    }
+  }
+
+  private async wake(job: Job, log: Log): Promise<void> {
+    await this.resume(job, log, "waking");
+  }
+
+  /**
+   * Starts the containers of a stopped or sleeping environment again (they
+   * are recreated from their images if someone removed them), then routes
+   * its URLs back to them.
+   */
+  private async resume(job: Job, log: Log, status: "starting" | "waking"): Promise<void> {
+    const env = await this.environment(job.environmentId);
+    const projectName = composeProjectName(env.project.slug, env.slug);
+    const file = this.storage.renderedComposePath(env.id);
+    try {
+      await this.setStatus(env.id, status);
+      const containers = await this.docker.listEnvironmentContainers(env.id);
+      if (containers.length > 0) {
+        await this.compose.start(projectName, file, log);
+      } else {
+        log("Its containers are gone: recreating them from their images");
+        await this.compose.upWithoutBuild(projectName, file, log);
+      }
+      await this.router.publish(env.id, projectName, env.exposures);
+      await this.router.waitUntilServed(env.id, env.exposures.map((exposure) => exposure.host), log);
+      await this.prisma.environment.update({ where: { id: env.id }, data: { status: "ready", phase: null, error: null, lastActivityAt: new Date() } });
+    } catch (error) {
+      await this.fail(env.id, error, status);
       throw error;
     }
   }
@@ -462,14 +527,117 @@ export class PipelineService {
     }
   }
 
-  private checkMemory(log: Log): void {
-    if (!this.config.memoryCheckEnabled) {
+  /**
+   * The guards of a build: enough memory available and enough disk free. A
+   * build waits up to two minutes for another one to end and give memory
+   * back, then gives up.
+   */
+  private async checkBuildGuards(log: Log): Promise<void> {
+    const deadline = Date.now() + GUARD_WAIT_MS;
+    let waiting = false;
+    for (;;) {
+      const memory = this.config.memoryCheckEnabled ? this.systemStats.checkMemoryAvailability(this.config.minFreeMemoryBytes) : null;
+      const disk = this.systemStats.checkDiskAvailability(this.config.dataDir, this.config.minFreeDiskBytes);
+      const failing = [memory, disk].filter((check) => check && !check.available).map((check) => check!.message);
+      if (failing.length === 0) {
+        [memory, disk].forEach((check) => check && log(check.message));
+        return;
+      }
+      if (Date.now() > deadline) {
+        throw new PipelineError("preparing", failing.join("; "), [], "capacity");
+      }
+      if (!waiting) {
+        failing.forEach((message) => log(`${message}: waiting up to ${GUARD_WAIT_MS / 60000} minutes`));
+        waiting = true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, GUARD_POLL_MS));
+    }
+  }
+
+  /**
+   * Warns about Dockerfiles that copy the whole code before installing
+   * their dependencies: environments could share that layer.
+   */
+  private warnAboutLayers(document: Record<string, unknown>, log: Log): void {
+    const services = (document.services ?? {}) as Record<string, { build?: { context?: string; dockerfile?: string } }>;
+    for (const [name, service] of Object.entries(services)) {
+      if (!service.build?.context) {
+        continue;
+      }
+      const dockerfile = service.build.dockerfile ?? path.join(service.build.context, "Dockerfile");
+      let text: string;
+      try {
+        if (fs.statSync(dockerfile).size > DOCKERFILE_MAX_BYTES) {
+          continue;
+        }
+        text = fs.readFileSync(dockerfile, "utf8");
+      } catch {
+        continue;
+      }
+      for (const warning of dockerfileLayerWarnings(text)) {
+        log(`Warning (${name}): ${warning.message}`);
+        log(`  ${warning.hint}`);
+      }
+    }
+  }
+
+  /** Images the containers of an environment run, before a rebuild. */
+  private async imagesOf(environmentId: string): Promise<string[]> {
+    const containers = await this.docker.listEnvironmentContainers(environmentId).catch(() => []);
+    return [...new Set(containers.map((container) => container.ImageID))];
+  }
+
+  /**
+   * Removes the images of the previous build that an update replaced, so
+   * that old builds do not pile up. Only images Spawner built for this
+   * environment go (pulled images, such as a database's, stay), and only
+   * when no container runs them.
+   */
+  private async removeReplacedImages(environmentId: string, composeProject: string, previous: string[], log: Log): Promise<void> {
+    if (previous.length === 0) {
       return;
     }
-    const check = this.systemStats.checkMemoryAvailability(this.config.minFreeMemoryBytes);
-    log(check.message);
-    if (!check.available) {
-      throw new PipelineError("preparing", check.message, [], "capacity");
+    const current = new Set(await this.imagesOf(environmentId));
+    for (const image of previous.filter((id) => !current.has(id))) {
+      try {
+        const info = await this.docker.client.getImage(image).inspect();
+        const labels = info.Config?.Labels ?? {};
+        if (labels["dev.spawner.env"] !== environmentId && labels["com.docker.compose.project"] !== composeProject) {
+          continue;
+        }
+        await this.docker.client.getImage(image).remove();
+        log(`Removed the image of the previous build (${Math.round((info.Size ?? 0) / 1024 / 1024)} MiB)`);
+      } catch {
+        // Still used elsewhere, or already gone.
+      }
+    }
+  }
+
+  /**
+   * Removes the code of the sources the environment no longer needs: it was
+   * only needed to build. A source mounted into a service, or holding an
+   * env_file, stays. Any rebuild checks out or receives the sources again.
+   */
+  private async dropBuildSources(environmentId: string, records: SourceRecord[], runtimeSources: string[], primaryName: string, log: Log): Promise<void> {
+    const dropped: string[] = [];
+    for (const record of records) {
+      if (runtimeSources.includes(record.name)) {
+        continue;
+      }
+      try {
+        if (record.origin === "git") {
+          await this.git.removeWorktree(record.repoUrl, record.dir);
+        } else {
+          await this.storage.removeTree(record.dir);
+        }
+        await this.prisma.environmentSource.updateMany({ where: { environmentId, name: record.name }, data: { onDisk: false } });
+        dropped.push(record.name === primaryName ? `${record.name} (this repository)` : record.name);
+      } catch (error) {
+        log(`The code of ${record.name} could not be removed: ${(error as Error).message}`);
+      }
+    }
+    if (dropped.length > 0) {
+      log(`Removed the code of ${dropped.join(", ")}: only the build needed it`);
     }
   }
 
@@ -519,11 +687,22 @@ export class PipelineService {
     await this.prisma.environment.update({ where: { id: environmentId }, data: { status, phase: null, error: null } });
   }
 
+  /**
+   * Marks an environment failed with the phase and the reason. One that
+   * never had an expiry gets one, so that a failed creation does not stay
+   * forever.
+   */
   private async fail(environmentId: string, error: unknown, defaultPhase: JobPhase): Promise<void> {
     const phase = error instanceof PipelineError ? error.phase : defaultPhase;
+    const current = await this.prisma.environment.findUnique({ where: { id: environmentId }, select: { expiresAt: true } });
     await this.prisma.environment.update({
       where: { id: environmentId },
-      data: { status: "failed", phase, error: ((error as Error).message ?? String(error)).slice(0, 4000) },
+      data: {
+        status: "failed",
+        phase,
+        error: ((error as Error).message ?? String(error)).slice(0, 4000),
+        ...(current?.expiresAt ? {} : { expiresAt: new Date(Date.now() + this.config.envTtlSeconds * 1000) }),
+      },
     });
   }
 
