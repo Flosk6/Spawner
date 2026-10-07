@@ -2,7 +2,7 @@
 
 > Preview environments for every branch, on your own server, for your team and its coding agents.
 >
-> **License:** AGPL-3.0 | **Copyright © 2025 Florian-mfr**
+> **License:** AGPL-3.0 | **Copyright © 2025 Flosk6**
 
 Spawner runs a copy of your application for each branch, with its own URLs, database and logs, on a server you own. Developers, reviewers and coding agents create one in seconds from a branch or straight from a worktree, uncommitted changes included, then open it, run commands in it, read its logs, share it, and delete it. Environments nobody uses go to sleep, and many fit on one server.
 
@@ -139,4 +139,4 @@ Every subdomain of `localtest.me` resolves to 127.0.0.1. Over plain HTTP, browse
 
 **AGPL-3.0**: free to use, modify and distribute. If you run a modified Spawner as a service for others, you must share your source code with its users.
 
-**Copyright © 2025 Florian-mfr**. See [LICENSE](LICENSE). A commercial license is available for proprietary use.
+**Copyright © 2025 Flosk6**. See [LICENSE](LICENSE). A commercial license is available for proprietary use.
