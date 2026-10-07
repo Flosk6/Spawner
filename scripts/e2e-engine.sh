@@ -22,7 +22,12 @@
 # stats, shell (in a pseudo-terminal), a share link, a compose file refused
 # before upload (exit 7); then
 # scripts/e2e/mcp.mjs drives `spawner mcp` (status, url, exec, logs with
-# errors_only, up with progress, down), and nothing may be left.
+# errors_only, up with progress, down), and nothing may be left. Along the
+# way, the supervision: project variables (a secret masked in the job log),
+# the timeline, the recorded terminal session, three out-of-memory kills
+# named by the timeline, spawner status and the system alerts, metrics,
+# disk and capacity; and the deleted environment keeps its page, timeline
+# and last logs.
 #
 # Then, with scripts/e2e-fixtures/bind-mount, a service that mounts files of
 # its source and writes into it as root: an update must reach the mounted
@@ -265,7 +270,12 @@ git -C "$AGENT_REPO" init -q -b main
 git -C "$AGENT_REPO" add -A
 git -C "$AGENT_REPO" -c user.name=e2e -c user.email=e2e@example.com -c commit.gpgsign=false commit -q -m "example"
 git -C "$AGENT_REPO" worktree add -q -b feat/cli-demo "$WORKTREE"
-sed -i.bak "s/Hello from Spawner/Hello from the worktree/" "$WORKTREE/server.js" && rm "$WORKTREE/server.js.bak"
+# Uncommitted changes: the greeting and a secret come from project variables.
+sed -i.bak "s/const GREETING = 'Hello from Spawner';/const GREETING = process.env.GREETING;/" "$WORKTREE/server.js" && rm "$WORKTREE/server.js.bak"
+node -e "const fs = require('fs'); const f = process.argv[1]; fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('      ENV_NAME: \${SPAWNER_ENV}\n', '      ENV_NAME: \${SPAWNER_ENV}\n      GREETING: \${GREETING}\n      SECRET_TOKEN: \${SECRET_TOKEN}\n'))" "$WORKTREE/.spawner/compose.yaml"
+sed -i.bak "s/  console.log('seeded 1 user');/  console.log('seeded 1 user, token', process.env.SECRET_TOKEN);/" "$WORKTREE/seed.js" && rm "$WORKTREE/seed.js.bak"
+api PUT /projects/agent/variables/GREETING -H 'Content-Type: application/json' -d '{"value":"Hello from a project variable"}' >/dev/null
+api PUT /projects/agent/variables/SECRET_TOKEN -H 'Content-Type: application/json' -d '{"value":"s3cr3t-token-value","secret":true}' >/dev/null
 cd "$WORKTREE"
 
 up_json=$(spawner up --wait --json) || fail "spawner up failed: $up_json"
@@ -280,10 +290,12 @@ url_json=$(spawner url --with-token --json)
 agent_host=$(echo "$url_json" | json 'new URL(v.url).host')
 PREVIEW_TOKEN=$(echo "$url_json" | json 'v.header.value')
 page=$(preview "$agent_host")
-[[ "$page" == *"Hello from the worktree"* ]] || fail "the uncommitted change is not deployed: $page"
+[[ "$page" == *"Hello from a project variable"* ]] || fail "the uncommitted change, with its project variable, is not deployed: $page"
 [[ "$page" == *"1 user(s)"* ]] || fail "the seed did not run: $page"
 [ "$(status "$agent_host" -H 'Accept: application/json')" = "401" ] || fail "the URL should need a token"
-pass "the protected URL serves the uncommitted change, with the token of spawner url"
+job_log=$(spawner logs "$agent_env" --job)
+[[ "$job_log" == *"token ********"* && "$job_log" != *"s3cr3t-token-value"* ]] || fail "the secret variable should be masked in the job log: $job_log"
+pass "the protected URL serves the uncommitted change and its project variable; the secret is masked in the job log"
 
 spawner exec "$agent_env" db -- psql -U app -d app -tAc "INSERT INTO users (name) VALUES ('ada')" >/dev/null || fail "spawner exec failed"
 echo "INSERT INTO users (name) VALUES ('grace');" | spawner exec -i "$agent_env" db -- psql -U app -d app >/dev/null || fail "spawner exec -i failed"
@@ -337,10 +349,65 @@ cp "$WORK/compose.yaml" .spawner/compose.yaml
 [ "$(api GET "/envs/$agent_id" | json 'v.lastJob.id')" = "$jobs_before" ] || fail "a refused compose file should not reach the server"
 pass "a refused compose file stops before the upload, with exit code 7"
 
+step "Supervising the environment"
+usage_check='v.usage ? v.usage.memoryBytes > 0 : false'
+for _ in $(seq 1 30); do
+  [ "$(api GET "/envs/$agent_id" | json "$usage_check")" = "true" ] && break
+  sleep 2
+done
+[ "$(api GET "/envs/$agent_id" | json "$usage_check")" = "true" ] || fail "the environment should report its memory"
+sessions=$(api GET /terminals)
+[ "$(echo "$sessions" | json 'v[0].actor + " " + v[0].service + " " + v[0].endReason + " " + v[0].exitCode')" = "Grace via e2e-agent app exit 5" ] \
+  || fail "the terminal session should be recorded: $sessions"
+[[ "$(api GET "/terminals/$(echo "$sessions" | json 'v[0].id')/recording")" == *"shell-42"* ]] || fail "the recording should hold what the terminal showed"
+[[ "$(api GET "/envs/$agent_id/events" | json 'v.events.map((e) => e.message).join("|")')" == *"Creation succeeded in"* ]] || fail "the timeline should show the creation"
+pass "the memory in use, the recorded terminal session, the jobs in the timeline"
+
+for _ in 1 2 3; do
+  set +e
+  spawner exec "$agent_env" app -- node -e "const a = []; for (;;) a.push(Buffer.alloc(32 * 1024 * 1024, 1))" >/dev/null 2>&1
+  code=$?
+  set -e
+  [ "$code" = "137" ] || fail "the memory hog should be killed (exit code 137), not $code"
+done
+loops=""
+for _ in $(seq 1 30); do
+  loops=$(spawner status --json | json 'v.crashLoops.map((l) => l.service + ": " + l.lastCause).join(",")')
+  [[ "$loops" == "app: out of memory"* ]] && break
+  sleep 1
+done
+[[ "$loops" == "app: out of memory"* ]] || fail "spawner status should say app fails for lack of memory, not: $loops"
+[[ "$(api GET "/envs/$agent_id/events" | json 'v.events.filter((e) => e.type === "oom").length')" == "3" ]] || fail "the timeline should hold the three out-of-memory kills"
+[[ "$(api GET /system | json 'v.alerts.map((a) => a.kind).join(",")')" == *"crash_loop"* ]] || fail "the system view should raise an alert"
+pass "three out-of-memory kills: the timeline, spawner status and the system alerts name the cause ($loops)"
+
+for _ in $(seq 1 30); do
+  [ "$(spawner status --json | json 'v.services.every((s) => s.state === "running" && s.health === "healthy")')" = "true" ] && break
+  sleep 2
+done
+for _ in $(seq 1 90); do
+  [ "$(api GET "/envs/$agent_id/metrics?range=1h" | json 'v.points.length > 0')" = "true" ] && break
+  sleep 2
+done
+[ "$(api GET "/envs/$agent_id/metrics?range=1h" | json 'v.points.length > 0 && Object.keys(v.points[0].services).length === 2')" = "true" ] || fail "the metrics should hold a minute of both services"
+for _ in $(seq 1 90); do
+  [ "$(api GET "/envs/$agent_id/disk" | json 'v.disk ? v.disk.totalBytes > 0 : false')" = "true" ] && break
+  sleep 2
+done
+[ "$(api GET "/envs/$agent_id/disk" | json 'v.disk ? v.disk.volumesBytes > 0 : false')" = "true" ] || fail "the disk of the environment should be measured"
+[ "$(spawner capacity --json | json 'typeof v.projects.find((p) => p.project === "agent").places')" = "number" ] || fail "spawner capacity should count the room left"
+[ "$(api GET /projects/agent/usage | json 'v.environments.total')" = "1" ] || fail "the project usage should count its environment"
+pass "minute metrics of each service, the disk of the environment, the capacity and the project usage"
+
 step "An agent drives the environment through MCP"
 node "$ROOT/scripts/e2e/mcp.mjs" "$WORK/spawner" "$WORKTREE" "$agent_env"
 left=$(leftovers "$agent_id")
 [ -z "$left" ] || fail "spawner_down left behind:$left"
+[ "$(api GET "/envs/$agent_id" | json 'v.status')" = "deleted" ] || fail "a deleted environment should stay readable"
+[ "$(api GET "/envs?deleted=true&project=agent" | json 'v.map((e) => `${e.slug}:${e.status}`).join(",")')" = "$agent_env:deleted" ] || fail "the deleted environments should be listed"
+[[ "$(api GET "/envs/$agent_id/logs?errors=true&tail=50" | json 'v.lines.map((l) => l.text).join("|")')" == *'relation "users" does not exist'* ]] \
+  || fail "the archived logs should keep the error found through MCP"
+[[ "$(api GET "/envs/$agent_id/events" | json 'v.events[0].message')" == "Deletion succeeded in"* ]] || fail "the timeline should end with the deletion"
 [ "$(spawner logout --json | json 'v.revoked')" = "true" ] || fail "spawner logout should revoke the token"
 set +e
 spawner whoami >/dev/null 2>&1
@@ -354,7 +421,7 @@ step "Serving files mounted from a source"
 BIND_FIXTURE=scripts/e2e-fixtures/bind-mount
 BIND_FILES=(.spawner www data README.md)
 api POST /projects -H 'Content-Type: application/json' \
-  -d '{"slug":"bindmount","name":"Bind mount","repoUrl":"https://github.com/Flosk6/Spawner.git"}' | json 'v.slug'
+  -d '{"slug":"bindmount","name":"Bind mount","repoUrl":"https://github.com/Flosk6/Spawner.git","allowPublic":true}' | json 'v.slug'
 mkdir -p "$WORK/bind"
 cp -R "$BIND_FIXTURE/." "$WORK/bind/"
 tar -C "$WORK/bind" -czf "$WORK/bind-v1.tar.gz" "${BIND_FILES[@]}"
