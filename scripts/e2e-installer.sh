@@ -48,11 +48,15 @@ replace() {
 }
 
 step "Installing in local mode"
+VERSION=$(sed -n 's/^DEFAULT_VERSION="\(.*\)"$/\1/p' install.sh)
 sudo bash install.sh --tls off --domain localtest.me --image "$IMAGE" --yes --min-disk 5 | tee "$WORK/install.log"
-grep -q "Spawner 2.* is running" "$WORK/install.log" || fail "the installer should end with its summary"
+grep -q "Spawner $VERSION is running" "$WORK/install.log" || fail "the installer should end with its summary, for Spawner $VERSION"
+[ "$(secret SPAWNER_VERSION)" = "$VERSION" ] || fail "the installation should be of Spawner $VERSION, not $(secret SPAWNER_VERSION)"
 grep -q "First admin   http://spawner.localtest.me/invite/" "$WORK/install.log" || fail "the installer should print the first admin link"
 [ "$(curl -fsS "$DASHBOARD/api/v1/healthz" | json 'v.status')" = "ok" ] || fail "the dashboard should answer through Traefik"
-[ "$(sudo stat -c %a /opt/spawner/.env)" = "600" ] || fail "the secrets should be readable by root only"
+for file in .env dns.env spawner.env; do
+  [ "$(sudo stat -c %a "/opt/spawner/$file")" = "600" ] || fail "$file should be readable by root only, not $(sudo stat -c %a "/opt/spawner/$file")"
+done
 sudo grep -q '"log-driver": "local"' /etc/docker/daemon.json || fail "Docker should keep compressed, capped logs"
 SPAWNER_TOKEN=$(secret SPAWNER_BOOTSTRAP_TOKEN)
 export SPAWNER_URL="$DASHBOARD" SPAWNER_TOKEN SPAWNER_CONFIG_DIR="$WORK/cli-config"

@@ -126,6 +126,12 @@ confirm() {
   [[ "$answer" =~ ^[Yy] ]]
 }
 
+# A field of /etc/os-release, read rather than sourced: the file defines
+# VERSION, NAME and ID, which would replace the installer's own variables.
+os_release() {
+  sed -n "s/^$1=//p" /etc/os-release 2>/dev/null | head -1 | tr -d '"'
+}
+
 random_secret() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 24
@@ -193,13 +199,14 @@ check_system() {
   step "Checking the server"
   [ "$(id -u)" -eq 0 ] || die "run it as root: curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh | sudo bash"
 
-  # shellcheck disable=SC1091
-  . /etc/os-release 2>/dev/null || die "unknown system: Ubuntu 22.04 or 24.04, or Debian 12, needed"
-  case "${ID:-}-${VERSION_ID:-}" in
-    ubuntu-22.04 | ubuntu-24.04 | debian-12) ok "$PRETTY_NAME" ;;
+  [ -r /etc/os-release ] || die "unknown system: Ubuntu 22.04 or 24.04, or Debian 12, needed"
+  local system
+  system=$(os_release PRETTY_NAME)
+  case "$(os_release ID)-$(os_release VERSION_ID)" in
+    ubuntu-22.04 | ubuntu-24.04 | debian-12) ok "$system" ;;
     *)
-      [ "${SPAWNER_SKIP_OS_CHECK:-}" = 1 ] || die "$PRETTY_NAME is not supported: Ubuntu 22.04 or 24.04, or Debian 12 (SPAWNER_SKIP_OS_CHECK=1 to try anyway)"
-      warn "$PRETTY_NAME is not supported: going on"
+      [ "${SPAWNER_SKIP_OS_CHECK:-}" = 1 ] || die "$system is not supported: Ubuntu 22.04 or 24.04, or Debian 12 (SPAWNER_SKIP_OS_CHECK=1 to try anyway)"
+      warn "$system is not supported: going on"
       ;;
   esac
 
@@ -490,6 +497,7 @@ EOF
 SETTINGS
   fi
   umask 022
+  chmod 600 "$ENV_FILE" "$DNS_ENV_FILE" "$SETTINGS_FILE"
 
   local scheme=https ports='      - "80:80"
       - "443:443"' traefik_tls=""
