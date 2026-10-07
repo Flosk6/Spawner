@@ -17,7 +17,8 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.url === '/users') {
-      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(await users()));
+      const list = await users();
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(list));
       return;
     }
     const list = await users();
