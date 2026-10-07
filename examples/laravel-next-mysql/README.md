@@ -13,13 +13,14 @@ web/                    Next.js 16: one page that lists the posts through the AP
 
 ## Try it
 
-On a Spawner server, an admin creates the project `blog` (Projects, New; for
-the git-based deploys, repository `https://github.com/Flosk6/Spawner.git` and
-root directory `examples/laravel-next-mysql`). Then, from a copy of this
-directory:
+On a Spawner server, an admin creates the project `blog` (Projects, New):
+repository `https://github.com/Flosk6/Spawner.git`, root directory
+`examples/laravel-next-mysql`. Then, in a clone of the repository, from this
+directory (the CLI sends the clone with your changes; a copy of this directory
+alone would need a project whose root directory is `.`):
 
 ```bash
-spawner up demo --wait        # or, in a git worktree, spawner up --wait: the environment is named after the branch
+spawner up demo --wait        # without a name, the environment is named after the branch
 spawner url demo              # https://demo--blog.<domain>; spawner url demo api: https://api--demo--blog.<domain>
 spawner exec demo db -- mysql -uapp -papp app -e "insert into posts (title, body) values ('From an agent', 'Added with spawner exec')"
 spawner logs demo api --errors

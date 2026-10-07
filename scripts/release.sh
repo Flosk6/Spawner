@@ -33,7 +33,7 @@ if [[ "$version" != *-* ]]; then
   done
   sed -i.bak "s/^DEFAULT_VERSION=\"[^\"]*\"$/DEFAULT_VERSION=\"$version\"/" install.sh && rm install.sh.bak
   git add package.json apps/*/package.json packages/*/package.json install.sh
-  git commit -q -m "chore(release): $version"
+  git diff --cached --quiet || git commit -q -m "chore(release): $version"
 fi
 
 git tag -a "v$version" -m "Spawner $version"
