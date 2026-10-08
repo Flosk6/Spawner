@@ -45,6 +45,8 @@ For the MCP server, `claude mcp add spawner -- spawner mcp`, or in `.mcp.json` a
 { "mcpServers": { "spawner": { "command": "spawner", "args": ["mcp"] } } }
 ```
 
+On Windows, an agent started in a worktree looks for `spawner` (and the `node` it runs) in that worktree before the `PATH`, where a branch could commit a `spawner.cmd`: give the MCP client absolute paths (`"command": "C:\\Program Files\\nodejs\\node.exe"`, `"args": ["<npm prefix>\\node_modules\\spawner-cli\\spawner.cjs", "mcp"]`), and set `NoDefaultCurrentDirectoryInExePath=1` in the user's environment. The CLI itself runs `git` and the browser by their absolute paths.
+
 Instructions go to `CLAUDE.md`.
 
 ### Codex
