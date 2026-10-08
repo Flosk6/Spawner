@@ -55,11 +55,11 @@ Service names, network aliases and hostnames are the names Docker's DNS answers 
 
 ## Protected previews
 
-Before each request to a protected URL (`auth: team`, the default), Traefik asks Spawner, sending only the `Accept`, `Cookie` and `X-Spawner-Preview` headers. Spawner lets the request through for:
+Before each request to a protected URL (`auth: team`, the default), Traefik asks Spawner, sending only the `Accept`, `Cookie`, `X-Spawner-Preview`, `Origin` and `Access-Control-Request-Method` headers. Spawner lets the request through for:
 
-1. CORS preflights;
+1. CORS preflights (`OPTIONS` with `Origin` and `Access-Control-Request-Method`), which browsers send without credentials; they neither count as activity nor wake a sleeping environment;
 2. an `X-Spawner-Preview` header: a token valid one hour for one environment, for agents and scripts; Traefik removes it before the request reaches the application;
-3. a share link (`?__spawner_share=`), answered by a redirect that sets a cookie valid for that environment only;
+3. a share link (`?__spawner_share=`), answered by a redirect that sets a cookie valid for that environment only, and checked against its link at every request: revoking the link closes it to whoever opened it;
 4. the team's preview cookie (12 hours), set on the preview domain by the dashboard for an active member;
 5. a share cookie.
 

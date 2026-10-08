@@ -24,7 +24,7 @@ describe("PreviewsService", () => {
   let service: PreviewsService;
   let activity: string[];
   let activeUsers: Set<number>;
-  let shares: { tokenHash: string; environmentId: string; expiresAt: Date; revokedAt: Date | null }[];
+  let shares: { id: string; tokenHash: string; environmentId: string; expiresAt: Date; revokedAt: Date | null }[];
 
   beforeEach(() => {
     secrets = new SecretsService(config);
@@ -36,7 +36,10 @@ describe("PreviewsService", () => {
         findFirst: async ({ where }: { where: { host: string } }) => ({ [HOST]: { environmentId: "env-a" }, [OTHER_HOST]: { environmentId: "env-b" } })[where.host] ?? null,
       },
       user: { findUnique: async ({ where }: { where: { id: number } }) => ({ isActive: activeUsers.has(where.id) }) },
-      shareLink: { findUnique: async ({ where }: { where: { tokenHash: string } }) => shares.find((share) => share.tokenHash === where.tokenHash) ?? null },
+      shareLink: {
+        findUnique: async ({ where }: { where: { tokenHash?: string; id?: string } }) =>
+          shares.find((share) => (where.tokenHash ? share.tokenHash === where.tokenHash : share.id === where.id)) ?? null,
+      },
       environment: { update: async ({ where }: { where: { id: string } }) => activity.push(where.id) },
     };
     service = new PreviewsService(prisma as unknown as PrismaService, secrets, config, new ActivityService(prisma as unknown as PrismaService));
@@ -66,8 +69,13 @@ describe("PreviewsService", () => {
     expect(await service.decide(request({ method: "POST" }))).toMatchObject({ status: 401 });
   });
 
-  it("lets CORS preflights through", async () => {
-    expect(await service.decide(request({ method: "OPTIONS" }))).toEqual({ status: 200, environmentId: "env-a" });
+  it("lets CORS preflights through without counting them as activity, and no other OPTIONS request", async () => {
+    const preflight = { method: "OPTIONS", accept: "*/*", origin: "https://app.example.com", preflightMethod: "POST" };
+    expect(await service.decide(request(preflight))).toEqual({ status: 200, environmentId: "env-a" });
+    expect(activity).toEqual([]);
+
+    expect(await service.decide(request({ ...preflight, origin: undefined }))).toMatchObject({ status: 401 });
+    expect(await service.decide(request({ ...preflight, preflightMethod: undefined }))).toMatchObject({ status: 401 });
   });
 
   it("lets the team in with the preview cookie, while its user is active", async () => {
@@ -86,7 +94,7 @@ describe("PreviewsService", () => {
   });
 
   it("turns a share link into a cookie for that environment, and removes it from the URL", async () => {
-    shares.push({ tokenHash: sha256("share-token"), environmentId: "env-a", expiresAt: new Date(Date.now() + 3_600_000), revokedAt: null });
+    shares.push({ id: "s1", tokenHash: sha256("share-token"), environmentId: "env-a", expiresAt: new Date(Date.now() + 3_600_000), revokedAt: null });
 
     const decision = await service.decide(request({ uri: "/dashboard?tab=1&__spawner_share=share-token" }));
     expect(decision).toMatchObject({ status: 302, location: `https://${HOST}/dashboard?tab=1` });
@@ -101,13 +109,27 @@ describe("PreviewsService", () => {
   it("ignores share links that expired, were revoked or belong to another environment", async () => {
     const soon = new Date(Date.now() + 3_600_000);
     shares.push(
-      { tokenHash: sha256("expired"), environmentId: "env-a", expiresAt: new Date(Date.now() - 1000), revokedAt: null },
-      { tokenHash: sha256("revoked"), environmentId: "env-a", expiresAt: soon, revokedAt: new Date() },
-      { tokenHash: sha256("elsewhere"), environmentId: "env-b", expiresAt: soon, revokedAt: null },
+      { id: "s1", tokenHash: sha256("expired"), environmentId: "env-a", expiresAt: new Date(Date.now() - 1000), revokedAt: null },
+      { id: "s2", tokenHash: sha256("revoked"), environmentId: "env-a", expiresAt: soon, revokedAt: new Date() },
+      { id: "s3", tokenHash: sha256("elsewhere"), environmentId: "env-b", expiresAt: soon, revokedAt: null },
     );
     for (const token of ["expired", "revoked", "elsewhere", "unknown"]) {
       expect(await service.decide(request({ uri: `/?__spawner_share=${token}` }))).toMatchObject({ status: 302, location: expect.stringContaining("/api/v1/auth/preview") });
     }
+  });
+
+  it("closes a share cookie as soon as its link is revoked, and refuses cookies that name no link", async () => {
+    shares.push({ id: "s1", tokenHash: sha256("share-token"), environmentId: "env-a", expiresAt: new Date(Date.now() + 3_600_000), revokedAt: null });
+    const decision = await service.decide(request({ uri: "/?__spawner_share=share-token" }));
+    const cookies = parseCookies((decision as { cookie: string }).cookie.split(";")[0]);
+    expect(await service.decide(request({ cookies }))).toMatchObject({ status: 200 });
+
+    shares[0].revokedAt = new Date();
+    service.forgetShare("s1");
+    expect(await service.decide(request({ cookies }))).toMatchObject({ status: 302, location: expect.stringContaining("/api/v1/auth/preview") });
+
+    const older = { "spawner_share_env-a": secrets.sign("share", { exp: inAnHour(), env: "env-a" }) };
+    expect(await service.decide(request({ cookies: older }))).toMatchObject({ status: 302, location: expect.stringContaining("/api/v1/auth/preview") });
   });
 
   it("records activity at most once a minute per environment", async () => {

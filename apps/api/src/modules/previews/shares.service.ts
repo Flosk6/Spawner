@@ -4,7 +4,7 @@ import { PrismaService } from "../../common/prisma.service";
 import { randomToken, sha256 } from "../../common/secrets.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
-import { SHARE_PARAM } from "./previews.service";
+import { PreviewsService, SHARE_PARAM } from "./previews.service";
 
 export const SHARE_DEFAULT_HOURS = 24;
 export const SHARE_MAX_HOURS = 14 * 24;
@@ -12,7 +12,8 @@ export const SHARE_MAX_HOURS = 14 * 24;
 /**
  * Share links: a temporary link to an environment's previews for someone
  * without an account. Opening it sets a cookie valid for this environment
- * only, until the link expires or is revoked.
+ * only, until the link expires or is revoked: the cookie names its link,
+ * which each request checks.
  */
 @Injectable()
 export class SharesService {
@@ -20,6 +21,7 @@ export class SharesService {
     private readonly prisma: PrismaService,
     private readonly config: SpawnerConfig,
     private readonly audit: AuditService,
+    private readonly previews: PreviewsService,
   ) {}
 
   async create(actor: Actor, environmentId: string, ttlHours: unknown) {
@@ -58,6 +60,7 @@ export class SharesService {
     if (count === 0) {
       throw new NotFoundException("share link not found");
     }
+    this.previews.forgetShare(shareId);
     await this.audit.record(actor, "env.unshare", { target: environment.slug, details: { shareId } });
   }
 

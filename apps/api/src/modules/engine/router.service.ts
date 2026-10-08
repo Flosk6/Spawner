@@ -289,7 +289,10 @@ export class RouterService implements OnModuleInit, OnApplicationBootstrap {
    * the only headers it decides on.
    */
   private forwardAuth(): Record<string, unknown> {
-    return { address: `${this.config.dashboardUpstream}/api/v1/auth/verify`, authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview"] };
+    return {
+      address: `${this.config.dashboardUpstream}/api/v1/auth/verify`,
+      authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview", "Origin", "Access-Control-Request-Method"],
+    };
   }
 
   private router(host: string, service: string): Record<string, unknown> {

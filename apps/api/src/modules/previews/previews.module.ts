@@ -40,6 +40,8 @@ export class PreviewAuthController {
       accept: header(request, "accept") ?? "",
       cookies: parseCookies(header(request, "cookie")),
       header: header(request, PREVIEW_HEADER),
+      origin: header(request, "origin"),
+      preflightMethod: header(request, "access-control-request-method"),
     });
     response.setHeader("Cache-Control", "no-store");
     if (decision.status === 302) {

@@ -25,7 +25,8 @@ const header = (request: Request, name: string) => {
  * routes rewrite the path to this one, and keep the original in
  * X-Replaced-Path. A team URL wakes the environment up, once the usual check
  * of who may open it passed; a public URL does not (anyone, crawlers
- * included, could keep it awake). Browsers get a page that reloads by itself
+ * included, could keep it awake), nor does a CORS preflight, which carries
+ * no credentials. Browsers get a page that reloads by itself
  * once the environment answers; other clients a 503 to retry.
  */
 @Controller("v1")
@@ -64,6 +65,8 @@ export class WakeController {
         accept: header(request, "accept") ?? "",
         cookies: parseCookies(header(request, "cookie")),
         header: header(request, PREVIEW_HEADER),
+        origin: header(request, "origin"),
+        preflightMethod: header(request, "access-control-request-method"),
       });
       if (decision.status !== 200) {
         this.refuse(response, decision);
@@ -72,7 +75,8 @@ export class WakeController {
     }
 
     const environment = exposure.environment;
-    const view = await this.handle(environment, environment.project.slug, exposure.auth === "none", host);
+    const mayWake = exposure.auth !== "none" && request.method !== "OPTIONS";
+    const view = await this.handle(environment, environment.project.slug, mayWake, host);
     if (request.query.__spawner_wake === "status") {
       response.status(200).json({ state: view.state, message: view.message });
       return;
@@ -88,10 +92,11 @@ export class WakeController {
   }
 
   /**
-   * What the environment's status calls for; a sleeping one reached by a team
-   * URL gets a wake-up queued, unless the server lacks the memory for it.
+   * What the environment's status calls for; a sleeping one reached by a
+   * request that may wake it gets a wake-up queued, unless the server lacks
+   * the memory for it.
    */
-  private async handle(environment: Environment, project: string, isPublic: boolean, host: string): Promise<WakeView> {
+  private async handle(environment: Environment, project: string, mayWake: boolean, host: string): Promise<WakeView> {
     const view = (state: WakeState, message: string): WakeView => ({
       state,
       message,
@@ -101,7 +106,7 @@ export class WakeController {
     });
     switch (environment.status) {
       case "sleeping": {
-        if (isPublic) {
+        if (!mayWake) {
           return view("asleep", "It went to sleep after a while without visits, and its public URLs do not wake it up. Someone of the team can wake it up from Spawner, or with spawner wake.");
         }
         const pending = await this.prisma.job.findFirst({ where: { environmentId: environment.id, type: "wake", status: { in: ["queued", "running"] } } });
