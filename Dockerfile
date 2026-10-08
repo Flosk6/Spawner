@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # Single Spawner image: NestJS API + Vue interface served on the same origin,
 # plus the CLI bundle it serves for download (/api/v1/cli/spawner).
 
