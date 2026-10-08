@@ -88,4 +88,4 @@ Every 6 hours, Spawner reads the list of releases from GitHub (`api.github.com`,
 
 ## Reporting a vulnerability
 
-Please report vulnerabilities privately through GitHub (Security tab of the repository, "Report a vulnerability"), not in a public issue.
+Report vulnerabilities privately through GitHub ([Report a vulnerability](https://github.com/Flosk6/Spawner/security/advisories/new), in the Security tab), never in a public issue. The [security policy](../SECURITY.md) says what to include and what is in scope.

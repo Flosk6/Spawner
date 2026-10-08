@@ -141,6 +141,10 @@ scripts/e2e-engine.sh           # end to end: a local stack, environments throug
 
 Every subdomain of `localtest.me` resolves to 127.0.0.1. Over plain HTTP, browsers allow passkeys on `localhost` only, so a local install lets invitations log in without one. See [scripts](scripts/README.md) for the tests.
 
+## Contributing
+
+Issues are welcome: bugs, questions and ideas. Pull requests from outside are not accepted for now; see [contributing](CONTRIBUTING.md). Report vulnerabilities privately: [security policy](SECURITY.md).
+
 ## License
 
 [Apache-2.0](LICENSE): free to use, modify and distribute, commercially too. Copyright 2025-2026 Flosk6.
