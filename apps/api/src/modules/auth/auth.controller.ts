@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Query, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import type { Actor } from "../../common/actor";
@@ -135,8 +135,8 @@ export class DeviceController {
   }
 
   @Get(":userCode")
-  describe(@CurrentActor() actor: Actor, @Req() request: Request) {
-    return this.device.describe(actor, request.params.userCode);
+  describe(@CurrentActor() actor: Actor, @Param("userCode") userCode: string) {
+    return this.device.describe(actor, userCode);
   }
 
   @Post("approve")
