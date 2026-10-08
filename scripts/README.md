@@ -29,7 +29,9 @@ lists every check.
 It needs Docker with Compose, curl, Node.js, tar, git and python3, and port 80:
 stop the development stack first (`docker compose down`, without `-v` to keep
 its data). It removes only what it created: the compose projects of its own
-environments, its stack and its data directory.
+environments, its stack, its data directory, and the impostor container and
+network (`e2e-impostor`, `aaa-e2e-impostor`, from `node:22-alpine`) it puts
+next to Traefik to check that routing never follows a bare name.
 
 - `e2e/teammate.mjs` plays an invited teammate with Node built-ins only: a
   software passkey, the device login of the CLI, a preview opened through the
