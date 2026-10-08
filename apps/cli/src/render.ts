@@ -19,7 +19,7 @@ export function statusLabel(status: string, style: Styles): string {
   return style.yellow(status);
 }
 
-/** "Florian via claude-laptop (cli)". */
+/** "Ada via claude-laptop (cli)". */
 export function ownerLabel(environment: Environment): string {
   const owner = environment.owner?.name ?? (environment.tokenName ? "" : "installation");
   const via = environment.tokenName ? `${owner ? `${owner} via ` : ""}${environment.tokenName}` : owner;

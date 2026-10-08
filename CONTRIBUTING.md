@@ -21,11 +21,11 @@ When the problem comes from a project's `.spawner/` directory, its `spawner.yaml
 
 ## Proposing a feature
 
-Start from the problem: what you want to do, with which kind of project, and whether people or coding agents drive it. Check [the documentation](README.md#documentation) and [how Spawner compares](docs/comparison.md) first: some needs are covered differently, or left out on purpose.
+Start from the problem: what you want to do, with which kind of project, and whether people or coding agents drive it. Check [the documentation](README.md#documentation) and [what Spawner does not do](README.md#what-spawner-does-not-do) first: some needs are covered differently, or left out on purpose.
 
 ## Working on your own copy
 
-The [Apache-2.0 license](LICENSE) lets you fork Spawner, change it and run it as you like. [Development](README.md#development) explains how to build and run it, and [scripts](scripts/README.md) how to test it. The code follows a few rules:
+The [Apache-2.0 license](LICENSE) lets you fork Spawner, change it and run it as you like. [Development](README.md#development) explains how to build and run it, [architecture](docs/architecture.md) how it is built, and [scripts](scripts/README.md) how to test it. [AGENTS.md](AGENTS.md) holds the same rules for coding agents. The code follows a few rules:
 
 - external programs (git, docker compose) run with argument arrays, never through a shell;
 - the compose policy is an allowlist: every change to it comes with a fixture in `packages/core/test/fixtures/compose/`;

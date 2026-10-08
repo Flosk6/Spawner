@@ -60,12 +60,12 @@ An update keeps the volumes, so the database survives; `--fresh` starts from scr
 ### Lifetime, sleep and limits
 
 - **Expiry**: an environment lives 72 hours by default (the manifest's `ttl`, at most 14 days). Each deploy starts the count again; `spawner extend` postpones it. An expired environment is deleted with everything it owns.
-- **Sleep**: after 2 hours without a visit or an action (the manifest's `idle`), its containers stop; volumes and images stay. The next visit to one of its URLs shows a waiting page and wakes it up within seconds; the CLI wakes it up before `exec`, `shell`, `url` and `logs --follow`.
+- **Sleep**: after 2 hours without a visit or an action (the manifest's `idle`), its containers stop; volumes and images stay. The next visit to one of its URLs shows a waiting page and wakes it up within seconds; the CLI wakes it up before `exec`, `shell`, `url` and `logs --follow`. Visits to public URLs (`auth: none`) do not count, so that a bot cannot keep an environment awake.
 - **Quota**: 5 environments per person, sleeping ones included.
 - **Capacity**: Spawner refuses a new environment, a start or a wake-up when the server lacks the memory (or, for a new one, the disk) that an environment of the project typically uses. `spawner capacity` and the System page say how many more fit.
 - **Resources**: 2 GiB of memory per environment (512 MiB per service unless the compose file says otherwise), 1 CPU and 512 processes per service.
 
-Admins change these values from the settings page. See [density](density.md) for what makes environments cheap.
+Admins change these values from the settings page. [The manifest](manifest.md#making-environments-cheap) says what makes an environment cheap.
 
 ## People and access
 

@@ -137,7 +137,7 @@ model AuditEvent {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   userId    Int?     @map("user_id")
-  /// Who acted, as shown: "Florian", "Florian via claude-laptop", "bootstrap token".
+  /// Who acted, as shown: "Ada", "Ada via claude-laptop", "bootstrap token".
   actor     String   @db.VarChar(100)
   action    String   @db.VarChar(50)
   target    String?  @db.VarChar(200)

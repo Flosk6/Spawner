@@ -32,14 +32,7 @@ Most limits change from the dashboard (System, Settings): lifetimes, sleep, quot
 docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up -d
 ```
 
-| Variable | Default | |
-|---|---|---|
-| `SPAWNER_BUILD_CONCURRENCY` | 1 below 8 GiB of memory, 2 above | Builds at once |
-| `SPAWNER_UPLOAD_MAX`, `SPAWNER_UPLOAD_MAX_FILES`, `SPAWNER_UPLOAD_MAX_EXTRACTED` | `100m`, 50000, `1g` | Limits of a worktree upload |
-| `SPAWNER_START_TIMEOUT_SECONDS`, `SPAWNER_JOB_TIMEOUT_SECONDS` | 300, 1800 | How long services may take to start, and a whole job |
-| `SESSION_MAX_AGE` | 86400000 (24 hours) | Dashboard sessions, in milliseconds |
-| `ENABLE_MEMORY_CHECK` | `true` | The memory guard before builds |
-| `SPAWNER_UPDATE_CHECK` | `true` | `false`: Spawner no longer looks for new versions by itself (the System page can still check) |
+The variables, their defaults, and those the installer sets itself are listed in [configuration](configuration.md).
 
 The Spawner container may use 1 GiB of memory: rerun the installer with `--memory-limit 2g` to change it ([install](install.md#without-questions)).
 
@@ -98,8 +91,11 @@ The System page shows what takes the disk: images (what each environment shares 
 
 - the image an update replaces is removed at once, and the code of a source once the build no longer needs it;
 - Docker's build cache stays under 15 % of the disk (`builder.gc`, set by the installer);
+- repository mirrors are partial (`--filter=blob:none`) and shared by the environments of a repository; on a Docker it installed, the installer keeps the classic image store (overlay2), which stores each layer once rather than twice;
 - containers write compressed logs, 30 MB at most each;
 - every minute, Spawner removes what deleted environments left behind; the cleanup panel (System) lists the rest it owns and no longer uses (repository mirrors, files of unknown environments), to remove by hand.
+
+The Disk tab of an environment splits its images into its own part and the part it shares: dependencies in its own part mean a Dockerfile copies the code before installing them ([the manifest](manifest.md#making-environments-cheap)). The project page gives the cost of a typical environment: memory, own disk, build time.
 
 **Never run `docker system prune` or `docker container prune` on a Spawner server.** Sleeping and stopped environments are stopped containers: a prune deletes them, and their images and networks, and they cannot wake up any more. Use the cleanup panel, which only touches what Spawner owns.
 

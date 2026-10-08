@@ -57,7 +57,7 @@ describe("login", () => {
   });
 
   it("names tokens after the machine", () => {
-    expect(machineName("Florian-MBP.local")).toBe("florian-mbp");
+    expect(machineName("Ada-MBP.local")).toBe("ada-mbp");
     expect(machineName("")).toBe("cli");
   });
 });

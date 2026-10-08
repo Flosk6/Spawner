@@ -34,7 +34,7 @@ export interface LoginResult {
 }
 
 /**
- * Name of this machine for the token: "florian-mbp" for florian-mbp.local.
+ * Name of this machine for the token: "ada-mbp" for ada-mbp.local.
  */
 export function machineName(hostname = os.hostname()): string {
   const name = hostname.split(".")[0].toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");

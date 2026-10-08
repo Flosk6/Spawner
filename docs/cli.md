@@ -31,7 +31,7 @@ The CLI shows a code and opens the dashboard's `/device` page, where you type th
 - `spawner whoami` shows the server, the user and the token in use.
 - `spawner logout` revokes the token and forgets it.
 - Without a login, `SPAWNER_URL` and `SPAWNER_TOKEN` give the server and a token: for CI jobs and agents in containers. They win over the stored login.
-- For an agent of its own, create a dedicated token, restricted to a project if you like: `spawner token create --name claude --project blog --expires 30d`. Environments it creates show "Florian via claude". A token created this way depends on your login: it expires with it at the latest, and `spawner logout` revokes it too. Create the tokens that must outlive it from the dashboard (Account).
+- For an agent of its own, create a dedicated token, restricted to a project if you like: `spawner token create --name claude --project blog --expires 30d`. Environments it creates show "Ada via claude". A token created this way depends on your login: it expires with it at the latest, and `spawner logout` revokes it too. Create the tokens that must outlive it from the dashboard (Account).
 
 ## Which project, which environment
 
@@ -173,13 +173,7 @@ Errors, with `--json`: `{ "error": { "code": "not_found", "message": "...", "hin
 
 ## MCP server
 
-`spawner mcp` runs an MCP server on stdio, with the same code, the same credentials and the same rights as the CLI. For Claude Code, in `.mcp.json` at the root of the project:
-
-```json
-{ "mcpServers": { "spawner": { "command": "spawner", "args": ["mcp"] } } }
-```
-
-On Windows, an agent started in a worktree looks for `spawner` (and the `node` it runs) in that worktree before the `PATH`, where a branch could commit a `spawner.cmd`: give the MCP client absolute paths (`"command": "C:\\Program Files\\nodejs\\node.exe"`, `"args": ["<npm prefix>\\node_modules\\spawner-cli\\spawner.cjs", "mcp"]`), and set `NoDefaultCurrentDirectoryInExePath=1` in the user's environment. The CLI itself runs `git` and the browser by their absolute paths.
+`spawner mcp` runs an MCP server on stdio, with the same code, the same credentials and the same rights as the CLI. [Coding agents](agents.md) shows how to add it to Claude Code, Codex, Cursor and others, Windows included.
 
 | Tool | Parameters |
 |---|---|
