@@ -12,8 +12,10 @@
 #      taking the names of the environment's service, on a network Docker's
 #      DNS asks before Spawner's, must receive none of their traffic
 #   3. checks the URL is protected: anonymous visitors go to the dashboard,
-#      API clients get a 401, a share link opens it, and an invited teammate
-#      (scripts/e2e/teammate.mjs: passkey, device login, dashboard) opens it
+#      API clients get a 401, only real CORS preflights pass without
+#      credentials, a share link opens it until it is revoked, and an invited
+#      teammate (scripts/e2e/teammate.mjs: passkey, device login, dashboard)
+#      opens it
 #   4. runs a command in the database service
 #   5. updates it with changed code and checks the data was kept
 #   6. deletes it and checks nothing is left (containers, volumes,
@@ -26,7 +28,8 @@
 # stats, shell (in a pseudo-terminal), a share link, a compose file refused
 # before upload (exit 7); then
 # scripts/e2e/mcp.mjs drives `spawner mcp` (status, url, exec, logs with
-# errors_only, up with progress, down), and nothing may be left. Along the
+# errors_only, up with progress, down), and nothing may be left; logout
+# revokes the CLI's token and the tokens created with it. Along the
 # way, the supervision: project variables (a secret masked in the job log),
 # the timeline, the recorded terminal session, three out-of-memory kills
 # named by the timeline, spawner status and the system alerts, metrics,
@@ -282,14 +285,20 @@ redirect=$(curl -s -o /dev/null -w '%{redirect_url}' -H "Host: $host" -H 'Accept
 [[ "$redirect" == "http://spawner.localtest.me/api/v1/auth/preview?next="* ]] || fail "anonymous visitors should go to the dashboard, not $redirect"
 [ "$(status "$host" -H 'Accept: application/json')" = "401" ] || fail "an API client without credentials should get a 401"
 pass "anonymous visitors are sent to the dashboard, API clients get a 401"
+[ "$(status "$host" -X OPTIONS -H 'Accept: application/json')" = "401" ] || fail "an OPTIONS request that is not a CORS preflight should need credentials"
+[ "$(status "$host" -X OPTIONS -H 'Origin: http://elsewhere.localtest.me' -H 'Access-Control-Request-Method: POST')" != "401" ] || fail "a CORS preflight should reach the application"
+pass "only real CORS preflights pass without credentials"
 
-share=$(api POST "/envs/$env_id/share" -H 'Content-Type: application/json' -d '{"ttlHours":1}' | json 'v.url')
+created_share=$(api POST "/envs/$env_id/share" -H 'Content-Type: application/json' -d '{"ttlHours":1}')
+share=$(json 'v.url' <<<"$created_share")
 share_path=${share#http://$host}
 answer=$(curl -s -D - -o /dev/null -H "Host: $host" "http://127.0.0.1:${SPAWNER_HTTP_PORT}${share_path}")
 share_cookie=$(echo "$answer" | grep -i '^set-cookie: spawner_share_' | sed -E 's/^[^:]+: ([^;]+).*/\1/' | tr -d '\r')
 [[ "$answer" == *" 302"* && -n "$share_cookie" ]] || fail "the share link should set its cookie: $answer"
 [ "$(status "$host" -H "Cookie: $share_cookie" -H 'Accept: text/html')" = "200" ] || fail "the share link cookie should open the preview"
-pass "a share link opens the preview without an account"
+api DELETE "/envs/$env_id/shares/$(json 'v.id' <<<"$created_share")" >/dev/null
+[ "$(status "$host" -H "Cookie: $share_cookie" -H 'Accept: text/html')" = "302" ] || fail "revoking a share link should close the preview to whoever opened it"
+pass "a share link opens the preview without an account, until it is revoked"
 
 invite=$(api POST /invites -H 'Content-Type: application/json' -d '{"role":"member","note":"e2e teammate"}' | json 'v.url')
 spawner login "$CLI_SERVER" --no-browser --name e2e-agent >"$WORK/login.out" 2>&1 &
@@ -551,14 +560,18 @@ left=$(leftovers "$agent_id")
 [[ "$(api GET "/envs/$agent_id/logs?errors=true&tail=50" | json 'v.lines.map((l) => l.text).join("|")')" == *'relation "users" does not exist'* ]] \
   || fail "the archived logs should keep the error found through MCP"
 [[ "$(api GET "/envs/$agent_id/events" | json 'v.events[0].message')" == "Deletion succeeded in"* ]] || fail "the timeline should end with the deletion"
+child_token=$(spawner token create --name e2e-child --json | json 'v.token')
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $child_token" "$API/auth/whoami")" = "200" ] || fail "a token created with the CLI should work"
 [ "$(spawner logout --json | json 'v.revoked')" = "true" ] || fail "spawner logout should revoke the token"
 set +e
 spawner whoami >/dev/null 2>&1
 code=$?
 set -e
 [ "$code" = "3" ] || fail "after logout, the CLI should exit with 3, not $code"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $child_token" "$API/auth/whoami")" = "401" ] \
+  || fail "logout should also revoke the tokens created with the CLI's token"
 cd "$ROOT"
-pass "nothing left behind; logout revoked the token"
+pass "nothing left behind; logout revoked the token, and the tokens created with it"
 
 step "Serving files mounted from a source"
 BIND_FIXTURE=scripts/e2e-fixtures/bind-mount
