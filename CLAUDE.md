@@ -62,7 +62,7 @@ The v1 specification is [.ai/docs/spec-v1.md](.ai/docs/spec-v1.md). Work happens
 - M5 (done): sleep and wake-up, expiry, quotas and room checks, build guards, limits an admin can change, reconciliation, targeted cleanup, density (replaced images removed, sources removed after the build, Dockerfile layer warnings)
 - M6 (done): `install.sh` (checks, Docker settings, zram, wildcard certificate by DNS-01, `spawner.env`, upgrades with a backup, removal), images on GHCR and the CLI on npm (`spawner-cli`) from a tag, `examples/laravel-next-mysql`, the installer's end-to-end test (two branches at once), the capacity counting the build guards, Spawner's cookies kept from the applications, the public docs
 
-Public documentation is in `docs/` (in English): `install.md`, `concepts.md`, `manifest.md` (`.spawner/` and the compose rules), `cli.md` (commands, JSON outputs, exit codes, MCP), `agents.md`, `security.md`, `operations.md` (backups, restores, disk), `density.md`, `comparison.md`. Releases are described in `CHANGELOG.md`.
+Public documentation is in `docs/` (in English): `install.md`, `concepts.md`, `manifest.md` (`.spawner/` and the compose rules), `cli.md` (commands, JSON outputs, exit codes, MCP), `agents.md`, `security.md`, `operations.md` (backups, restores, disk), `density.md`, `comparison.md`. Releases are described in `CHANGELOG.md`. Community files: `CONTRIBUTING.md` (issues welcome, no pull requests from outside for now), `SECURITY.md` (private reports through GitHub), `CODE_OF_CONDUCT.md`; issue forms in `.github/ISSUE_TEMPLATE/`.
 
 ## Code Style
 
