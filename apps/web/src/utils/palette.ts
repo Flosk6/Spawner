@@ -1,13 +1,23 @@
-/** Colors of the services in charts and logs, in order of appearance. */
-const COLORS = ['#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#ec4899', '#3b82f6', '#f97316', '#84cc16'];
+/** How many service colors styles/tokens.css defines (--svc-1 to --svc-8), for each theme. */
+const SERVICE_COLORS = 8;
 
 /**
  * A stable color per name: the same service keeps its color in the logs and
- * the charts of a page.
+ * the charts of a page. It is a CSS variable, so it follows the theme; charts
+ * resolve it with `resolveColor`.
  */
 export function colorFor(name: string, names: string[]): string {
   const index = [...names].sort().indexOf(name);
-  return COLORS[(index < 0 ? 0 : index) % COLORS.length];
+  return `var(--svc-${((index < 0 ? 0 : index) % SERVICE_COLORS) + 1})`;
+}
+
+/**
+ * The value of a color for a canvas, which knows no CSS variable: "var(--ok)"
+ * gives the token's color in the current theme; other colors pass through.
+ */
+export function resolveColor(color: string): string {
+  const variable = /^var\((--[\w-]+)\)$/.exec(color)?.[1];
+  return variable ? getComputedStyle(document.documentElement).getPropertyValue(variable).trim() || color : color;
 }
 
 /** Bytes in IEC units, as the API counts them: "512 MiB", "1.5 GiB". */

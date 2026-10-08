@@ -1,152 +1,225 @@
 <template>
-  <div class="max-w-7xl mx-auto space-y-6">
-    <div class="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 class="text-4xl font-bold mb-2">System</h1>
-        <p class="text-lg opacity-70">The server, who uses it, and room for more environments</p>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">System</h1>
+      <p class="page-lead">The server, who uses it, and how many more environments fit.</p>
+    </div>
+    <span v-if="overview?.at" class="field-hint">Sampled {{ timeAgo(overview.at) }}</span>
+  </div>
+
+  <UpdatePanel />
+
+  <div v-if="!overview" class="flex justify-center py-16"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
+
+  <template v-else>
+    <div v-for="(alert, index) in overview.alerts" :key="index" class="alert" :class="alert.level === 'critical' ? 'tone-danger' : 'tone-warn'">
+      <TriangleAlert />
+      <div class="alert-body"><span class="alert-title">{{ alert.message }}</span></div>
+      <div v-if="alert.environmentId" class="alert-actions">
+        <RouterLink :to="`/environments/${alert.environmentId}?tab=timeline`" class="btn btn-secondary btn-sm">Timeline</RouterLink>
       </div>
-      <span v-if="overview?.at" class="text-sm text-slate-500">Sampled {{ timeAgo(overview.at) }}</span>
     </div>
 
-    <UpdatePanel />
+    <div v-if="!overview.host" class="card empty">
+      <Activity class="size-5" />
+      <span>The first sample of the server is taken 30 seconds after Spawner starts.</span>
+    </div>
 
-    <div v-if="!overview" class="flex justify-center py-20"><ProgressSpinner /></div>
-
-    <template v-else>
-      <Message v-for="(alert, index) in overview.alerts" :key="index" :severity="alert.level === 'critical' ? 'error' : 'warn'" :closable="false">
-        {{ alert.message }}
-        <router-link v-if="alert.environmentId" :to="`/environments/${alert.environmentId}?tab=timeline`" class="underline ml-1">Timeline</router-link>
-      </Message>
-
-      <p v-if="!overview.host" class="text-sm text-slate-500">The first sample of the server is taken 30 seconds after Spawner starts.</p>
-
-      <div v-else class="grid gap-6 lg:grid-cols-3">
-        <!-- CPU -->
-        <section class="panel">
-          <h2 class="panel-title"><i class="pi pi-microchip text-sm"></i>CPU</h2>
-          <p class="text-3xl font-bold">{{ formatPercent(overview.host.cpuPercent) }}</p>
-          <p class="text-sm text-slate-500 mt-1">{{ overview.host.cpus }} cores · load {{ overview.host.load.join(' / ') }}</p>
-          <p v-if="overview.host.cpuModel" class="text-xs text-slate-500 mt-1 truncate" :title="overview.host.cpuModel">{{ overview.host.cpuModel }}</p>
-          <ul v-if="overview.usage" class="mt-4 space-y-1 text-sm">
-            <li class="flex justify-between"><span>Environments</span><span class="font-mono text-xs">{{ formatPercent(ofServer(overview.usage.environments.cpuPercent)) }}</span></li>
-            <li class="flex justify-between"><span>Spawner</span><span class="font-mono text-xs">{{ formatPercent(ofServer(overview.usage.spawner.cpuPercent)) }}</span></li>
-            <li class="flex justify-between"><span>Other containers</span><span class="font-mono text-xs">{{ formatPercent(ofServer(overview.usage.others.cpuPercent)) }}</span></li>
-          </ul>
+    <div v-else class="grid gap-4 lg:grid-cols-3">
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title"><Cpu />CPU</div>
+          <span class="field-hint">{{ overview.host.cpus }} core{{ overview.host.cpus === 1 ? '' : 's' }}</span>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <div class="min-w-0">
+            <div class="stat-value">{{ formatPercent(overview.host.cpuPercent) }}</div>
+            <p class="stat-meta tabular-nums">Load {{ overview.host.load.join(' / ') }}</p>
+            <p v-if="overview.host.cpuModel" class="stat-meta truncate" :title="overview.host.cpuModel">{{ overview.host.cpuModel }}</p>
+          </div>
+          <div v-if="cpuParts.length > 0" class="flex flex-col gap-3">
+            <div class="bar bar-lg">
+              <span
+                v-for="part in cpuParts.filter((item) => item.percent > 0)"
+                :key="part.label"
+                class="bar-fill"
+                :style="{ width: `${Math.min(100, part.percent)}%`, background: part.color }"
+                :title="`${part.label}: ${formatPercent(part.percent)}`"
+              ></span>
+            </div>
+            <ul class="flex flex-col gap-1.5 text-sm">
+              <li v-for="part in cpuParts" :key="part.label" class="flex items-center justify-between gap-3">
+                <span class="flex min-w-0 items-center gap-2 text-fg-2">
+                  <span class="swatch" :style="{ background: part.color }"></span><span class="truncate">{{ part.label }}</span>
+                </span>
+                <span class="flex-none font-mono text-xs">{{ formatPercent(part.percent) }}</span>
+              </li>
+            </ul>
+          </div>
           <p class="field-hint">Shares of the whole server, like the total. Environment pages count cores instead: 200% is two full cores.</p>
-        </section>
+        </div>
+      </section>
 
-        <!-- Memory -->
-        <section class="panel">
-          <h2 class="panel-title"><i class="pi pi-server text-sm"></i>Memory</h2>
-          <p class="text-3xl font-bold">{{ formatSize(overview.host.memory.availableBytes) }} <span class="text-base font-normal text-slate-500">available</span></p>
-          <p class="text-sm text-slate-500 mt-1">of {{ formatSize(overview.host.memory.totalBytes) }}<template v-if="overview.host.memory.swapTotalBytes"> · swap {{ formatSize(overview.host.memory.swapUsedBytes) }} / {{ formatSize(overview.host.memory.swapTotalBytes) }}</template></p>
-          <BreakdownBar class="mt-4" :parts="memoryParts" :total="overview.host.memory.totalBytes" />
-        </section>
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title"><MemoryStick />Memory</div>
+          <span class="field-hint">{{ formatSize(overview.host.memory.totalBytes) }} in all</span>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <div>
+            <div class="stat-value">{{ formatSize(overview.host.memory.availableBytes) }}<small>available</small></div>
+            <p v-if="overview.host.memory.swapTotalBytes" class="stat-meta">
+              Swap {{ formatSize(overview.host.memory.swapUsedBytes) }} of {{ formatSize(overview.host.memory.swapTotalBytes) }} used
+            </p>
+          </div>
+          <BreakdownBar v-if="memoryParts.length > 0" :parts="memoryParts" :total="overview.host.memory.totalBytes" />
+        </div>
+      </section>
 
-        <!-- Disk -->
-        <section class="panel">
-          <h2 class="panel-title"><i class="pi pi-database text-sm"></i>Disk</h2>
-          <p class="text-3xl font-bold">{{ formatSize(overview.host.disk.freeBytes) }} <span class="text-base font-normal text-slate-500">free</span></p>
-          <p class="text-sm text-slate-500 mt-1 truncate">of {{ formatSize(overview.host.disk.totalBytes) }} on {{ overview.host.disk.path }}</p>
-          <BreakdownBar v-if="overview.disk" class="mt-4" :parts="diskParts" :total="overview.host.disk.totalBytes" />
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title"><HardDrive />Disk</div>
+          <span class="field-hint">{{ formatSize(overview.host.disk.totalBytes) }} in all</span>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <div class="min-w-0">
+            <div class="stat-value">{{ formatSize(overview.host.disk.freeBytes) }}<small>free</small></div>
+            <p class="stat-meta truncate" :title="overview.host.disk.path">On <span class="font-mono">{{ overview.host.disk.path }}</span></p>
+          </div>
+          <BreakdownBar v-if="overview.disk" :parts="diskParts" :total="overview.host.disk.totalBytes" />
           <p v-if="overview.disk" class="field-hint">Measured {{ timeAgo(overview.disk.time) }}, every 15 minutes and after builds.</p>
           <p v-else class="field-hint">The first measure comes a minute after Spawner starts.</p>
-        </section>
-      </div>
-
-      <!-- History -->
-      <section class="panel">
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 class="panel-title !mb-0"><i class="pi pi-chart-line text-sm"></i>History</h2>
-          <SelectButton v-model="range" :options="ranges" option-label="label" option-value="value" :allow-empty="false" size="small" />
-        </div>
-        <p v-if="history.length === 0" class="text-sm text-slate-500">Nothing recorded over this period yet.</p>
-        <div v-else class="grid gap-6 xl:grid-cols-2">
-          <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Memory</h3>
-            <UsageChart :times="historyTimes" :series="memoryHistory" :format="formatSize" stacked :days="range !== '24h'" bytes />
-          </div>
-          <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">CPU of the server</h3>
-            <UsageChart :times="historyTimes" :series="cpuHistory" :format="formatPercent" :days="range !== '24h'" />
-          </div>
         </div>
       </section>
+    </div>
 
-      <!-- Projects -->
-      <section class="panel">
-        <h2 class="panel-title"><i class="pi pi-folder text-sm"></i>Projects</h2>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-left text-xs uppercase text-slate-500">
-              <tr>
-                <th class="py-2 pr-4">Project</th>
-                <th class="py-2 pr-4">Environments</th>
-                <th class="py-2 pr-4">Memory now</th>
-                <th class="py-2 pr-4">Disk</th>
-                <th class="py-2 pr-4">One environment</th>
-                <th class="py-2 pr-4">Room for</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
-              <tr v-for="project in projectRows" :key="project.slug">
-                <td class="py-2 pr-4 font-medium">
-                  <router-link :to="`/projects/${project.slug}`" class="hover:underline">{{ project.name }}</router-link>
-                </td>
-                <td class="py-2 pr-4">{{ project.running }} running / {{ project.environments }}</td>
-                <td class="py-2 pr-4">{{ formatSize(project.memoryBytes) }}</td>
-                <td class="py-2 pr-4">{{ formatSize(project.diskBytes) }}</td>
-                <td class="py-2 pr-4 text-slate-500">
-                  <template v-if="project.capacity">
-                    {{ formatSize(project.capacity.memoryBytes) }} memory, {{ formatSize(project.capacity.diskBytes) }} disk
-                    <span v-if="project.capacity.basedOn.memory === 'limits'" v-tooltip.top="'No usage measured yet: its declared limits'">*</span>
-                  </template>
-                </td>
-                <td class="py-2 pr-4">
-                  <span v-if="project.capacity?.places !== null && project.capacity?.places !== undefined" :class="project.capacity.places === 0 ? 'text-red-600 dark:text-red-400 font-semibold' : 'font-semibold'">
+    <section class="card">
+      <div class="card-head">
+        <div class="card-title"><ChartLine />History</div>
+        <SegmentedControl v-model="range" :options="RANGES" label="Range" />
+      </div>
+      <div v-if="history.length === 0" class="empty">Nothing recorded over this period yet.</div>
+      <div v-else class="card-body grid gap-6 xl:grid-cols-2">
+        <div class="min-w-0">
+          <h3 class="mb-2 text-sm font-medium text-fg-2">Memory</h3>
+          <UsageChart :times="historyTimes" :series="memoryHistory" :format="formatSize" stacked :days="range !== '24h'" bytes />
+        </div>
+        <div class="min-w-0">
+          <h3 class="mb-2 text-sm font-medium text-fg-2">CPU of the server</h3>
+          <UsageChart :times="historyTimes" :series="cpuHistory" :format="formatPercent" :days="range !== '24h'" />
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head is-flush">
+        <div class="card-title"><FolderGit2 />Projects<span class="count">{{ projectRows.length }}</span></div>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Environments</th>
+              <th class="hidden md:table-cell">Memory now</th>
+              <th class="hidden md:table-cell">Disk</th>
+              <th class="hidden lg:table-cell">One environment</th>
+              <th>Capacity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="project in projectRows" :key="project.slug">
+              <td class="max-w-[16rem]">
+                <RouterLink :to="`/projects/${project.slug}`" class="row-title block">{{ project.name }}</RouterLink>
+                <div class="row-sub flex-wrap whitespace-normal lg:hidden">
+                  <span class="md:hidden">{{ formatSize(project.memoryBytes) }} memory, {{ formatSize(project.diskBytes) }} disk now</span>
+                  <span v-if="project.capacity">
+                    One environment: {{ formatSize(project.capacity.memoryBytes) }} memory, {{ formatSize(project.capacity.diskBytes) }} disk{{
+                      project.capacity.basedOn.memory === 'limits' ? ' (its limits)' : ''
+                    }}
+                  </span>
+                </div>
+              </td>
+              <td class="tabular-nums text-fg-2">{{ project.running }} running / {{ project.environments }}</td>
+              <td class="hidden tabular-nums md:table-cell">{{ formatSize(project.memoryBytes) }}</td>
+              <td class="hidden tabular-nums md:table-cell">{{ formatSize(project.diskBytes) }}</td>
+              <td class="hidden tabular-nums text-fg-2 lg:table-cell">
+                <template v-if="project.capacity">
+                  {{ formatSize(project.capacity.memoryBytes) }} memory, {{ formatSize(project.capacity.diskBytes) }} disk
+                  <span
+                    v-if="project.capacity.basedOn.memory === 'limits'"
+                    v-tooltip.top="'No usage measured yet: its declared limits'"
+                    class="cursor-help text-fg-3"
+                  >*</span>
+                </template>
+                <span v-else class="text-fg-3">-</span>
+              </td>
+              <td class="whitespace-nowrap">
+                <template v-if="project.capacity?.places !== null && project.capacity?.places !== undefined">
+                  <span class="font-semibold tabular-nums" :class="{ 'text-danger-text': project.capacity.places === 0 }">
                     {{ project.capacity.places }} more
                   </span>
-                  <span v-if="project.capacity?.limitedBy" class="text-xs text-slate-500"> (by {{ project.capacity.limitedBy }})</span>
+                  <span v-if="project.capacity.limitedBy" class="text-xs text-fg-3"> (by {{ project.capacity.limitedBy }})</span>
+                </template>
+                <span v-else class="text-fg-3">-</span>
+              </td>
+            </tr>
+            <tr v-if="projectRows.length === 0">
+              <td colspan="6"><div class="empty">No project yet.</div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-foot">
+        <p>
+          Capacity: how many more environments of the project fit, from (available memory - 1 GiB) and (free disk - 10 GiB) divided by what one
+          of them uses; the last one must still find the memory a build waits for.
+        </p>
+      </div>
+    </section>
+
+    <CleanupPanel />
+
+    <div v-if="overview.usage" class="grid items-start gap-4 lg:grid-cols-2">
+      <section v-for="group in containerGroups" :key="group.title" class="card">
+        <div class="card-head" :class="{ 'is-flush': group.containers.length > 0 }">
+          <div class="card-title"><Container />{{ group.title }}<span class="count">{{ group.containers.length }}</span></div>
+        </div>
+        <div v-if="group.containers.length === 0" class="empty">{{ group.empty }}</div>
+        <div v-else class="table-wrap">
+          <table class="table is-compact">
+            <thead>
+              <tr>
+                <th>Container</th>
+                <th class="text-right" title="Share of the whole server">CPU</th>
+                <th class="text-right">Memory</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="container in group.containers" :key="container.name">
+                <td class="w-full max-w-0">
+                  <div class="truncate font-mono text-sm font-medium" :title="container.name">{{ container.name }}</div>
+                  <div class="truncate text-xs text-fg-3" :title="container.image">{{ container.image }}</div>
                 </td>
+                <td class="whitespace-nowrap text-right tabular-nums" title="Share of the whole server">
+                  {{ formatPercent(ofServer(container.cpuPercent)) }}
+                </td>
+                <td class="whitespace-nowrap text-right tabular-nums">{{ formatSize(container.memoryBytes) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="field-hint">Room for: (available memory - 1 GiB) and (free disk - 10 GiB), divided by what one environment of the project uses; the last one must still find the memory a build waits for.</p>
       </section>
-
-      <CleanupPanel />
-
-      <!-- Containers -->
-      <div v-if="overview.usage" class="grid gap-6 lg:grid-cols-2">
-        <section v-for="group in containerGroups" :key="group.title" class="panel">
-          <h2 class="panel-title"><i class="pi pi-box text-sm"></i>{{ group.title }}</h2>
-          <p v-if="group.containers.length === 0" class="text-sm text-slate-500">{{ group.empty }}</p>
-          <table v-else class="w-full text-sm">
-            <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
-              <tr v-for="container in group.containers" :key="container.name">
-                <td class="py-2 pr-4">
-                  <span class="font-medium">{{ container.name }}</span>
-                  <span class="block text-xs text-slate-500 truncate max-w-[16rem]" :title="container.image">{{ container.image }}</span>
-                </td>
-                <td class="py-2 pr-4 text-right font-mono text-xs" title="Share of the whole server">{{ formatPercent(ofServer(container.cpuPercent)) }}</td>
-                <td class="py-2 text-right font-mono text-xs">{{ formatSize(container.memoryBytes) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-      </div>
-    </template>
-  </div>
+    </div>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import Message from 'primevue/message';
-import ProgressSpinner from 'primevue/progressspinner';
-import SelectButton from 'primevue/selectbutton';
+import { Activity, ChartLine, Container, Cpu, FolderGit2, HardDrive, LoaderCircle, MemoryStick, TriangleAlert } from 'lucide-vue-next';
 import BreakdownBar from '../components/BreakdownBar.vue';
 import CleanupPanel from '../components/CleanupPanel.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
 import UpdatePanel from '../components/UpdatePanel.vue';
 import UsageChart, { type ChartSeries } from '../components/UsageChart.vue';
 import { systemApi } from '../services/api';
@@ -154,17 +227,33 @@ import type { Capacity, MetricRange, SystemMetrics, SystemOverview } from '../ty
 import { timeAgo } from '../utils/format';
 import { formatPercent, formatSize } from '../utils/palette';
 
-const ranges = [
-  { label: '24 h', value: '24h' },
-  { label: '7 d', value: '7d' },
-  { label: '30 d', value: '30d' },
+const RANGES: { label: string; value: MetricRange }[] = [
+  { label: '24h', value: '24h' },
+  { label: '7d', value: '7d' },
+  { label: '30d', value: '30d' },
 ];
+
+/** One color per group of containers, the same on the bars and the charts. */
+const GROUP_COLORS = { environments: 'var(--svc-1)', spawner: 'var(--svc-2)', others: 'var(--svc-3)' };
 
 const overview = ref<SystemOverview | null>(null);
 const capacity = ref<Capacity | null>(null);
 const metrics = ref<SystemMetrics | null>(null);
 const range = ref<MetricRange>('24h');
 let timer: ReturnType<typeof setInterval> | null = null;
+
+/** The CPU of each group of containers, as a share of the whole server. */
+const cpuParts = computed(() => {
+  const usage = overview.value?.usage;
+  if (!usage) {
+    return [];
+  }
+  return [
+    { label: 'Environments', percent: ofServer(usage.environments.cpuPercent), color: GROUP_COLORS.environments },
+    { label: 'Spawner', percent: ofServer(usage.spawner.cpuPercent), color: GROUP_COLORS.spawner },
+    { label: 'Other containers', percent: ofServer(usage.others.cpuPercent), color: GROUP_COLORS.others },
+  ];
+});
 
 const memoryParts = computed(() => {
   const value = overview.value;
@@ -175,10 +264,10 @@ const memoryParts = computed(() => {
   const available = value.host.memory.availableBytes;
   const containers = value.usage.environments.memoryBytes + value.usage.spawner.memoryBytes + value.usage.others.memoryBytes;
   return [
-    { label: `Environments (${value.usage.environments.count})`, bytes: value.usage.environments.memoryBytes, color: '#8b5cf6' },
-    { label: 'Spawner', bytes: value.usage.spawner.memoryBytes, color: '#06b6d4' },
-    { label: 'Other containers', bytes: value.usage.others.memoryBytes, color: '#f59e0b' },
-    { label: 'System and cache', bytes: Math.max(0, total - available - containers), color: '#94a3b8' },
+    { label: `Environments (${value.usage.environments.count})`, bytes: value.usage.environments.memoryBytes, color: GROUP_COLORS.environments },
+    { label: 'Spawner', bytes: value.usage.spawner.memoryBytes, color: GROUP_COLORS.spawner },
+    { label: 'Other containers', bytes: value.usage.others.memoryBytes, color: GROUP_COLORS.others },
+    { label: 'System and cache', bytes: Math.max(0, total - available - containers), color: 'var(--muted)' },
     { label: 'Available', bytes: available, color: 'transparent' },
   ];
 });
@@ -192,13 +281,13 @@ const diskParts = computed(() => {
   const known = details.imagesBytes + details.buildCacheBytes + details.volumesBytes + details.writableBytes + details.sourcesBytes + details.logsBytes;
   const used = value.host.disk.totalBytes - value.host.disk.freeBytes;
   return [
-    { label: 'Images', bytes: details.imagesBytes, color: '#8b5cf6' },
-    { label: 'Build cache', bytes: details.buildCacheBytes, color: '#a78bfa' },
-    { label: 'Volumes', bytes: details.volumesBytes, color: '#06b6d4' },
-    { label: 'Written by containers', bytes: details.writableBytes, color: '#f59e0b' },
-    { label: 'Sources', bytes: details.sourcesBytes, color: '#10b981' },
-    { label: 'Logs and recordings', bytes: details.logsBytes, color: '#ec4899' },
-    { label: 'Everything else', bytes: Math.max(0, used - known), color: '#94a3b8' },
+    { label: 'Images', bytes: details.imagesBytes, color: 'var(--svc-1)' },
+    { label: 'Build cache', bytes: details.buildCacheBytes, color: 'var(--svc-6)' },
+    { label: 'Volumes', bytes: details.volumesBytes, color: 'var(--svc-2)' },
+    { label: 'Written by containers', bytes: details.writableBytes, color: 'var(--svc-3)' },
+    { label: 'Sources', bytes: details.sourcesBytes, color: 'var(--svc-4)' },
+    { label: 'Logs and recordings', bytes: details.logsBytes, color: 'var(--svc-5)' },
+    { label: 'Everything else', bytes: Math.max(0, used - known), color: 'var(--muted)' },
     { label: 'Free', bytes: value.host.disk.freeBytes, color: 'transparent' },
   ];
 });
@@ -206,12 +295,12 @@ const diskParts = computed(() => {
 const history = computed(() => metrics.value?.points ?? []);
 const historyTimes = computed(() => history.value.map((point) => point.time));
 const memoryHistory = computed<ChartSeries[]>(() => [
-  { label: 'Environments', color: '#8b5cf6', values: history.value.map((point) => point.environments) },
-  { label: 'Spawner', color: '#06b6d4', values: history.value.map((point) => point.spawner) },
-  { label: 'Other containers', color: '#f59e0b', values: history.value.map((point) => point.others) },
-  { label: 'Server total', color: '#ef4444', dashed: true, values: history.value.map((point) => point.memoryTotalBytes) },
+  { label: 'Environments', color: GROUP_COLORS.environments, values: history.value.map((point) => point.environments) },
+  { label: 'Spawner', color: GROUP_COLORS.spawner, values: history.value.map((point) => point.spawner) },
+  { label: 'Other containers', color: GROUP_COLORS.others, values: history.value.map((point) => point.others) },
+  { label: 'Server total', color: 'var(--danger)', dashed: true, values: history.value.map((point) => point.memoryTotalBytes) },
 ]);
-const cpuHistory = computed<ChartSeries[]>(() => [{ label: 'CPU', color: '#06b6d4', values: history.value.map((point) => point.cpuPercent) }]);
+const cpuHistory = computed<ChartSeries[]>(() => [{ label: 'CPU', color: 'var(--accent)', values: history.value.map((point) => point.cpuPercent) }]);
 
 const projectRows = computed(() =>
   (overview.value?.projects ?? []).map((project) => ({ ...project, capacity: capacity.value?.projects.find((entry) => entry.project === project.slug) ?? null })),

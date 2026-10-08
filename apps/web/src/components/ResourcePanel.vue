@@ -1,59 +1,76 @@
 <template>
-  <div class="space-y-6">
+  <div class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-sm text-slate-500">
+      <p class="text-sm text-fg-3">
         <template v-if="metrics?.now">
-          Now: {{ formatPercent(metrics.now.cpuPercent) }} CPU, {{ formatSize(metrics.now.memoryBytes) }} of {{ formatSize(metrics.now.memoryLimitBytes) }} memory
+          Now: <span class="font-medium text-fg-2">{{ formatPercent(metrics.now.cpuPercent) }}</span> CPU,
+          <span class="font-medium text-fg-2">{{ formatSize(metrics.now.memoryBytes) }}</span> of {{ formatSize(metrics.now.memoryLimitBytes) }} memory
         </template>
         <template v-else>Not running.</template>
       </p>
-      <SelectButton v-model="range" :options="ranges" option-label="label" option-value="value" :allow-empty="false" size="small" />
+      <SegmentedControl v-model="range" :options="RANGES" label="Range" />
     </div>
 
-    <p v-if="!loading && points.length === 0" class="text-sm text-slate-500 py-6 text-center">
-      Nothing measured yet over this period: usage is averaged every minute while the environment runs.
-    </p>
-    <div v-else class="grid gap-6 xl:grid-cols-2">
-      <div>
-        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Memory{{ perService ? ' by service' : '' }}</h3>
-        <UsageChart :times="times" :series="memorySeries" :format="formatSize" :stacked="perService" :days="days" bytes />
-      </div>
-      <div>
-        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">CPU{{ perService ? ' by service' : '' }}</h3>
-        <UsageChart :times="times" :series="cpuSeries" :format="formatPercent" :stacked="perService" :days="days" />
-      </div>
+    <div v-if="!loading && points.length === 0" class="card empty">
+      <Activity class="size-5" />
+      <span>Nothing measured yet over this period: usage is averaged every minute while the environment runs.</span>
+    </div>
+    <div v-else class="grid gap-4 xl:grid-cols-2">
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title"><MemoryStick />Memory{{ perService ? ' by service' : '' }}</div>
+          <span class="field-hint">Without reclaimable cache</span>
+        </div>
+        <div class="card-body"><UsageChart :times="times" :series="memorySeries" :format="formatSize" :stacked="perService" :days="days" bytes /></div>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title"><Cpu />CPU{{ perService ? ' by service' : '' }}</div>
+          <span class="field-hint">100% is one full core</span>
+        </div>
+        <div class="card-body"><UsageChart :times="times" :series="cpuSeries" :format="formatPercent" :stacked="perService" :days="days" /></div>
+      </section>
     </div>
 
-    <div v-if="serviceNames.length" class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase text-slate-500">
-          <tr>
-            <th class="py-2 pr-4">Service</th>
-            <th class="py-2 pr-4">CPU now</th>
-            <th class="py-2 pr-4">Memory now</th>
-            <th class="py-2 pr-4">Limit</th>
-            <th class="py-2 pr-4">Peak ({{ range }})</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
-          <tr v-for="name in serviceNames" :key="name">
-            <td class="py-2 pr-4 font-medium">
-              <span class="inline-block h-2 w-2 rounded-full mr-2" :style="{ background: colorFor(name, serviceNames) }"></span>{{ name }}
-            </td>
-            <td class="py-2 pr-4">{{ formatPercent(metrics?.now?.services[name]?.cpuPercent) }}</td>
-            <td class="py-2 pr-4">{{ formatSize(metrics?.now?.services[name]?.memoryBytes) }}</td>
-            <td class="py-2 pr-4">{{ formatSize(metrics?.now?.services[name]?.memoryLimitBytes) }}</td>
-            <td class="py-2 pr-4">{{ formatSize(metrics?.peaks[name]) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <section v-if="serviceNames.length" class="card">
+      <div class="card-head is-flush"><div class="card-title">Services</div></div>
+      <div class="table-wrap">
+        <table class="table is-compact">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>CPU now</th>
+              <th>Memory now</th>
+              <th class="hidden sm:table-cell">Limit</th>
+              <th class="hidden sm:table-cell">Peak ({{ range }})</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="name in serviceNames" :key="name">
+              <td>
+                <span class="flex items-center gap-2 font-medium"><span class="swatch" :style="{ background: colorFor(name, serviceNames) }"></span>{{ name }}</span>
+              </td>
+              <td class="tabular-nums">{{ formatPercent(metrics?.now?.services[name]?.cpuPercent) }}</td>
+              <td class="tabular-nums">
+                {{ formatSize(metrics?.now?.services[name]?.memoryBytes) }}
+                <div class="text-xs text-fg-3 sm:hidden">
+                  of {{ formatSize(metrics?.now?.services[name]?.memoryLimitBytes) }}, peak {{ formatSize(metrics?.peaks[name]) }}
+                </div>
+              </td>
+              <td class="hidden tabular-nums text-fg-3 sm:table-cell">{{ formatSize(metrics?.now?.services[name]?.memoryLimitBytes) }}</td>
+              <td class="hidden tabular-nums sm:table-cell">{{ formatSize(metrics?.peaks[name]) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import SelectButton from 'primevue/selectbutton';
+import { Activity, Cpu, MemoryStick } from 'lucide-vue-next';
+import SegmentedControl from './SegmentedControl.vue';
 import UsageChart, { type ChartSeries } from './UsageChart.vue';
 import { environmentsApi } from '../services/api';
 import type { EnvironmentMetrics, MetricRange } from '../types';
@@ -61,11 +78,11 @@ import { colorFor, formatPercent, formatSize } from '../utils/palette';
 
 const props = defineProps<{ environmentId: string }>();
 
-const ranges = [
-  { label: '1 h', value: '1h' },
-  { label: '6 h', value: '6h' },
-  { label: '24 h', value: '24h' },
-  { label: '7 d', value: '7d' },
+const RANGES: { label: string; value: MetricRange }[] = [
+  { label: '1h', value: '1h' },
+  { label: '6h', value: '6h' },
+  { label: '24h', value: '24h' },
+  { label: '7d', value: '7d' },
 ];
 const range = ref<MetricRange>('24h');
 const metrics = ref<EnvironmentMetrics | null>(null);
@@ -85,12 +102,12 @@ const perService = computed(() => points.value.some((point) => point.services &&
 const memorySeries = computed<ChartSeries[]>(() => {
   const series: ChartSeries[] = perService.value
     ? serviceNames.value.map((name) => ({ label: name, color: colorFor(name, serviceNames.value), values: points.value.map((point) => point.services?.[name]?.memory ?? 0) }))
-    : [{ label: 'Memory', color: '#8b5cf6', values: points.value.map((point) => point.memoryBytes) }];
+    : [{ label: 'Memory', color: 'var(--accent)', values: points.value.map((point) => point.memoryBytes) }];
   if (points.value.some((point) => point.memoryLimitBytes)) {
-    series.push({ label: 'Limit', color: '#ef4444', dashed: true, values: points.value.map((point) => point.memoryLimitBytes ?? null) });
+    series.push({ label: 'Limit', color: 'var(--danger)', dashed: true, values: points.value.map((point) => point.memoryLimitBytes ?? null) });
   }
   if (!perService.value && points.value.some((point) => point.memoryMaxBytes)) {
-    series.push({ label: 'Peak', color: '#f59e0b', dashed: true, values: points.value.map((point) => point.memoryMaxBytes ?? null) });
+    series.push({ label: 'Peak', color: 'var(--warn)', dashed: true, values: points.value.map((point) => point.memoryMaxBytes ?? null) });
   }
   return series;
 });
@@ -98,7 +115,7 @@ const memorySeries = computed<ChartSeries[]>(() => {
 const cpuSeries = computed<ChartSeries[]>(() =>
   perService.value
     ? serviceNames.value.map((name) => ({ label: name, color: colorFor(name, serviceNames.value), values: points.value.map((point) => point.services?.[name]?.cpu ?? 0) }))
-    : [{ label: 'CPU', color: '#06b6d4', values: points.value.map((point) => point.cpuPercent) }],
+    : [{ label: 'CPU', color: 'var(--svc-2)', values: points.value.map((point) => point.cpuPercent) }],
 );
 
 async function load() {

@@ -1,203 +1,72 @@
 <template>
-  <div class="min-h-screen bg-slate-50 dark:bg-transparent">
-    <Toast />
-    <ConfirmDialog />
-
-    <!-- Modern Header -->
-    <header v-if="authStore.isAuthenticated" class="sticky top-0 z-50 bg-white/90 dark:bg-dark-900/90 border-b border-slate-200 dark:border-purple-900/30 backdrop-blur-md">
-      <div class="px-6 py-3">
-        <div class="flex items-center justify-between gap-4">
-          <!-- Logo -->
-          <router-link to="/" class="flex items-center gap-1 hover:opacity-80 transition-opacity shrink-0">
-            <span class="hidden xl:block"><Logo size="md" :show-text="true" /></span>
-            <span class="xl:hidden"><Logo size="md" :show-text="false" /></span>
-          </router-link>
-
-          <!-- Navigation -->
-          <nav class="flex items-center gap-1">
-            <template v-for="item in menuItems" :key="item.label">
-              <!-- Item with submenu -->
-              <div v-if="item.submenu" class="relative group">
-                <div
-                  class="px-4 py-2 rounded-lg font-medium transition-all duration-200 cursor-pointer"
-                  :class="[
-                    isActive(item.path)
-                      ? 'text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
-                  ]"
-                >
-                  <div class="flex items-center gap-2">
-                    <i :class="item.icon" class="text-sm"></i>
-                    <span class="hidden lg:inline">{{ item.label }}</span>
-                    <i class="pi pi-angle-down text-xs"></i>
-                  </div>
-                  <!-- Active indicator -->
-                  <div
-                    v-if="isActive(item.path)"
-                    class="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-purple-600 to-violet-600 rounded-full"
-                  ></div>
-                </div>
-
-                <!-- Dropdown submenu -->
-                <div class="absolute top-full left-0 mt-1 min-w-[160px] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                  <div class="bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-slate-200 dark:border-purple-800/30 py-1">
-                    <router-link
-                      v-for="subitem in item.submenu"
-                      :key="subitem.label"
-                      :to="subitem.path"
-                      class="block px-4 py-2 text-sm transition-colors"
-                      :class="[
-                        route.path === subitem.path
-                          ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-300'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-purple-500/10'
-                      ]"
-                    >
-                      {{ subitem.label }}
-                    </router-link>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Regular item without submenu -->
-              <router-link
-                v-else
-                :to="item.path"
-                class="group relative px-4 py-2 rounded-lg font-medium transition-all duration-200"
-                :class="[
-                  isActive(item.path)
-                    ? 'text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-purple-500/10'
-                ]"
-              >
-                <div class="flex items-center gap-2" :title="item.label">
-                  <i :class="item.icon" class="text-sm"></i>
-                  <span class="hidden lg:inline">{{ item.label }}</span>
-                </div>
-                <!-- Active indicator -->
-                <div
-                  v-if="isActive(item.path)"
-                  class="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-purple-600 to-violet-600 rounded-full"
-                ></div>
-              </router-link>
-            </template>
-          </nav>
-
-          <!-- Theme Toggle & User Menu -->
-          <div class="flex items-center gap-3">
-            <button
-              @click="toggleTheme"
-              class="p-2 rounded-lg transition-all duration-200 hover:bg-slate-100 dark:hover:bg-purple-500/10"
-              :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
-            >
-              <i v-if="isDark" class="pi pi-sun text-xl text-yellow-400"></i>
-              <i v-else class="pi pi-moon text-xl text-slate-600"></i>
-            </button>
-            <UserMenu v-if="authStore.user" :user="authStore.user" />
-          </div>
+  <Toast position="bottom-right" />
+  <ConfirmDialog :style="{ width: 'min(28rem, calc(100vw - 2rem))' }">
+    <template #container="{ message, acceptCallback, rejectCallback }">
+      <div class="confirm">
+        <div class="confirm-head">
+          <span class="confirm-icon" :class="{ 'tone-danger': message.acceptClass === 'danger' }"><TriangleAlert /></span>
+          <h2 class="confirm-title">{{ message.header }}</h2>
+        </div>
+        <p class="confirm-text">{{ message.message }}</p>
+        <div class="confirm-actions">
+          <button type="button" class="btn btn-ghost" @click="rejectCallback">{{ message.rejectLabel }}</button>
+          <button type="button" class="btn" :class="message.acceptClass === 'danger' ? 'btn-danger-solid' : 'btn-primary'" @click="acceptCallback">
+            {{ message.acceptLabel }}
+          </button>
         </div>
       </div>
-    </header>
+    </template>
+  </ConfirmDialog>
 
-    <div
-      v-if="authStore.isAdmin && availableUpdate && route.path !== '/system/overview'"
-      class="px-6 py-2 text-sm bg-purple-50 dark:bg-purple-500/10 border-b border-purple-100 dark:border-purple-900/30 flex items-center justify-between gap-4"
-    >
-      <span>Spawner {{ availableUpdate }} is available.</span>
-      <router-link to="/system/overview" class="font-medium underline">Update from the System page</router-link>
+  <div v-if="shell" class="app-shell">
+    <AppSidebar :open="navigationOpen" @close="navigationOpen = false" />
+    <div class="app-main">
+      <AppTopbar @menu="navigationOpen = true" />
+      <main class="app-page">
+        <RouterView />
+      </main>
     </div>
-
-    <main class="p-6">
-      <router-view />
-    </main>
+    <CommandPalette />
   </div>
+  <RouterView v-else />
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
+import Toast from 'primevue/toast';
+import { TriangleAlert } from 'lucide-vue-next';
+import AppSidebar from './components/AppSidebar.vue';
+import AppTopbar from './components/AppTopbar.vue';
+import CommandPalette from './components/CommandPalette.vue';
+import { useBreadcrumbs } from './composables/useBreadcrumbs';
+import { useTheme } from './composables/useTheme';
 import { useAuthStore } from './stores/auth';
-import { systemApi } from './services/api';
-import UserMenu from './components/UserMenu.vue';
-import Logo from './components/Logo.vue';
 
-const authStore = useAuthStore();
 const route = useRoute();
-const availableUpdate = ref<string | null>(null);
+const authStore = useAuthStore();
+const crumbs = useBreadcrumbs();
+const navigationOpen = ref(false);
 
-// Admins learn that a newer Spawner can be installed from the System page.
+useTheme();
+
+/** Sign-in pages and the CLI approval stand alone, without the sidebar. */
+const shell = computed(() => authStore.isAuthenticated && route.meta.layout !== 'focus');
+
 watch(
-  () => authStore.isAdmin,
-  async (admin) => {
-    if (!admin) {
-      availableUpdate.value = null;
-      return;
-    }
-    try {
-      const status = await systemApi.update();
-      availableUpdate.value = status.latest && status.managed ? status.latest.version : null;
-    } catch {
-      availableUpdate.value = null;
-    }
+  () => route.fullPath,
+  () => (navigationOpen.value = false),
+);
+
+watch(
+  crumbs,
+  (trail) => {
+    const page = trail[trail.length - 1]?.label;
+    document.title = page ? `${page} · Spawner` : 'Spawner';
   },
   { immediate: true },
 );
-const isDark = ref(true);
 
-const menuItems = computed(() => [
-  { label: 'Home', icon: 'pi pi-home', path: '/home' },
-  { label: 'Projects', icon: 'pi pi-folder', path: '/projects' },
-  { label: 'Environments', icon: 'pi pi-sitemap', path: '/environments' },
-  ...(authStore.isAdmin
-    ? [
-        { label: 'Team', icon: 'pi pi-users', path: '/team' },
-        {
-          label: 'System',
-          icon: 'pi pi-cog',
-          path: '/system',
-          submenu: [
-            { label: 'Overview', path: '/system/overview' },
-            { label: 'Git keys', path: '/system/settings/git' },
-            { label: 'Settings', path: '/system/settings' },
-            { label: 'Audit', path: '/system/audit' },
-          ],
-        },
-      ]
-    : []),
-]);
-
-function isActive(path: string): boolean {
-  if (path === '/system') {
-    return route.path.startsWith('/system');
-  }
-  return route.path.startsWith(path);
-}
-
-function toggleTheme() {
-  isDark.value = !isDark.value;
-  if (isDark.value) {
-    document.documentElement.classList.add('dark');
-    localStorage.setItem('theme', 'dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-    localStorage.setItem('theme', 'light');
-  }
-}
-
-onMounted(() => {
-  authStore.checkAuth();
-
-  // Check saved theme preference or system preference
-  const savedTheme = localStorage.getItem('theme');
-  const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-  if (savedTheme === 'light' || (!savedTheme && !systemPrefersDark)) {
-    isDark.value = false;
-    document.documentElement.classList.remove('dark');
-  } else {
-    isDark.value = true;
-    document.documentElement.classList.add('dark');
-  }
-});
+onMounted(() => authStore.checkAuth());
 </script>

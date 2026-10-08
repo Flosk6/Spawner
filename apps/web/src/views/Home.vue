@@ -1,261 +1,258 @@
 <template>
-  <div>
-    <div class="mb-8">
-      <h1 class="text-4xl font-bold mb-2">Dashboard</h1>
-      <p class="text-lg opacity-70">System overview and quick access</p>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Overview</h1>
+      <p class="page-lead">What runs on {{ info?.previewDomain ?? 'this server' }}, and how many more environments fit.</p>
     </div>
-
-    <div class="space-y-6">
-
-    <!-- Quick Stats Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <!-- Environments Card -->
-      <div class="bg-white dark:bg-dark-800 rounded-xl p-6 border border-purple-200 dark:border-purple-500/50 shadow-md hover:shadow-lg hover:shadow-purple-500/20 dark:hover:shadow-purple-500/30 transition-all duration-200 hover:border-purple-300 dark:hover:border-purple-400">
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-14 h-14 rounded-xl border border-purple-200 dark:border-purple-500/50 bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center hover:shadow-md hover:shadow-purple-500/20 dark:hover:shadow-purple-500/30 transition-all duration-200">
-            <i class="pi pi-sitemap text-purple-600 dark:text-purple-400 text-2xl"></i>
-          </div>
-          <div class="ml-5 w-0 flex-1">
-            <dl>
-              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Ready environments</dt>
-              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ stats?.environmentCount || 0 }}</dd>
-            </dl>
-          </div>
-        </div>
-        <div class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-900/30">
-          <router-link to="/environments" class="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 flex items-center gap-1 group">
-            <span>View all</span>
-            <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
-          </router-link>
-        </div>
-      </div>
-
-      <!-- Projects Card -->
-      <div class="bg-white dark:bg-dark-800 rounded-xl p-6 border border-green-200 dark:border-green-500/50 shadow-md hover:shadow-lg hover:shadow-green-500/20 dark:hover:shadow-green-500/30 transition-all duration-200 hover:border-green-300 dark:hover:border-green-400">
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-14 h-14 rounded-xl border border-green-200 dark:border-green-500/50 bg-green-50 dark:bg-green-500/10 flex items-center justify-center hover:shadow-md hover:shadow-green-500/20 dark:hover:shadow-green-500/30 transition-all duration-200">
-            <i class="pi pi-folder text-green-600 dark:text-green-400 text-2xl"></i>
-          </div>
-          <div class="ml-5 w-0 flex-1">
-            <dl>
-              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Projects</dt>
-              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ stats?.projectCount || 0 }}</dd>
-            </dl>
-          </div>
-        </div>
-        <div class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-900/30">
-          <router-link to="/projects" class="text-sm font-medium text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 group">
-            <span>View all</span>
-            <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
-          </router-link>
-        </div>
-      </div>
-
-      <!-- CPU Usage Card -->
-      <div class="bg-white dark:bg-dark-800 rounded-xl p-6 border border-amber-200 dark:border-amber-500/50 shadow-md hover:shadow-lg hover:shadow-amber-500/20 dark:hover:shadow-amber-500/30 transition-all duration-200 hover:border-amber-300 dark:hover:border-amber-400">
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-14 h-14 rounded-xl border border-amber-200 dark:border-amber-500/50 bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center hover:shadow-md hover:shadow-amber-500/20 dark:hover:shadow-amber-500/30 transition-all duration-200">
-            <i class="pi pi-microchip text-amber-600 dark:text-amber-400 text-2xl"></i>
-          </div>
-          <div class="ml-5 w-0 flex-1">
-            <dl>
-              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Memory available</dt>
-              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatSize(capacity?.host?.availableMemoryBytes) }}</dd>
-            </dl>
-          </div>
-        </div>
-        <div class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-900/30">
-          <router-link v-if="authStore.isAdmin" to="/system/overview" class="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 group">
-            <span>View details</span>
-            <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
-          </router-link>
-        </div>
-      </div>
-
-      <!-- Memory Usage Card -->
-      <div class="bg-white dark:bg-dark-800 rounded-xl p-6 border border-rose-200 dark:border-rose-500/50 shadow-md hover:shadow-lg hover:shadow-rose-500/20 dark:hover:shadow-rose-500/30 transition-all duration-200 hover:border-rose-300 dark:hover:border-rose-400">
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-14 h-14 rounded-xl border border-rose-200 dark:border-rose-500/50 bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center hover:shadow-md hover:shadow-rose-500/20 dark:hover:shadow-rose-500/30 transition-all duration-200">
-            <i class="pi pi-database text-rose-600 dark:text-rose-400 text-2xl"></i>
-          </div>
-          <div class="ml-5 w-0 flex-1">
-            <dl>
-              <dt class="text-sm font-medium text-gray-500 dark:text-slate-400 truncate">Room for</dt>
-              <dd class="text-2xl font-bold text-gray-900 dark:text-white">{{ room.places }}</dd>
-              <dd v-if="room.detail" class="text-xs text-gray-500 dark:text-slate-400 truncate">{{ room.detail }}</dd>
-            </dl>
-          </div>
-        </div>
-        <div class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-900/30">
-          <router-link v-if="authStore.isAdmin" to="/system/overview" class="text-sm font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 flex items-center gap-1 group">
-            <span>View details</span>
-            <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
-          </router-link>
-        </div>
-      </div>
-    </div>
-
-    <!-- Recent Environments -->
-    <div class="bg-white dark:bg-dark-800 shadow-lg rounded-xl border border-slate-200 dark:border-purple-900/30">
-      <div class="px-6 py-5 border-b border-slate-200 dark:border-purple-800/30 bg-gradient-to-br from-purple-50/50 to-violet-50/50 dark:from-purple-500/5 dark:to-violet-500/5">
-        <h2 class="text-lg font-bold text-gray-900 dark:text-white">Recent Environments</h2>
-      </div>
-      <div class="px-6 py-4">
-        <div v-if="loading" class="text-center py-8 text-gray-500 dark:text-slate-500">
-          <i class="pi pi-spinner pi-spin text-2xl text-purple-600 dark:text-purple-400"></i>
-          <p class="mt-2">Loading...</p>
-        </div>
-        <div v-else-if="environments.length === 0" class="text-center py-12 text-gray-500 dark:text-slate-500">
-          <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-purple-100 dark:bg-purple-900/30 mb-4">
-            <i class="pi pi-inbox text-2xl text-purple-600 dark:text-purple-400"></i>
-          </div>
-          <p class="text-sm mb-4">No environments yet</p>
-          <router-link to="/environments" class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white rounded-lg font-medium shadow-lg hover:shadow-xl transition-all duration-200">
-            <i class="pi pi-plus text-sm"></i>
-            <span>Create your first environment</span>
-          </router-link>
-        </div>
-        <div v-else class="space-y-3">
-          <router-link
-            v-for="env in environments.slice(0, 5)"
-            :key="env.id"
-            :to="`/environments/${env.id}`"
-            class="flex flex-wrap items-center justify-between gap-3 p-4 bg-gray-50 dark:bg-dark-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 border border-gray-200 dark:border-purple-800/30 hover:border-purple-300 dark:hover:border-purple-600/50 transition-all duration-200"
-          >
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-3 mb-1">
-                <h3 class="text-sm font-bold text-gray-900 dark:text-white truncate">{{ env.slug }}</h3>
-                <EnvironmentStatus :status="env.status" />
-              </div>
-              <p class="text-xs text-gray-500 dark:text-slate-500">
-                <i class="pi pi-folder text-xs mr-1"></i>{{ env.project }} · {{ timeAgo(env.createdAt) }}
-              </p>
-            </div>
-            <a
-              v-if="env.url && env.status === 'ready'"
-              :href="env.url"
-              target="_blank"
-              rel="noopener"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-xs font-medium"
-              @click.stop
-            >
-              <i class="pi pi-external-link text-xs"></i>
-              <span>Open</span>
-            </a>
-          </router-link>
-        </div>
-        <div v-if="environments.length > 5" class="mt-4 pt-4 border-t border-slate-200 dark:border-purple-800/30 text-center">
-          <router-link to="/environments" class="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 inline-flex items-center gap-1 group">
-            <span>View all {{ environments.length }} environments</span>
-            <i class="pi pi-arrow-right text-xs group-hover:translate-x-1 transition-transform"></i>
-          </router-link>
-        </div>
-      </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <router-link
-        to="/environments"
-        class="group bg-white dark:bg-dark-800 rounded-xl p-6 border border-purple-200 dark:border-purple-500/50 shadow-md hover:shadow-lg hover:shadow-purple-500/20 dark:hover:shadow-purple-500/30 transition-all duration-200 hover:border-purple-300 dark:hover:border-purple-400"
-      >
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-12 h-12 rounded-xl border border-purple-200 dark:border-purple-500/50 bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
-            <i class="pi pi-plus text-purple-600 dark:text-purple-400 text-xl"></i>
-          </div>
-          <div class="ml-4">
-            <h3 class="text-sm font-bold text-gray-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">Create Environment</h3>
-            <p class="text-xs text-gray-500 dark:text-slate-500">Deploy a new environment</p>
-          </div>
-        </div>
-      </router-link>
-
-      <router-link
-        to="/projects"
-        class="group bg-white dark:bg-dark-800 rounded-xl p-6 border border-green-200 dark:border-green-500/50 shadow-md hover:shadow-lg hover:shadow-green-500/20 dark:hover:shadow-green-500/30 transition-all duration-200 hover:border-green-300 dark:hover:border-green-400"
-      >
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-12 h-12 rounded-xl border border-green-200 dark:border-green-500/50 bg-green-50 dark:bg-green-500/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
-            <i class="pi pi-folder-plus text-green-600 dark:text-green-400 text-xl"></i>
-          </div>
-          <div class="ml-4">
-            <h3 class="text-sm font-bold text-gray-900 dark:text-white group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors">New Project</h3>
-            <p class="text-xs text-gray-500 dark:text-slate-500">Add a new project</p>
-          </div>
-        </div>
-      </router-link>
-
-      <router-link
-        v-if="authStore.isAdmin"
-        to="/system/overview"
-        class="group bg-white dark:bg-dark-800 rounded-xl p-6 border border-slate-200 dark:border-slate-500/50 shadow-md hover:shadow-lg hover:shadow-slate-500/20 dark:hover:shadow-slate-500/30 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-400"
-      >
-        <div class="flex items-center">
-          <div class="flex-shrink-0 w-12 h-12 rounded-xl border border-slate-200 dark:border-slate-500/50 bg-slate-50 dark:bg-slate-500/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
-            <i class="pi pi-chart-bar text-slate-600 dark:text-slate-400 text-xl"></i>
-          </div>
-          <div class="ml-4">
-            <h3 class="text-sm font-bold text-gray-900 dark:text-white group-hover:text-slate-600 dark:group-hover:text-slate-400 transition-colors">System Overview</h3>
-            <p class="text-xs text-gray-500 dark:text-slate-500">Monitor resources</p>
-          </div>
-        </div>
-      </router-link>
-    </div>
+    <div class="page-actions">
+      <RouterLink to="/environments" class="btn btn-secondary">All environments</RouterLink>
+      <RouterLink :to="{ path: '/environments', query: { new: '1' } }" class="btn btn-primary"><Plus />New environment</RouterLink>
     </div>
   </div>
+
+  <div v-if="loading" class="flex justify-center py-16"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
+
+  <template v-else>
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section class="card stat">
+        <div class="stat-label"><Layers />Live environments</div>
+        <div class="stat-value">{{ environments.length }}</div>
+        <div class="bar">
+          <span v-for="part in statusParts" :key="part.label" class="bar-fill" :class="part.fill" :style="{ width: `${part.share}%` }"></span>
+        </div>
+        <div v-if="statusParts.length" class="legend">
+          <span v-for="part in statusParts" :key="part.label" class="legend-item"><span class="swatch" :class="part.fill"></span>{{ part.count }} {{ part.label }}</span>
+        </div>
+        <div v-else class="stat-meta">None yet.</div>
+      </section>
+
+      <section class="card stat">
+        <div class="stat-label"><UserRound />Your environments</div>
+        <template v-if="capacity?.quota">
+          <div class="stat-value">{{ capacity.quota.used }}<small>of {{ capacity.quota.limit }}</small></div>
+          <div class="bar"><span class="bar-fill bg-accent" :style="{ width: `${Math.min(100, (capacity.quota.used / capacity.quota.limit) * 100)}%` }"></span></div>
+          <div class="stat-meta">
+            {{ capacity.quota.remaining > 0 ? `You can create ${capacity.quota.remaining} more.` : 'Your quota is full: delete one to create another.' }}
+          </div>
+        </template>
+        <template v-else>
+          <div class="stat-value">{{ mine }}</div>
+          <div class="stat-meta">No quota per person on this server.</div>
+        </template>
+      </section>
+
+      <section class="card stat">
+        <div class="stat-label">
+          <MemoryStick />Memory available
+          <RouterLink v-if="authStore.isAdmin" to="/system/overview" class="link ml-auto text-xs">Details</RouterLink>
+        </div>
+        <div class="stat-value">{{ capacity?.host ? formatSize(capacity.host.availableMemoryBytes) : '-' }}</div>
+        <div class="stat-meta">
+          <template v-if="capacity?.host?.buildGuards?.memoryBytes">Builds wait until {{ formatSize(capacity.host.buildGuards.memoryBytes) }} are free.</template>
+          <template v-else-if="capacity?.host">{{ formatSize(capacity.host.freeDiskBytes) }} of disk free.</template>
+          <template v-else>The first sample comes 30 seconds after Spawner starts.</template>
+        </div>
+      </section>
+
+      <section class="card stat">
+        <div class="stat-label">
+          <Gauge />Capacity
+          <RouterLink v-if="authStore.isAdmin" to="/system/overview" class="link ml-auto text-xs">Details</RouterLink>
+        </div>
+        <div class="stat-value">{{ fit.places }}<small v-if="fit.places !== '-'">more</small></div>
+        <div class="stat-meta">{{ fit.detail }}</div>
+      </section>
+    </div>
+
+    <div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <section class="card">
+        <div class="card-head is-flush">
+          <div class="card-title">Recent environments</div>
+          <RouterLink to="/environments" class="btn btn-ghost btn-sm">View all<ChevronRight /></RouterLink>
+        </div>
+        <div v-if="environments.length === 0" class="empty border-t">
+          <span class="empty-title">No environment yet</span>
+          <span>Create one from the dashboard, or from a worktree with <code>spawner up</code>.</span>
+        </div>
+        <div v-else class="table-wrap">
+          <table class="table">
+            <tbody>
+              <tr v-for="environment in recent" :key="environment.id" class="is-link" @click="openRow($event, environment)">
+                <td class="max-w-[14rem]">
+                  <RouterLink :to="`/environments/${environment.id}`" class="row-title block">{{ environment.slug }}</RouterLink>
+                  <div class="row-sub">
+                    <span class="font-medium text-fg-2">{{ environment.project }}</span><span aria-hidden="true">·</span><span>{{ timeAgo(environment.createdAt) }}</span>
+                  </div>
+                </td>
+                <td><EnvironmentStatus :status="environment.status" /></td>
+                <td class="hidden max-w-[12rem] xl:table-cell">
+                  <SourceLabel v-if="primarySource(environment)" :source="primarySource(environment)!" />
+                </td>
+                <td class="hidden md:table-cell">
+                  <div class="flex items-center gap-2">
+                    <UserAvatar v-if="environment.owner" :user="environment.owner" small />
+                    <span class="truncate text-fg-2">{{ environment.owner?.name ?? 'Installation token' }}</span>
+                  </div>
+                </td>
+                <td class="cell-actions">
+                  <a
+                    v-if="environment.url && environment.status === 'ready'"
+                    :href="environment.url"
+                    target="_blank"
+                    rel="noopener"
+                    class="btn btn-ghost btn-sm btn-icon"
+                    :aria-label="`Open ${environment.slug}`"
+                    v-tooltip.top="'Open'"
+                  >
+                    <ExternalLink />
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="flex min-w-0 flex-col gap-4">
+        <section class="card">
+          <div class="card-head is-flush">
+            <div class="card-title">Projects</div>
+            <RouterLink to="/projects" class="btn btn-ghost btn-sm">View all<ChevronRight /></RouterLink>
+          </div>
+          <div class="list">
+            <div v-if="projects.length === 0" class="list-row text-fg-3">{{ authStore.isAdmin ? 'Add a project from the projects page.' : 'An admin adds the projects.' }}</div>
+            <RouterLink v-for="project in projects" :key="project.id" :to="`/projects/${project.slug}`" class="list-row hover:bg-surface-hover">
+              <span class="project-icon size-8 text-sm">{{ project.name.charAt(0).toUpperCase() }}</span>
+              <span class="list-main">
+                <span class="list-title">{{ project.name }}</span>
+                <span class="list-sub">{{ project.environmentCount }} environment{{ project.environmentCount === 1 ? '' : 's' }}</span>
+              </span>
+              <span v-if="placesOf(project.slug) !== null" class="badge badge-sm" :title="'Environments of this project the server can still hold'">
+                {{ placesOf(project.slug) }} more
+              </span>
+            </RouterLink>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div class="card-title"><SquareTerminal />From your terminal</div></div>
+          <div class="card-body flex flex-col gap-3">
+            <p class="text-sm text-fg-2">
+              The CLI sends your worktree, uncommitted changes included, and waits until its URL answers. Coding agents use the same commands through
+              <code>spawner mcp</code>.
+            </p>
+            <div class="cmd">
+              <span class="cmd-text"><span class="text-fg-3">$ </span>spawner up --wait</span>
+              <button type="button" class="btn btn-ghost btn-sm btn-icon" aria-label="Copy the command" @click="copy('spawner up --wait')"><Copy /></button>
+            </div>
+            <RouterLink to="/account" class="link text-sm">Install the CLI</RouterLink>
+          </div>
+        </section>
+      </div>
+    </div>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { environmentsApi, projectsApi, systemApi } from '../services/api';
+import { useRouter } from 'vue-router';
+import { ChevronRight, Copy, ExternalLink, Gauge, Layers, LoaderCircle, MemoryStick, Plus, SquareTerminal, UserRound } from 'lucide-vue-next';
 import EnvironmentStatus from '../components/EnvironmentStatus.vue';
+import SourceLabel from '../components/SourceLabel.vue';
+import UserAvatar from '../components/UserAvatar.vue';
+import { useNotification } from '../composables/useNotification';
+import { useServerInfo } from '../composables/useServerInfo';
+import { environmentsApi, errorMessage, projectsApi, systemApi } from '../services/api';
 import { useAuthStore } from '../stores/auth';
-import type { Capacity, Environment } from '../types';
+import type { Capacity, Environment, ProjectSummary } from '../types';
+import { statusTone, type StatusTone } from '../utils/environment';
 import { timeAgo } from '../utils/format';
 import { formatSize } from '../utils/palette';
 
+const RECENT = 6;
+
+/** Each group of statuses, in the order of the environment list's filters, with its bar color. */
+const STATUS_PARTS: { tone: StatusTone; label: string; fill: string }[] = [
+  { tone: 'ready', label: 'ready', fill: 'bg-ok' },
+  { tone: 'degraded', label: 'degraded', fill: 'bg-warn' },
+  { tone: 'sleeping', label: 'sleeping', fill: 'bg-sleep' },
+  { tone: 'busy', label: 'in progress', fill: 'bg-info' },
+  { tone: 'stopped', label: 'stopped', fill: 'bg-muted' },
+  { tone: 'failed', label: 'failed', fill: 'bg-danger' },
+];
+
+const router = useRouter();
 const authStore = useAuthStore();
+const info = useServerInfo();
+const { showError, showSuccess } = useNotification();
 const loading = ref(true);
 const environments = ref<Environment[]>([]);
-const stats = ref<{ environmentCount: number; projectCount: number } | null>(null);
+const projects = ref<ProjectSummary[]>([]);
 const capacity = ref<Capacity | null>(null);
 
+const recent = computed(() => [...environments.value].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, RECENT));
+const mine = computed(() => environments.value.filter((environment) => environment.owner?.id === authStore.user?.id).length);
+
+function count(tone: StatusTone): number {
+  return environments.value.filter((environment) => statusTone(environment.status) === tone).length;
+}
+
+const statusParts = computed(() =>
+  STATUS_PARTS.map((part) => ({ ...part, count: count(part.tone), share: (count(part.tone) / environments.value.length) * 100 })).filter((part) => part.count > 0),
+);
+
+function primarySource(environment: Environment) {
+  return environment.sources.find((source) => source.primary) ?? null;
+}
+
+function placesOf(project: string): number | null {
+  return capacity.value?.projects.find((entry) => entry.project === project)?.places ?? null;
+}
+
 /**
- * More environments the server can hold: those of the only project, or the
- * range from the heaviest project to the lightest.
+ * How many more environments fit: those of the only project, or the range
+ * from the heaviest project to the lightest.
  */
-const room = computed(() => {
-  const projects = (capacity.value?.projects ?? []).filter((project) => project.places !== null);
-  if (projects.length === 0) {
-    return { places: '-', detail: '' };
+const fit = computed(() => {
+  const entries = (capacity.value?.projects ?? []).filter((project) => project.places !== null);
+  if (entries.length === 0) {
+    return { places: '-', detail: 'Known once the server is sampled and a project exists.' };
   }
-  const counts = projects.map((project) => project.places ?? 0);
+  const counts = entries.map((project) => project.places ?? 0);
   const [least, most] = [Math.min(...counts), Math.max(...counts)];
-  if (projects.length === 1) {
-    return { places: `${least} more`, detail: `${projects[0].project} environments` };
+  if (entries.every((entry) => entry.limitedBy === 'quota')) {
+    return { places: String(least), detail: 'Environments you can still create: your quota is the limit.' };
   }
-  return { places: least === most ? `${least} more` : `${least} to ${most} more`, detail: 'environments, depending on the project' };
+  if (entries.length === 1) {
+    const limit = entries[0].limitedBy ? `, limited by its ${entries[0].limitedBy}` : '';
+    return { places: String(least), detail: `${entries[0].name} environments the server can still hold${limit}.` };
+  }
+  return { places: least === most ? String(least) : `${least} to ${most}`, detail: 'Environments the server can still hold, depending on the project.' };
 });
 
+async function copy(value: string) {
+  await navigator.clipboard.writeText(value);
+  showSuccess('Copied');
+}
+
+/** A click anywhere on a row opens the environment, as its name does; links, buttons and a text selection keep theirs. */
+function openRow(event: MouseEvent, environment: Environment) {
+  if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) {
+    return;
+  }
+  router.push(`/environments/${environment.id}`);
+}
+
+/** Each part loads on its own: a list that fails leaves the others, and one message says so. */
 onMounted(async () => {
-  await Promise.all([loadEnvironments(), loadCapacity()]);
+  const [live, all, places] = await Promise.allSettled([environmentsApi.list(), projectsApi.list(), systemApi.capacity()]);
+  environments.value = live.status === 'fulfilled' ? live.value : [];
+  projects.value = all.status === 'fulfilled' ? all.value : [];
+  capacity.value = places.status === 'fulfilled' ? places.value : null;
+  const failed = [live, all].find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failed) {
+    showError(errorMessage(failed.reason, 'The overview could not be loaded'));
+  }
   loading.value = false;
 });
-
-async function loadEnvironments() {
-  try {
-    const [allEnvironments, projects] = await Promise.all([environmentsApi.list(), projectsApi.list()]);
-    environments.value = allEnvironments;
-    stats.value = {
-      environmentCount: allEnvironments.filter((environment) => environment.status === 'ready').length,
-      projectCount: projects.length,
-    };
-  } catch (error) {
-    console.error('Failed to load environments:', error);
-  }
-}
-
-async function loadCapacity() {
-  capacity.value = await systemApi.capacity().catch(() => null);
-}
 </script>

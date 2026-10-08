@@ -43,6 +43,7 @@ import type {
   ProjectManifest,
   ProjectUsage,
   ProjectVariable,
+  ServerInfo,
   SystemMetrics,
   SystemOverview,
   TerminalSessionInfo,
@@ -58,10 +59,9 @@ const api = axios.create({
   headers: { 'X-Spawner-Client': 'web' },
 });
 
-/** The message of an API error, for a toast or a form. */
 /**
- * The message of an API error, with its hint when it has one (a quota or
- * the room left on the server).
+ * The message of an API error, for a toast or a form, with its hint when it
+ * has one (a quota, or the capacity of the server).
  */
 export function errorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
@@ -148,10 +148,12 @@ export const auditApi = {
 };
 
 export const systemApi = {
+  /** Version, domain and the limits the CLI checks with (everyone). */
+  info: () => api.get<ServerInfo>('/v1/info').then((res) => res.data),
   /** The host now, its alerts and each project's share (admins). */
   overview: () => api.get<SystemOverview>('/v1/system').then((res) => res.data),
   metrics: (range: MetricRange) => api.get<SystemMetrics>('/v1/system/metrics', { params: { range } }).then((res) => res.data),
-  /** Room for more environments of each project (everyone). */
+  /** How many more environments of each project fit (everyone). */
   capacity: () => api.get<Capacity>('/v1/system/capacity').then((res) => res.data),
   /** What Spawner owns and no longer needs (admins). */
   cleanup: () => api.get<CleanupScan>('/v1/system/cleanup').then((res) => res.data),

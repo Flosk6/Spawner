@@ -1,0 +1,175 @@
+/*
+ * Design tokens of the dashboard. Light by default; `html.dark` swaps every
+ * token at once (useTheme sets it from the user's choice or the system's), so
+ * components use these variables and never carry a dark variant of their own.
+ *
+ * Every text token keeps a contrast of at least 4.5:1 on the surfaces it sits
+ * on. The accent is the brand violet #574b89 in light; in dark it becomes the
+ * violet of the logo (#6e54ff), since #574b89 falls to 2.5:1 there.
+ */
+
+:root {
+  --bg: #f6f6f9;
+  --bg-side: #f6f6f9;
+  --side-hover: #ececf1;
+  --nav-active: #e9e7f4;
+  --surface: #ffffff;
+  --surface-2: #f3f3f7;
+  --surface-hover: #f7f7fa;
+  --overlay: #ffffff;
+  --overlay-hover: #f2f2f6;
+  --seg-on: #ffffff;
+  --border: #e4e4ea;
+  --border-strong: #d4d4dc;
+  --text: #17161d;
+  --text-2: #4b4a55;
+  --text-3: #6b6a76;
+  --accent: #574b89;
+  --accent-hover: #4b4079;
+  --accent-fg: #ffffff;
+  --accent-text: #574b89;
+  --accent-soft: #f1effa;
+  --accent-border: #d6d1ec;
+  --ring: rgba(110, 84, 255, 0.42);
+  --mark: #6e54ff;
+  --ok: #16a34a;
+  --ok-text: #15803d;
+  --ok-soft: #ecfdf3;
+  --ok-border: #bbf7d0;
+  --warn: #d97706;
+  --warn-text: #b45309;
+  --warn-soft: #fffbeb;
+  --warn-border: #fde68a;
+  --danger: #dc2626;
+  --danger-text: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-fill: #dc2626;
+  --info: #2563eb;
+  --info-text: #1d4ed8;
+  --info-soft: #eff6ff;
+  --info-border: #bfdbfe;
+  --sleep: #8b84b8;
+  --sleep-text: #5b5785;
+  --sleep-soft: #f3f2f8;
+  --sleep-border: #dcd9ea;
+  --muted: #a1a1aa;
+  --muted-text: #52525b;
+  --muted-soft: #f4f4f5;
+  --muted-border: #e4e4e7;
+  --console-bg: #fbfbfd;
+  --console-text: #2a2933;
+  --console-dim: #6b6a76;
+  --console-hover: #f3f3f7;
+  --console-err: #b42318;
+  --console-err-bg: #fef3f2;
+  --term-bg: #0d0c12;
+  --term-text: #e4e3ec;
+  --term-dim: #8a8899;
+  --svc-1: #6d28d9;
+  --svc-2: #0e7490;
+  --svc-3: #b45309;
+  --svc-4: #047857;
+  --svc-5: #be185d;
+  --svc-6: #1d4ed8;
+  --svc-7: #c2410c;
+  --svc-8: #4d7c0f;
+  --chart-grid: #ececf1;
+  --dots: #dcdce4;
+  --scrim: rgba(23, 22, 29, 0.36);
+  --shadow-sm: 0 1px 2px rgba(23, 22, 29, 0.06);
+  --shadow-md: 0 10px 28px -8px rgba(23, 22, 29, 0.18), 0 2px 6px rgba(23, 22, 29, 0.06);
+  --shadow-lg: 0 28px 64px -16px rgba(23, 22, 29, 0.32), 0 4px 12px rgba(23, 22, 29, 0.06);
+  color-scheme: light;
+}
+
+:root.dark {
+  --bg: #0e0d13;
+  --bg-side: #0e0d13;
+  --side-hover: #18171f;
+  --nav-active: rgba(110, 84, 255, 0.16);
+  --surface: #15141b;
+  --surface-2: #1b1a22;
+  --surface-hover: #1a1921;
+  --overlay: #1c1b24;
+  --overlay-hover: #272630;
+  --seg-on: #2a2933;
+  --border: #26252e;
+  --border-strong: #35343f;
+  --text: #edecf3;
+  --text-2: #b6b5c2;
+  --text-3: #8d8c9b;
+  --accent: #6e54ff;
+  --accent-hover: #5f45f0;
+  --accent-fg: #ffffff;
+  --accent-text: #a99dff;
+  --accent-soft: rgba(110, 84, 255, 0.14);
+  --accent-border: rgba(140, 120, 255, 0.4);
+  --ring: rgba(140, 118, 255, 0.6);
+  --mark: #7d66ff;
+  --ok: #22c55e;
+  --ok-text: #4ade80;
+  --ok-soft: rgba(34, 197, 94, 0.12);
+  --ok-border: rgba(34, 197, 94, 0.3);
+  --warn: #f59e0b;
+  --warn-text: #fbbf24;
+  --warn-soft: rgba(245, 158, 11, 0.12);
+  --warn-border: rgba(245, 158, 11, 0.32);
+  --danger: #ef4444;
+  --danger-text: #f87171;
+  --danger-soft: rgba(239, 68, 68, 0.12);
+  --danger-border: rgba(239, 68, 68, 0.34);
+  --danger-fill: #dc2626;
+  --info: #3b82f6;
+  --info-text: #60a5fa;
+  --info-soft: rgba(59, 130, 246, 0.13);
+  --info-border: rgba(59, 130, 246, 0.32);
+  --sleep: #9d97c9;
+  --sleep-text: #b3aedb;
+  --sleep-soft: rgba(157, 151, 201, 0.12);
+  --sleep-border: rgba(157, 151, 201, 0.3);
+  --muted: #71717a;
+  --muted-text: #a1a1aa;
+  --muted-soft: rgba(161, 161, 170, 0.1);
+  --muted-border: rgba(161, 161, 170, 0.24);
+  --console-bg: #0b0a0f;
+  --console-text: #d9d8e3;
+  --console-dim: #8a8899;
+  --console-hover: #14131a;
+  --console-err: #fca5a5;
+  --console-err-bg: rgba(239, 68, 68, 0.09);
+  --svc-1: #a78bfa;
+  --svc-2: #22d3ee;
+  --svc-3: #fbbf24;
+  --svc-4: #34d399;
+  --svc-5: #f472b6;
+  --svc-6: #60a5fa;
+  --svc-7: #fb923c;
+  --svc-8: #a3e635;
+  --chart-grid: #22212a;
+  --dots: #1f1e27;
+  --scrim: rgba(4, 3, 8, 0.62);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 32px 72px -16px rgba(0, 0, 0, 0.75);
+  color-scheme: dark;
+}
+
+/*
+ * Sizes, the same in both themes: every text of the dashboard takes one step
+ * of this scale (Tailwind's text-* classes included, see tailwind.config.js),
+ * and controls one of these heights, so the whole interface grows or shrinks
+ * from here.
+ */
+:root {
+  --fs-2xs: 11.5px;
+  --fs-xs: 12.5px;
+  --fs-sm: 13.5px;
+  --fs-base: 14.5px;
+  --fs-md: 16px;
+  --fs-xl: 22px;
+  --fs-2xl: 26px;
+  --control-sm: 30px;
+  --control: 34px;
+  --control-lg: 42px;
+}

@@ -1,257 +1,186 @@
 <template>
-  <div class="container mx-auto px-4 py-8 max-w-6xl">
-    <div class="mb-6">
-      <router-link to="/projects" class="text-blue-600 hover:text-blue-700 dark:text-purple-400">
-        ← Back to Projects
-      </router-link>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Git keys</h1>
+      <p class="page-lead">
+        Each repository needs its own SSH deploy key, since GitHub accepts a key on one repository only: generate it here, then add its public key to the repository.
+      </p>
     </div>
+  </div>
 
-    <h1 class="text-3xl font-bold text-gray-800 dark:text-slate-200 mb-4">Git SSH Keys Management</h1>
+  <div v-if="loading" class="flex justify-center py-16"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
 
-    <p class="text-gray-600 dark:text-slate-400 mb-8">
-      Each repository requires its own SSH Deploy Key. Generate a unique key for each repository and add it to
-      GitHub/GitLab.
-    </p>
+  <div v-else-if="loadError" class="alert tone-danger">
+    <CircleX />
+    <div class="alert-body"><span class="alert-title">{{ loadError }}</span></div>
+  </div>
 
-    <!-- Instructions Card -->
-    <div class="bg-blue-50 dark:bg-purple-900/20 border border-blue-200 dark:border-purple-700/40 rounded-lg p-6 mb-6">
-      <h2 class="text-lg font-bold text-blue-900 dark:text-purple-200 mb-3">How to add Deploy Keys</h2>
-      <div class="text-sm text-blue-800 dark:text-purple-300 space-y-2">
-        <p class="font-medium">For each repository below:</p>
-        <ol class="list-decimal list-inside ml-4 space-y-1">
-          <li>Click "Generate Key" to create a unique SSH key for that repository</li>
-          <li>Copy the public key that appears</li>
-          <li>Go to your GitHub/GitLab repository</li>
-          <li><strong>GitHub:</strong> Settings → Deploy keys → Add deploy key</li>
-          <li><strong>GitLab:</strong> Settings → Repository → Deploy Keys</li>
-          <li>Paste the key, give it a title (e.g., "Spawner"), and save</li>
-        </ol>
-        <p class="text-xs text-blue-700 dark:text-purple-400 mt-3 font-medium">
-          Each Deploy Key is unique per repository - this is a GitHub/GitLab requirement
-        </p>
-      </div>
+  <div v-else-if="repos.length === 0" class="card empty">
+    <KeyRound class="size-6" />
+    <span class="empty-title">No Git repository yet</span>
+    <span>The repositories of the projects, and the other sources of their <code>spawner.yaml</code>, get their keys here.</span>
+    <RouterLink to="/projects" class="link mt-1">Add a project first</RouterLink>
+  </div>
+
+  <section v-else class="card">
+    <div class="card-head is-flush">
+      <div class="card-title"><KeyRound />Repositories<span class="count">{{ repos.length }}</span></div>
     </div>
-
-    <div v-if="loading" class="text-center py-12">
-      <p class="text-gray-600 dark:text-slate-400">Loading repositories...</p>
-    </div>
-
-    <div v-else-if="repos.length === 0" class="text-center py-12 bg-white rounded-lg shadow-md">
-      <p class="text-gray-600 dark:text-slate-400 mb-4">No Git repository yet</p>
-      <router-link to="/projects" class="text-blue-600 hover:text-blue-700 dark:text-purple-400 font-medium">
-        Add a project first
-      </router-link>
-    </div>
-
-    <div v-else class="bg-white dark:bg-dark-800 rounded-lg shadow-md overflow-hidden">
-      <table class="min-w-full divide-y divide-gray-200 dark:divide-purple-800/30">
-        <thead class="bg-gray-50 dark:bg-dark-700">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
           <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-500 uppercase tracking-wider">
-              Git Repository
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-500 uppercase tracking-wider">
-              Used By
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-500 uppercase tracking-wider">
-              SSH Key Status
-            </th>
-            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-500 uppercase tracking-wider">
-              Actions
-            </th>
+            <th>Repository</th>
+            <th class="hidden md:table-cell">Used by</th>
+            <th class="hidden sm:table-cell">Deploy key</th>
+            <th><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
-        <tbody class="bg-white dark:bg-dark-800 divide-y divide-gray-200 dark:divide-purple-800/30">
-          <tr v-for="repo in repos" :key="repo.gitRepo" class="hover:bg-gray-50 dark:hover:bg-purple-500/10 dark:bg-dark-700 transition">
-            <td class="px-6 py-4">
-              <div class="text-sm text-gray-900 dark:text-white font-mono">{{ repo.gitRepo }}</div>
+        <tbody>
+          <tr v-for="repo in repos" :key="repo.gitRepo">
+            <td class="max-w-[28rem]">
+              <span class="block break-all font-mono text-sm font-medium text-fg">{{ repo.gitRepo }}</span>
+              <span class="mt-0.5 block break-all font-mono text-xs text-fg-3 md:hidden">{{ repo.usedBy.join(', ') }}</span>
+              <span class="badge badge-sm mt-1.5 sm:hidden" :class="{ 'tone-ok': repo.keyExists }"><span class="dot"></span>{{ repo.keyExists ? 'Key exists' : 'No key' }}</span>
             </td>
-            <td class="px-6 py-4">
-              <div class="text-sm text-gray-700 dark:text-slate-300">
-                <div v-for="usage in repo.usedBy" :key="usage" class="mb-1 font-mono">{{ usage }}</div>
+            <td class="hidden md:table-cell">
+              <div class="flex flex-wrap gap-1">
+                <span v-for="usage in repo.usedBy" :key="usage" class="badge badge-sm font-mono">{{ usage }}</span>
               </div>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span v-if="repo.keyExists"
-                class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                Key exists
-              </span>
-              <span v-else
-                class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 dark:text-slate-200">
-                No key
-              </span>
+            <td class="hidden sm:table-cell">
+              <span class="badge badge-sm" :class="{ 'tone-ok': repo.keyExists }"><span class="dot"></span>{{ repo.keyExists ? 'Key exists' : 'No key' }}</span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-              <button v-if="!repo.keyExists" @click="generateKeyForRepo(repo)"
+            <td class="cell-actions">
+              <button
+                v-if="!repo.keyExists"
+                type="button"
+                class="btn btn-secondary btn-sm"
                 :disabled="generatingRepoUrl === repo.gitRepo"
-                class="text-blue-600 hover:text-blue-900 dark:text-purple-200 disabled:opacity-50">
-                {{ generatingRepoUrl === repo.gitRepo ? 'Generating...' : 'Generate Key' }}
+                @click="generateKeyForRepo(repo)"
+              >
+                <LoaderCircle v-if="generatingRepoUrl === repo.gitRepo" class="spinner" /><Plus v-else />Generate key
               </button>
-              <button v-else @click="showKey(repo)" class="text-green-600 hover:text-green-900 mr-4">
-                View Key
-              </button>
+              <button v-else type="button" class="btn btn-ghost btn-sm" @click="showKey(repo)"><Eye />View key</button>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+  </section>
 
-    <!-- View Key Modal -->
-    <div v-if="selectedRepo" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      @click="selectedRepo = null">
-      <div class="bg-white dark:bg-dark-800 rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto" @click.stop>
-        <div class="flex justify-between items-start mb-4">
-          <div class="flex-1">
-            <h3 class="text-xl font-bold text-gray-800 dark:text-slate-200">SSH Deploy Key</h3>
-            <p class="text-xs text-gray-500 dark:text-slate-500 mt-2 font-mono">{{ selectedRepo.gitRepo }}</p>
-            <div class="mt-3 text-sm text-gray-700 dark:text-slate-300">
-              <p class="font-medium text-gray-600 dark:text-slate-400 mb-1">Used by:</p>
-              <div v-for="usage in selectedRepo.usedBy" :key="usage" class="ml-2 font-mono">{{ usage }}</div>
-            </div>
-          </div>
-          <button @click="selectedRepo = null" class="text-gray-400 hover:text-gray-600 dark:text-slate-400 text-2xl leading-none ml-4">
-            ×
-          </button>
-        </div>
+  <Dialog v-model:visible="keyVisible" header="Deploy key" modal dismissable-mask :style="{ width: 'min(36rem, calc(100vw - 2rem))' }">
+    <div v-if="selectedRepo" class="flex flex-col gap-5">
+      <div class="flex min-w-0 flex-col gap-1">
+        <span class="break-all font-mono text-sm font-medium text-fg">{{ selectedRepo.gitRepo }}</span>
+        <span class="text-sm text-fg-3">Used by <span class="font-mono text-fg-2">{{ selectedRepo.usedBy.join(', ') }}</span></span>
+      </div>
 
-        <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-            Public Key (Add this to your Git provider)
-          </label>
-          <div class="relative">
-            <textarea :value="selectedRepo.publicKey" readonly rows="8"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 dark:bg-dark-700 font-mono text-xs"></textarea>
-            <button @click="copyKey(selectedRepo.publicKey)"
-              class="absolute top-2 right-2 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:text-slate-300 px-3 py-1 rounded text-sm transition">
-              {{ copied ? 'Copied!' : 'Copy' }}
-            </button>
-          </div>
-        </div>
-
-        <div class="bg-blue-50 dark:bg-purple-900/20 border border-blue-200 dark:border-purple-700/40 rounded-lg p-4">
-          <h4 class="font-medium text-blue-900 dark:text-purple-200 mb-2">How to add this Deploy Key:</h4>
-          <ol class="text-sm text-blue-800 dark:text-purple-300 space-y-1 list-decimal list-inside">
-            <li>Copy the public key above</li>
-            <li>Go to your repository on GitHub/GitLab</li>
-            <li><strong>GitHub:</strong> Settings → Deploy keys → Add deploy key</li>
-            <li><strong>GitLab:</strong> Settings → Repository → Deploy Keys</li>
-            <li>Paste the key and give it a title (e.g., "Spawner")</li>
-            <li>Save (read-only access is sufficient)</li>
-          </ol>
-        </div>
-
-        <div class="flex gap-3 mt-6">
-          <button @click="confirmRegenerateRepo = selectedRepo"
-            class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg font-medium transition">
-            Regenerate Key
-          </button>
-          <button @click="selectedRepo = null"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:text-slate-300 px-4 py-2 rounded-lg font-medium transition">
-            Close
+      <div class="field">
+        <span class="field-label">Public key</span>
+        <div class="cmd">
+          <span class="cmd-text select-all whitespace-pre-wrap break-all">{{ selectedRepo.publicKey }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm btn-icon"
+            :aria-label="copied ? 'Copied' : 'Copy the public key'"
+            v-tooltip.top="copied ? 'Copied' : 'Copy'"
+            @click="copyKey(selectedRepo.publicKey ?? '')"
+          >
+            <Check v-if="copied" /><Copy v-else />
           </button>
         </div>
       </div>
-    </div>
 
-    <!-- Regenerate Confirmation Modal -->
-    <div v-if="confirmRegenerateRepo"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      @click="confirmRegenerateRepo = null">
-      <div class="bg-white dark:bg-dark-800 rounded-lg p-6 max-w-md w-full" @click.stop>
-        <h3 class="text-xl font-bold text-gray-800 dark:text-slate-200 mb-4">Regenerate SSH Key?</h3>
-        <p class="text-gray-600 dark:text-slate-400 mb-2">
-          This will generate a new SSH key for:
-        </p>
-        <p class="text-sm font-mono text-gray-800 dark:text-slate-200 bg-gray-100 p-2 rounded mb-4">
-          {{ confirmRegenerateRepo.gitRepo }}
-        </p>
-        <p class="text-sm text-red-600 mb-6">
-          You will need to update the Deploy Key on this repository.
-        </p>
-        <div class="flex gap-3">
-          <button @click="confirmRegenerateRepo = null"
-            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:text-slate-300 px-4 py-2 rounded font-medium transition">
-            Cancel
-          </button>
-          <button @click="regenerateKey"
-            class="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-medium transition">
-            Regenerate
-          </button>
-        </div>
+      <div class="flex flex-col gap-2">
+        <span class="field-label">Add it to the repository</span>
+        <ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-fg-2">
+          <li>Copy the public key above.</li>
+          <li>Open the repository on GitHub (Settings → Deploy keys → Add deploy key) or on GitLab (Settings → Repository → Deploy keys).</li>
+          <li>Paste the key, give it a title such as Spawner, and save: read-only access is enough.</li>
+        </ol>
       </div>
     </div>
-  </div>
+
+    <template #footer>
+      <button
+        v-if="selectedRepo"
+        type="button"
+        class="btn btn-ghost mr-auto"
+        :disabled="generatingRepoUrl === selectedRepo.gitRepo"
+        @click="confirmRegenerate(selectedRepo)"
+      >
+        <LoaderCircle v-if="generatingRepoUrl === selectedRepo.gitRepo" class="spinner" /><RefreshCw v-else />Regenerate key
+      </button>
+      <button type="button" class="btn btn-primary" @click="keyVisible = false">Close</button>
+    </template>
+  </Dialog>
 </template>
 
-<script setup>
-import { ref, onMounted } from 'vue';
-import { gitApi } from '../services/api';
+<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import Dialog from 'primevue/dialog';
+import { Check, CircleX, Copy, Eye, KeyRound, LoaderCircle, Plus, RefreshCw } from 'lucide-vue-next';
+import { useNotification } from '../composables/useNotification';
+import { errorMessage, gitApi } from '../services/api';
+import type { RepoKeyInfo } from '../types';
+
+const COPIED_MS = 2000;
+
+const { showError, confirmAction } = useNotification();
 
 const loading = ref(true);
-const repos = ref([]);
-const selectedRepo = ref(null);
-const confirmRegenerateRepo = ref(null);
-const generatingRepoUrl = ref(null);
+const loadError = ref('');
+const repos = ref<RepoKeyInfo[]>([]);
+const selectedRepo = ref<RepoKeyInfo | null>(null);
+const keyVisible = ref(false);
+const generatingRepoUrl = ref<string | null>(null);
 const copied = ref(false);
 
 async function loadRepos() {
+  loading.value = true;
   try {
-    loading.value = true;
     repos.value = await gitApi.repos();
-  } catch (error) {
-    console.error('Error loading repos:', error);
-    alert('Failed to load repositories');
+  } catch (err) {
+    loadError.value = errorMessage(err, 'The repositories could not be loaded');
   } finally {
     loading.value = false;
   }
 }
 
-async function generateKeyForRepo(repo) {
+/** Generates the key of a repository, or replaces it, then shows its public key. */
+async function generateKeyForRepo(repo: RepoKeyInfo) {
+  generatingRepoUrl.value = repo.gitRepo;
   try {
-    generatingRepoUrl.value = repo.gitRepo;
     const { publicKey } = await gitApi.generateRepoKey(repo.gitRepo);
-
-    // Update the repo in the list
-    const index = repos.value.findIndex(r => r.gitRepo === repo.gitRepo);
-    if (index !== -1) {
-      repos.value[index] = {
-        ...repos.value[index],
-        keyExists: true,
-        publicKey,
-      };
-    }
-
-    // Show the key modal
-    selectedRepo.value = repos.value[index];
-  } catch (error) {
-    console.error('Error generating key:', error);
-    alert('Failed to generate SSH key: ' + (error.response?.data?.message || error.message));
+    const updated: RepoKeyInfo = { ...repo, keyExists: true, publicKey };
+    repos.value = repos.value.map((item) => (item.gitRepo === repo.gitRepo ? updated : item));
+    showKey(updated);
+  } catch (err) {
+    showError(errorMessage(err, 'The key could not be generated'));
   } finally {
     generatingRepoUrl.value = null;
   }
 }
 
-function showKey(repo) {
+function showKey(repo: RepoKeyInfo) {
   selectedRepo.value = repo;
+  keyVisible.value = true;
 }
 
-function copyKey(publicKey) {
-  navigator.clipboard.writeText(publicKey);
+async function copyKey(publicKey: string) {
+  await navigator.clipboard.writeText(publicKey);
   copied.value = true;
-  setTimeout(() => {
-    copied.value = false;
-  }, 2000);
+  setTimeout(() => (copied.value = false), COPIED_MS);
 }
 
-async function regenerateKey() {
-  const repo = confirmRegenerateRepo.value;
-  confirmRegenerateRepo.value = null;
-  selectedRepo.value = null;
-
-  await generateKeyForRepo(repo);
+function confirmRegenerate(repo: RepoKeyInfo) {
+  confirmAction(
+    `The current key of ${repo.gitRepo} stops working at once: replace the deploy key of the repository with the new public key.`,
+    () => generateKeyForRepo(repo),
+    { header: 'Regenerate the key?', acceptLabel: 'Regenerate', danger: true },
+  );
 }
 
-onMounted(() => {
-  loadRepos();
-});
+onMounted(loadRepos);
 </script>

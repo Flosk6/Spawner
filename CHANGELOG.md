@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **A new dashboard**: a sidebar with breadcrumbs, dense tables, one status badge everywhere, environment pages with their services as cards (memory of each), a lifecycle card, and jobs that show the phase they are at or failed in. Search everything with Ctrl+K (Cmd+K on a Mac).
+- **Light and dark themes that hold**, or the system's: the dark theme no longer has buttons, menus and banners you could not read, and the page no longer flashes light before it turns dark. The waiting page of sleeping environments follows the same colors.
+- The dashboard loads no font from another site any more: they are bundled.
+
 ## 2.0.0
 
 A rewrite of Spawner: preview environments for every branch, for teams and the coding agents working for them, on a server of your own. Nothing carries over from 1.x: install 2.0 on a fresh server.

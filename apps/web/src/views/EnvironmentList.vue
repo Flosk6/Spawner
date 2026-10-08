@@ -1,150 +1,378 @@
 <template>
-  <div>
-    <div class="flex flex-wrap justify-between items-center gap-4 mb-8">
-      <div>
-        <h1 class="text-4xl font-bold mb-2">Environments</h1>
-        <p class="text-lg opacity-70">One copy of a project per branch, with its own URL</p>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Environments</h1>
+      <p class="page-lead">One copy of a project per branch, with its own URL.</p>
+    </div>
+    <div class="page-actions">
+      <button type="button" class="btn btn-primary" :disabled="projects.length === 0" @click="creating = true"><Plus />New environment</button>
+    </div>
+  </div>
+
+  <div v-if="loading" class="flex justify-center py-16"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
+
+  <div v-else-if="projects.length === 0" class="card empty">
+    <FolderGit2 class="size-6" />
+    <span class="empty-title">No project yet</span>
+    <span>Environments are copies of a project: a repository holding a <code>.spawner/</code> directory.</span>
+    <RouterLink to="/projects" class="link mt-1">Go to the projects</RouterLink>
+  </div>
+
+  <template v-else>
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="input-wrap w-full sm:w-72">
+        <Search />
+        <input v-model="search" class="input" type="search" placeholder="Filter by name, branch or owner" aria-label="Filter the environments" />
       </div>
-      <button :disabled="projects.length === 0" class="primary-action" @click="creating = true">
-        <i class="pi pi-plus text-lg"></i>
-        <span class="text-lg">New environment</span>
+      <SegmentedControl v-model="scope" :options="SCOPES" label="Owner" />
+      <Select
+        v-model="projectFilter"
+        :options="projects"
+        option-label="name"
+        option-value="slug"
+        placeholder="All projects"
+        show-clear
+        class="w-48"
+        aria-label="Project"
+        @change="syncQuery"
+      />
+    </div>
+
+    <div class="chips" role="group" aria-label="Status">
+      <button
+        v-for="filter in statusFilters"
+        :key="filter.value"
+        type="button"
+        class="chip"
+        :class="{ 'is-active': statusFilter === filter.value }"
+        :aria-pressed="statusFilter === filter.value"
+        @click="statusFilter = filter.value"
+      >
+        <span v-if="filter.tone" class="dot" :class="`tone-${filter.tone}`"></span>{{ filter.label }}<span class="chip-count">{{ filter.count }}</span>
       </button>
     </div>
 
-    <div v-if="loading" class="flex justify-center py-20">
-      <ProgressSpinner />
-    </div>
+    <section class="card">
+      <div class="table-wrap">
+        <table v-if="statusFilter !== 'deleted'" class="table">
+          <thead>
+            <tr>
+              <th>Environment</th>
+              <th>Status</th>
+              <th class="hidden xl:table-cell">Source</th>
+              <th class="hidden md:table-cell">Owner</th>
+              <th class="hidden xl:table-cell">Memory</th>
+              <th class="hidden lg:table-cell">Lifecycle</th>
+              <th><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="environment in visible" :key="environment.id" class="is-link" @click="openRow($event, environment)">
+              <td class="max-w-[16rem]">
+                <RouterLink :to="`/environments/${environment.id}`" class="row-title block">{{ environment.slug }}</RouterLink>
+                <div class="row-sub flex-wrap">
+                  <span class="font-medium text-fg-2">{{ environment.project }}</span><span aria-hidden="true">·</span><span>{{ timeAgo(environment.createdAt) }}</span>
+                  <span class="contents md:hidden"><span aria-hidden="true">·</span><span>{{ environment.owner?.name ?? 'Installation token' }}</span></span>
+                </div>
+                <div class="row-sub flex-wrap xl:hidden">
+                  <SourceLabel v-if="primarySource(environment)" :source="primarySource(environment)!" />
+                  <span v-if="environment.usage" class="tabular-nums" :title="memoryTitle(environment)">{{ formatSize(environment.usage.memoryBytes) }}</span>
+                </div>
+                <div v-if="lifecycleLine(environment)" class="row-sub flex-wrap whitespace-normal lg:hidden">{{ lifecycleLine(environment) }}</div>
+              </td>
+              <td class="max-w-[15rem]">
+                <EnvironmentStatus :status="environment.status" />
+                <p v-if="note(environment)" class="note line-clamp-2" :class="`tone-${noteTone(environment)}`" :title="note(environment)">{{ note(environment) }}</p>
+              </td>
+              <td class="hidden max-w-[14rem] xl:table-cell">
+                <SourceLabel v-if="primarySource(environment)" :source="primarySource(environment)!" />
+              </td>
+              <td class="hidden md:table-cell">
+                <div class="flex items-center gap-2">
+                  <UserAvatar v-if="environment.owner" :user="environment.owner" small />
+                  <div class="flex min-w-0 flex-col leading-5">
+                    <span class="truncate font-medium text-fg">{{ environment.owner?.name ?? 'Installation token' }}</span>
+                    <span class="truncate text-xs text-fg-3">{{ origin(environment) }}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="hidden w-32 xl:table-cell">
+                <template v-if="environment.usage">
+                  <div class="tabular-nums text-fg-2" :title="memoryTitle(environment)">{{ formatSize(environment.usage.memoryBytes) }}</div>
+                  <div class="bar mt-1.5"><span class="bar-fill bg-accent" :style="{ width: `${memoryShare(environment)}%` }"></span></div>
+                </template>
+                <span v-else class="text-fg-3">-</span>
+              </td>
+              <td class="hidden whitespace-nowrap text-sm lg:table-cell">
+                <div class="text-fg-2">{{ lifecycle(environment)[0] }}</div>
+                <div class="text-xs text-fg-3">{{ lifecycle(environment)[1] }}</div>
+              </td>
+              <td class="cell-actions">
+                <div class="flex justify-end gap-0.5">
+                  <a
+                    v-if="environment.url && openable(environment)"
+                    :href="environment.url"
+                    target="_blank"
+                    rel="noopener"
+                    class="btn btn-ghost btn-sm btn-icon hidden sm:inline-flex"
+                    :aria-label="`Open ${environment.slug}`"
+                    v-tooltip.top="'Open'"
+                  >
+                    <ExternalLink />
+                  </a>
+                  <button type="button" class="btn btn-ghost btn-sm btn-icon" :aria-label="`Actions for ${environment.slug}`" @click="openMenu($event, environment)">
+                    <Ellipsis />
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="visible.length === 0">
+              <td colspan="7">
+                <div class="empty">
+                  <span class="empty-title">No environment here</span>
+                  <span>Change the filters, or create one from this page or with <code>spawner up</code>.</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
-    <div v-else-if="projects.length === 0" class="text-center py-20">
-      <i class="pi pi-folder-open text-6xl mb-6 block opacity-30"></i>
-      <p class="text-xl mb-6 opacity-60">Add a project first: environments are copies of a project.</p>
-      <router-link to="/projects" class="text-purple-600 dark:text-purple-400 font-medium hover:underline">Go to projects</router-link>
-    </div>
-
-    <div v-else>
-      <div class="flex flex-wrap items-center gap-3 mb-8 pb-6 border-b border-slate-300 dark:border-purple-800/30">
-        <SelectButton v-model="scope" :options="scopeOptions" option-label="label" option-value="value" :allow-empty="false" />
-        <Select
-          v-model="projectFilter"
-          :options="projects"
-          option-label="name"
-          option-value="slug"
-          placeholder="All projects"
-          show-clear
-          class="w-56"
-          @change="syncQuery"
-        />
-        <button
-          v-for="filter in statusFilters"
-          :key="filter.value"
-          :class="[
-            'flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200',
-            statusFilter === filter.value
-              ? 'bg-slate-200 dark:bg-dark-700 text-slate-900 dark:text-white'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50',
-          ]"
-          @click="statusFilter = filter.value"
-        >
-          <span v-if="filter.dot" :class="['h-2 w-2 rounded-full', filter.dot]"></span>
-          <span class="font-medium">{{ filter.label }}</span>
-          <span class="text-sm opacity-70">({{ filter.count }})</span>
-        </button>
+        <table v-else class="table">
+          <thead>
+            <tr>
+              <th>Environment</th>
+              <th>Deleted</th>
+              <th class="hidden md:table-cell">What stays</th>
+              <th><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="environment in visibleDeleted" :key="environment.id" class="is-link" @click="openRow($event, environment)">
+              <td>
+                <RouterLink :to="`/environments/${environment.id}`" class="row-title block">{{ environment.slug }}</RouterLink>
+                <div class="row-sub flex-wrap">
+                  <span class="font-medium text-fg-2">{{ environment.project }}</span><span aria-hidden="true">·</span><span>{{ ownerLabel(environment) }}</span>
+                  <span aria-hidden="true">·</span><span>created {{ timeAgo(environment.createdAt) }}</span>
+                </div>
+                <div v-if="primarySource(environment)" class="row-sub"><SourceLabel :source="primarySource(environment)!" /></div>
+              </td>
+              <td class="text-fg-2">
+                {{ timeAgo(environment.deletedAt) }}
+                <div class="text-xs text-fg-3 md:hidden">kept until {{ keptUntil(environment) }}</div>
+              </td>
+              <td class="hidden text-fg-3 md:table-cell">Its timeline and the last logs of its services, until {{ keptUntil(environment) }}</td>
+              <td class="cell-actions">
+                <RouterLink :to="`/environments/${environment.id}`" class="btn btn-ghost btn-sm">View</RouterLink>
+              </td>
+            </tr>
+            <tr v-if="visibleDeleted.length === 0">
+              <td colspan="4">
+                <div class="empty">Nothing deleted in the last 7 days.</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+    </section>
+  </template>
 
-      <div v-if="visible.length === 0" class="text-center py-16 opacity-60">
-        <i class="pi pi-sitemap text-5xl mb-4 block opacity-50"></i>
-        <p class="text-lg">No environment here yet.</p>
-        <p class="text-sm mt-2">Create one from this page, or from your terminal with the CLI.</p>
-      </div>
-
-      <div v-else class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-        <EnvironmentCard
-          v-for="environment in visible"
-          :key="environment.id"
-          :environment="environment"
-          @view="open"
-          @stop="act($event, 'stop')"
-          @start="act($event, 'start')"
-          @wake="act($event, 'wake')"
-          @redeploy="redeploy"
-          @delete="confirmRemove"
-        />
-      </div>
-    </div>
-
-    <EnvironmentDialog v-model:visible="creating" :projects="projects" :project="projectFilter || undefined" @created="created" />
-  </div>
+  <ActionMenu ref="rowMenu" :items="menuItems" />
+  <EnvironmentDialog v-model:visible="creating" :projects="projects" :project="projectFilter || undefined" @created="created" />
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Select from 'primevue/select';
-import SelectButton from 'primevue/selectbutton';
-import ProgressSpinner from 'primevue/progressspinner';
-import EnvironmentCard from '../components/EnvironmentCard.vue';
+import { Ellipsis, ExternalLink, FolderGit2, Layers, LoaderCircle, Moon, Play, Plus, RefreshCw, ScrollText, Search, Square, Sun, Trash2 } from 'lucide-vue-next';
+import ActionMenu, { type MenuAction } from '../components/ActionMenu.vue';
 import EnvironmentDialog from '../components/EnvironmentDialog.vue';
+import EnvironmentStatus from '../components/EnvironmentStatus.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
+import SourceLabel from '../components/SourceLabel.vue';
+import UserAvatar from '../components/UserAvatar.vue';
 import { useNotification } from '../composables/useNotification';
 import { useAuthStore } from '../stores/auth';
 import { environmentsApi, errorMessage, projectsApi } from '../services/api';
 import type { Environment, JobAccepted, ProjectSummary } from '../types';
-import { TONE_CLASSES, redeployRequest, statusTone, type StatusTone } from '../utils/environment';
+import { STATUS_TONES, canManage, isBusy, originLabel, ownerLabel, redeployRequest, statusTone, type StatusTone, type Tone } from '../utils/environment';
+import { timeAgo, whenDue } from '../utils/format';
+import { formatSize } from '../utils/palette';
 
 const REFRESH_MS = 5000;
-
-const route = useRoute();
-const router = useRouter();
-const { showError, showSuccess, confirmDelete } = useNotification();
-
-const environments = ref<Environment[]>([]);
-const projects = ref<ProjectSummary[]>([]);
-const loading = ref(true);
-const creating = ref(false);
-const projectFilter = ref((route.query.project as string) ?? '');
-const statusFilter = ref<StatusTone | 'all' | 'deleted'>('all');
-const deleted = ref<Environment[]>([]);
-const authStore = useAuthStore();
-const scopeOptions = [
+const KEPT_DAYS = 7;
+const SCOPES: { label: string; value: 'all' | 'mine' }[] = [
   { label: 'All', value: 'all' },
   { label: 'Mine', value: 'mine' },
 ];
+
+const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
+const { showError, showSuccess, confirmDelete } = useNotification();
+
+const environments = ref<Environment[]>([]);
+const deleted = ref<Environment[]>([]);
+const projects = ref<ProjectSummary[]>([]);
+const loading = ref(true);
+const creating = ref(false);
+const search = ref('');
 const scope = ref<'all' | 'mine'>('all');
+const projectFilter = ref((route.query.project as string) ?? '');
+const statusFilter = ref<StatusTone | 'all' | 'deleted'>('all');
+const rowMenu = ref<InstanceType<typeof ActionMenu> | null>(null);
+const menuFor = ref<Environment | null>(null);
 let timer: ReturnType<typeof setInterval> | null = null;
 
-const ofProject = computed(() =>
-  environments.value.filter(
-    (environment) =>
-      (!projectFilter.value || environment.project === projectFilter.value) && (scope.value === 'all' || environment.owner?.id === authStore.user?.id),
-  ),
-);
+/** In the project and the scope chosen, and matching the search on its name, branches, owner or project. */
+function kept(environment: Environment): boolean {
+  if ((projectFilter.value && environment.project !== projectFilter.value) || (scope.value === 'mine' && environment.owner?.id !== authStore.user?.id)) {
+    return false;
+  }
+  const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text = [environment.slug, environment.project, environment.owner?.name ?? '', environment.tokenName ?? '', ...environment.sources.map((source) => source.ref ?? '')]
+    .join(' ')
+    .toLowerCase();
+  return words.every((word) => text.includes(word));
+}
+
+const ofScope = computed(() => environments.value.filter(kept));
+const deletedOfScope = computed(() => deleted.value.filter(kept));
 
 const statusFilters = computed(() => {
-  const count = (tone: StatusTone) => ofProject.value.filter((environment) => statusTone(environment.status) === tone).length;
+  const count = (tone: StatusTone) => ofScope.value.filter((environment) => statusTone(environment.status) === tone).length;
+  const tones: { value: StatusTone; label: string }[] = [
+    { value: 'ready', label: 'Ready' },
+    { value: 'degraded', label: 'Degraded' },
+    { value: 'sleeping', label: 'Sleeping' },
+    { value: 'busy', label: 'In progress' },
+    { value: 'stopped', label: 'Stopped' },
+    { value: 'failed', label: 'Failed' },
+  ];
   return [
-    { value: 'all' as const, label: 'All', count: ofProject.value.length, dot: '' },
-    { value: 'ready' as const, label: 'Ready', count: count('ready'), dot: TONE_CLASSES.ready.dot },
-    { value: 'degraded' as const, label: 'Degraded', count: count('degraded'), dot: TONE_CLASSES.degraded.dot },
-    { value: 'sleeping' as const, label: 'Sleeping', count: count('sleeping'), dot: TONE_CLASSES.sleeping.dot },
-    { value: 'busy' as const, label: 'In progress', count: count('busy'), dot: TONE_CLASSES.busy.dot },
-    { value: 'stopped' as const, label: 'Stopped', count: count('stopped'), dot: TONE_CLASSES.stopped.dot },
-    { value: 'failed' as const, label: 'Failed', count: count('failed'), dot: TONE_CLASSES.failed.dot },
-    { value: 'deleted' as const, label: 'Deleted', count: deletedOfProject.value.length, dot: 'bg-slate-300 dark:bg-slate-600' },
+    { value: 'all' as const, label: 'All', count: ofScope.value.length, tone: null as Tone | null },
+    ...tones.map((item) => ({ ...item, count: count(item.value), tone: STATUS_TONES[item.value] as Tone | null })),
+    { value: 'deleted' as const, label: 'Deleted', count: deletedOfScope.value.length, tone: null as Tone | null },
   ];
 });
 
-/** Environments deleted in the last 7 days: their page, timeline and last logs stay. */
-const deletedOfProject = computed(() =>
-  deleted.value.filter(
-    (environment) =>
-      (!projectFilter.value || environment.project === projectFilter.value) && (scope.value === 'all' || environment.owner?.id === authStore.user?.id),
-  ),
-);
+const visible = computed(() => ofScope.value.filter((environment) => statusFilter.value === 'all' || statusTone(environment.status) === statusFilter.value));
+const visibleDeleted = computed(() => deletedOfScope.value);
 
-const visible = computed(() =>
-  statusFilter.value === 'deleted'
-    ? deletedOfProject.value
-    : ofProject.value.filter((environment) => statusFilter.value === 'all' || statusTone(environment.status) === statusFilter.value),
-);
+function primarySource(environment: Environment) {
+  return environment.sources.find((source) => source.primary) ?? null;
+}
+
+function origin(environment: Environment): string {
+  return environment.tokenName ? `via ${environment.tokenName}` : originLabel(environment.createdVia);
+}
+
+/** What the status alone does not say: the error, or how a sleeping environment wakes up. */
+function note(environment: Environment): string {
+  if (environment.status === 'failed' && environment.error) {
+    return environment.phase ? `${environment.phase}: ${environment.error}` : environment.error;
+  }
+  if (environment.status === 'degraded' && environment.error) {
+    return environment.error;
+  }
+  if (environment.status === 'sleeping') {
+    return 'Wakes up on the next visit';
+  }
+  return '';
+}
+
+function noteTone(environment: Environment): Tone {
+  return environment.status === 'failed' ? 'danger' : environment.status === 'degraded' ? 'warn' : 'muted';
+}
+
+/** When it sleeps and when it expires, the nearest first. */
+function lifecycle(environment: Environment): [string, string] {
+  const expires = environment.expiresAt ? `Expires ${whenDue(environment.expiresAt)}` : '';
+  if (environment.status === 'sleeping') {
+    return ['Asleep', expires];
+  }
+  if (environment.sleepsAt && ['ready', 'degraded'].includes(environment.status)) {
+    return [`Sleeps ${whenDue(environment.sleepsAt)}`, expires];
+  }
+  return [expires || '-', ''];
+}
+
+/** The lifecycle column in one line, for the screens where it is hidden. */
+function lifecycleLine(environment: Environment): string {
+  return lifecycle(environment)
+    .filter((part) => part && part !== '-')
+    .join(' · ');
+}
+
+function memoryShare(environment: Environment): number {
+  const usage = environment.usage;
+  return usage?.memoryLimitBytes ? Math.min(100, (usage.memoryBytes / usage.memoryLimitBytes) * 100) : 0;
+}
+
+function memoryTitle(environment: Environment): string {
+  const usage = environment.usage;
+  return usage ? `${formatSize(usage.memoryBytes)} of ${formatSize(usage.memoryLimitBytes)} memory` : '';
+}
+
+/** A click anywhere on a row opens the environment, as its name does; links, buttons and a text selection keep theirs. */
+function openRow(event: MouseEvent, environment: Environment) {
+  if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) {
+    return;
+  }
+  router.push(`/environments/${environment.id}`);
+}
+
+function openable(environment: Environment): boolean {
+  return ['ready', 'degraded', 'sleeping'].includes(environment.status);
+}
+
+function keptUntil(environment: Environment): string {
+  return environment.deletedAt ? new Date(new Date(environment.deletedAt).getTime() + KEPT_DAYS * 86_400_000).toLocaleDateString() : '';
+}
+
+const menuItems = computed<MenuAction[]>(() => {
+  const environment = menuFor.value;
+  if (!environment) {
+    return [];
+  }
+  const url = environment.url && openable(environment) ? environment.url : null;
+  const items: MenuAction[] = [
+    ...(url ? [{ label: 'Open the URL', icon: ExternalLink, command: () => window.open(url, '_blank', 'noopener') }] : []),
+    { label: 'Open details', icon: Layers, command: () => router.push(`/environments/${environment.id}`) },
+    { label: 'Logs', icon: ScrollText, command: () => router.push({ path: `/environments/${environment.id}`, query: { tab: 'logs' } }) },
+  ];
+  if (!canManage(authStore.user, environment)) {
+    return items;
+  }
+  const busy = isBusy(environment.status);
+  const actions: MenuAction[] = [];
+  if (redeployRequest(environment) && !busy) {
+    actions.push({ label: 'Redeploy', icon: RefreshCw, hint: 'latest commits', command: () => redeploy(environment) });
+  }
+  if (environment.status === 'sleeping') {
+    actions.push({ label: 'Wake up', icon: Sun, command: () => act(environment, 'wake') });
+  }
+  if (['ready', 'degraded'].includes(environment.status)) {
+    actions.push({ label: 'Sleep now', icon: Moon, hint: 'until the next visit', command: () => act(environment, 'sleep') });
+  }
+  if (environment.status === 'ready') {
+    actions.push({ label: 'Stop', icon: Square, command: () => act(environment, 'stop') });
+  }
+  if (environment.status === 'stopped') {
+    actions.push({ label: 'Start', icon: Play, command: () => act(environment, 'start') });
+  }
+  return [
+    ...items,
+    ...(actions.length ? [{ separator: true }, ...actions] : []),
+    { separator: true },
+    { label: 'Delete', icon: Trash2, danger: true, disabled: environment.status === 'deleting', command: () => confirmRemove(environment) },
+  ];
+});
+
+function openMenu(event: Event, environment: Environment) {
+  menuFor.value = environment;
+  rowMenu.value?.toggle(event);
+}
 
 async function load() {
   try {
@@ -169,20 +397,30 @@ watch(
   (project) => (projectFilter.value = (project as string) ?? ''),
 );
 
-function open(environment: Environment) {
-  router.push(`/environments/${environment.id}`);
+/**
+ * The overview and the command palette ask for a new environment with ?new=1.
+ * The dialog opens once the projects are loaded, so that it can preselect one.
+ */
+function openRequested() {
+  if (route.query.new !== '1') {
+    return;
+  }
+  router.replace({ query: { ...route.query, new: undefined } });
+  creating.value = projects.value.length > 0;
 }
+
+watch(() => route.query.new, openRequested);
 
 function created(result: JobAccepted) {
   showSuccess(`${result.environment.slug} is being created`);
-  open(result.environment);
+  router.push(`/environments/${result.environment.id}`);
 }
 
 function replace(result: { environment: Environment }) {
   environments.value = environments.value.map((environment) => (environment.id === result.environment.id ? result.environment : environment));
 }
 
-async function act(environment: Environment, action: 'stop' | 'start' | 'wake') {
+async function act(environment: Environment, action: 'stop' | 'start' | 'wake' | 'sleep') {
   try {
     replace(await environmentsApi[action](environment.id));
   } catch (err) {
@@ -193,7 +431,6 @@ async function act(environment: Environment, action: 'stop' | 'start' | 'wake') 
 async function redeploy(environment: Environment) {
   const deploy = redeployRequest(environment);
   if (!deploy) {
-    showError(`${environment.slug} was deployed from a local worktree: redeploy it with the CLI`);
     return;
   }
   try {
@@ -220,7 +457,7 @@ function confirmRemove(environment: Environment) {
 }
 
 onMounted(() => {
-  load();
+  load().then(openRequested);
   timer = setInterval(() => {
     Promise.all([environmentsApi.list(), environmentsApi.list({ deleted: true })])
       .then(([live, gone]) => {

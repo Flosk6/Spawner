@@ -1,83 +1,93 @@
 <template>
-  <Dialog :visible="visible" header="New environment" modal :style="{ width: '600px' }" @update:visible="$emit('update:visible', $event)">
-    <form class="space-y-5" @submit.prevent="submit">
-      <div>
+  <Dialog :visible="visible" header="New environment" modal :style="{ width: 'min(36rem, calc(100vw - 2rem))' }" @update:visible="$emit('update:visible', $event)">
+    <form id="new-environment" class="flex flex-col gap-4" @submit.prevent="submit">
+      <p class="-mt-1 text-sm text-fg-3">A copy of a project at a branch, with its own URL.</p>
+
+      <div class="field">
         <label class="field-label" for="env-project">Project</label>
-        <Select
-          id="env-project"
-          v-model="form.project"
-          :options="projects"
-          option-label="name"
-          option-value="slug"
-          placeholder="Choose a project"
-          class="w-full"
-        />
+        <Select id="env-project" v-model="form.project" :options="projects" option-label="name" option-value="slug" placeholder="Choose a project" class="w-full" />
       </div>
 
       <template v-if="form.project">
-        <div>
-          <label class="field-label" for="env-ref">{{ manifest?.name ?? 'Project' }} <span class="font-normal text-slate-500">(this repository)</span></label>
-          <InputText
-            id="env-ref"
-            v-model="form.ref"
-            class="w-full font-mono"
-            list="env-branches-primary"
-            :placeholder="selectedProject?.defaultRef ?? 'main'"
-            autocomplete="off"
-          />
+        <div class="field">
+          <label class="field-label" for="env-ref">{{ manifest?.name ?? 'app' }} <span class="font-normal text-fg-3">this repository</span></label>
+          <div class="input-wrap">
+            <GitBranch />
+            <input
+              id="env-ref"
+              v-model="form.ref"
+              class="input font-mono"
+              list="env-branches-primary"
+              :placeholder="selectedProject?.defaultRef ?? 'main'"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
           <datalist id="env-branches-primary">
             <option v-for="branch in branches.primary ?? []" :key="branch" :value="branch" />
           </datalist>
           <p class="field-hint">Branch, tag or commit; empty for {{ selectedProject?.defaultRef ?? 'the default branch' }}.</p>
         </div>
 
-        <div v-for="source in manifest?.sources ?? []" :key="source.name">
-          <label class="field-label" :for="`env-ref-${source.name}`">{{ source.name }} <span class="font-normal text-slate-500 font-mono text-xs">{{ source.repo }}</span></label>
-          <InputText
-            :id="`env-ref-${source.name}`"
-            v-model="form.sources[source.name]"
-            class="w-full font-mono"
-            :list="`env-branches-${source.name}`"
-            :placeholder="source.defaultRef"
-            autocomplete="off"
-            @focus="loadBranches(source.name)"
-          />
+        <div v-for="source in manifest?.sources ?? []" :key="source.name" class="field">
+          <label class="field-label" :for="`env-ref-${source.name}`">{{ source.name }} <span class="font-mono text-xs font-normal text-fg-3">{{ source.repo }}</span></label>
+          <div class="input-wrap">
+            <GitBranch />
+            <input
+              :id="`env-ref-${source.name}`"
+              v-model="form.sources[source.name]"
+              class="input font-mono"
+              :list="`env-branches-${source.name}`"
+              :placeholder="source.defaultRef"
+              autocomplete="off"
+              spellcheck="false"
+              @focus="loadBranches(source.name)"
+            />
+          </div>
           <datalist :id="`env-branches-${source.name}`">
             <option v-for="branch in branches[source.name] ?? []" :key="branch" :value="branch" />
           </datalist>
         </div>
 
-        <Message v-if="manifestError" severity="warn" :closable="false">
-          {{ manifestError }} The environment can still start from the default branches.
-        </Message>
+        <div v-if="manifestError" class="alert tone-warn">
+          <TriangleAlert />
+          <div class="alert-body"><span class="alert-text">{{ manifestError }} The environment can still start from the default branches.</span></div>
+        </div>
         <p v-else-if="loadingManifest" class="field-hint">Reading spawner.yaml...</p>
       </template>
 
-      <div>
+      <div class="field">
         <label class="field-label" for="env-name">Name</label>
-        <InputText id="env-name" v-model="form.env" class="w-full font-mono" placeholder="feat-login" @input="nameEdited = true" />
-        <p class="field-hint" :class="{ 'text-red-500': form.env && !nameValid }">
-          Lowercase letters, digits and dashes, {{ ENV_SLUG_MAX_LENGTH }} characters at most. It is part of the URL.
+        <input id="env-name" v-model="form.env" class="input font-mono" placeholder="feat-login" autocomplete="off" spellcheck="false" @input="nameEdited = true" />
+        <p v-if="form.env && !nameValid" class="field-error">Lowercase letters, digits and dashes, {{ ENV_SLUG_MAX_LENGTH }} characters at most.</p>
+        <p v-else-if="previewUrl" class="field-hint flex min-w-0 items-center gap-1.5">
+          <Globe class="size-3.5 flex-none" /><span class="truncate font-mono text-fg-2">{{ previewUrl }}</span>
         </p>
+        <p v-else class="field-hint">Lowercase letters, digits and dashes, {{ ENV_SLUG_MAX_LENGTH }} characters at most. It is part of the URL.</p>
       </div>
 
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-
-      <div class="flex justify-end gap-2 pt-2">
-        <Button type="button" label="Cancel" severity="secondary" text @click="$emit('update:visible', false)" />
-        <Button type="submit" label="Create" icon="pi pi-plus" :loading="saving" :disabled="!form.project || !nameValid" />
+      <div v-if="error" class="alert tone-danger">
+        <CircleX />
+        <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
       </div>
     </form>
+
+    <template #footer>
+      <p class="mr-auto hidden text-sm text-fg-3 sm:block">From a worktree, uncommitted changes included: <code>spawner up</code></p>
+      <button type="button" class="btn btn-ghost" @click="$emit('update:visible', false)">Cancel</button>
+      <button type="submit" form="new-environment" class="btn btn-primary" :disabled="!form.project || !nameValid || saving">
+        <LoaderCircle v-if="saving" class="spinner" /><Plus v-else />Create environment
+      </button>
+    </template>
   </Dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
-import InputText from 'primevue/inputtext';
-import Message from 'primevue/message';
 import Select from 'primevue/select';
+import { CircleX, GitBranch, Globe, LoaderCircle, Plus, TriangleAlert } from 'lucide-vue-next';
+import { useServerInfo } from '../composables/useServerInfo';
 import { environmentsApi, errorMessage, projectsApi } from '../services/api';
 import type { JobAccepted, ProjectManifest, ProjectSummary } from '../types';
 import { ENV_SLUG_MAX_LENGTH, ENV_SLUG_PATTERN, suggestEnvSlug } from '../utils/environment';
@@ -85,6 +95,7 @@ import { ENV_SLUG_MAX_LENGTH, ENV_SLUG_PATTERN, suggestEnvSlug } from '../utils/
 const props = defineProps<{ visible: boolean; projects: ProjectSummary[]; project?: string }>();
 const emit = defineEmits<{ 'update:visible': [visible: boolean]; created: [accepted: JobAccepted] }>();
 
+const info = useServerInfo();
 const form = reactive({ project: '', ref: '', env: '', sources: {} as Record<string, string> });
 const nameEdited = ref(false);
 const manifest = ref<ProjectManifest | null>(null);
@@ -97,6 +108,11 @@ const error = ref('');
 const selectedProject = computed(() => props.projects.find((project) => project.slug === form.project));
 const nameValid = computed(() => ENV_SLUG_PATTERN.test(form.env) && form.env.length <= ENV_SLUG_MAX_LENGTH);
 
+/** The URL of the entrypoint the environment will get, as the server names it. */
+const previewUrl = computed(() =>
+  info.value && form.project && nameValid.value ? `${info.value.scheme}://${form.env}--${form.project}.${info.value.previewDomain}` : '',
+);
+
 watch(
   () => props.visible,
   (visible) => {
@@ -106,6 +122,7 @@ watch(
       error.value = '';
     }
   },
+  { immediate: true },
 );
 
 /**
@@ -160,7 +177,11 @@ async function submit() {
   saving.value = true;
   error.value = '';
   try {
-    const sources = Object.fromEntries(Object.entries(form.sources).map(([name, ref]) => [name, ref.trim()]).filter(([, ref]) => ref));
+    const sources = Object.fromEntries(
+      Object.entries(form.sources)
+        .map(([name, ref]) => [name, ref.trim()])
+        .filter(([, ref]) => ref),
+    );
     const accepted = await environmentsApi.create(form.project, form.env, { ref: form.ref.trim() || undefined, sources });
     emit('created', accepted);
     emit('update:visible', false);

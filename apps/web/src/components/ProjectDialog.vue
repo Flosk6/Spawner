@@ -3,82 +3,108 @@
     :visible="visible"
     :header="project ? `Edit ${project.slug}` : 'New project'"
     modal
-    :style="{ width: '560px' }"
+    :style="{ width: 'min(36rem, calc(100vw - 2rem))' }"
     @update:visible="$emit('update:visible', $event)"
   >
-    <form class="space-y-5" @submit.prevent="submit">
-      <div>
+    <form id="project-form" class="flex flex-col gap-4" @submit.prevent="submit">
+      <p v-if="!project" class="-mt-1 text-sm text-fg-3">A repository holding a <code>.spawner/</code> directory: a manifest and a compose file.</p>
+
+      <div class="field">
         <label class="field-label" for="project-name">Name</label>
-        <InputText id="project-name" v-model="form.name" class="w-full" placeholder="Blog" />
+        <input id="project-name" v-model="form.name" class="input" placeholder="Blog" autocomplete="off" />
       </div>
 
-      <div v-if="!project">
+      <div v-if="!project" class="field">
         <label class="field-label" for="project-slug">Slug</label>
-        <InputText id="project-slug" v-model="form.slug" class="w-full font-mono" placeholder="blog" @input="slugEdited = true" />
-        <p class="field-hint" :class="{ 'text-red-500': form.slug && !slugValid }">
-          Lowercase letters, digits and dashes, {{ PROJECT_SLUG_MAX_LENGTH }} characters at most. It must match <code>name</code> in
+        <input id="project-slug" v-model="form.slug" class="input font-mono" placeholder="blog" autocomplete="off" spellcheck="false" @input="slugEdited = true" />
+        <p :class="form.slug && !slugValid ? 'field-error' : 'field-hint'">
+          Lowercase letters, digits and dashes, {{ PROJECT_SLUG_MAX_LENGTH }} characters at most. It must match <code>project</code> in
           <code>.spawner/spawner.yaml</code> and appears in every URL.
         </p>
       </div>
 
-      <div>
+      <div class="field">
         <label class="field-label" for="project-repo">Repository</label>
         <div class="flex gap-2">
-          <InputText id="project-repo" v-model="form.repoUrl" class="flex-1 font-mono" placeholder="git@github.com:acme/blog.git" />
-          <Button type="button" label="Test" severity="secondary" outlined :loading="testing" :disabled="!form.repoUrl" @click="testAccess" />
+          <div class="input-wrap flex-1">
+            <FolderGit2 />
+            <input
+              id="project-repo"
+              v-model="form.repoUrl"
+              class="input font-mono"
+              placeholder="git@github.com:acme/blog.git"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button type="button" class="btn btn-secondary" :disabled="!form.repoUrl || testing" @click="testAccess">
+            <LoaderCircle v-if="testing" class="spinner" />Test
+          </button>
         </div>
-        <p v-if="access" class="field-hint" :class="access.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'">{{ access.message }}</p>
-        <p v-else class="field-hint">
-          SSH repositories need a deploy key, see
-          <router-link to="/system/settings/git" class="underline">Git keys</router-link>.
+        <p v-if="access" class="flex items-start gap-1.5" :class="access.ok ? 'field-hint text-ok-text' : 'field-error'">
+          <CircleCheck v-if="access.ok" class="mt-0.5 size-3.5" /><CircleX v-else class="mt-0.5 size-3.5" /><span>{{ access.message }}</span>
         </p>
+        <p v-else class="field-hint">SSH repositories need a deploy key, see <RouterLink to="/system/settings/git" class="link">Git keys</RouterLink>.</p>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="field">
           <label class="field-label" for="project-ref">Default branch</label>
-          <InputText id="project-ref" v-model="form.defaultRef" class="w-full font-mono" placeholder="main" />
+          <div class="input-wrap">
+            <GitBranch />
+            <input id="project-ref" v-model="form.defaultRef" class="input font-mono" placeholder="main" autocomplete="off" spellcheck="false" />
+          </div>
+          <p class="field-hint">Deployed when an environment names no branch.</p>
         </div>
-        <div>
+        <div class="field">
           <label class="field-label" for="project-root">Directory</label>
-          <InputText id="project-root" v-model="form.rootDir" class="w-full font-mono" placeholder="." />
+          <input id="project-root" v-model="form.rootDir" class="input font-mono" placeholder="." autocomplete="off" spellcheck="false" />
           <p class="field-hint">Where <code>.spawner/</code> is, for monorepos.</p>
         </div>
       </div>
 
-      <label class="flex items-start gap-3 text-sm">
-        <Checkbox v-model="form.allowPublic" binary input-id="project-public" class="mt-0.5" />
-        <span>
-          <span class="font-medium">Allow public URLs</span>
-          <span class="block text-xs text-slate-500">Exposures with <code>auth: none</code> in spawner.yaml open without a login (webhooks, public pages). Otherwise every URL needs one.</span>
-        </span>
-      </label>
+      <div class="divide-y rounded-lg border">
+        <div class="flex items-start gap-4 p-3">
+          <div class="flex min-w-0 flex-1 flex-col gap-1">
+            <label class="field-label leading-6" for="project-public">Allow public URLs</label>
+            <p class="field-hint">
+              Exposures with <code>auth: none</code> in spawner.yaml open without a login (webhooks, public pages). Otherwise every URL needs one.
+            </p>
+          </div>
+          <ToggleSwitch v-model="form.allowPublic" input-id="project-public" />
+        </div>
+        <div class="flex items-start gap-4 p-3">
+          <div class="flex min-w-0 flex-1 flex-col gap-1">
+            <label class="field-label leading-6" for="project-always-on">Allow environments that never sleep</label>
+            <p class="field-hint">
+              With <code>idle: never</code> in spawner.yaml, an environment keeps its memory even when nobody uses it. Otherwise it sleeps after a while
+              without visits.
+            </p>
+          </div>
+          <ToggleSwitch v-model="form.allowAlwaysOn" input-id="project-always-on" />
+        </div>
+      </div>
 
-      <label class="flex items-start gap-3 text-sm">
-        <Checkbox v-model="form.allowAlwaysOn" binary input-id="project-always-on" class="mt-0.5" />
-        <span>
-          <span class="font-medium">Allow environments that never sleep</span>
-          <span class="block text-xs text-slate-500">With <code>idle: never</code> in spawner.yaml, an environment keeps its memory even when nobody uses it. Otherwise it sleeps after a while without visits.</span>
-        </span>
-      </label>
-
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-
-      <div class="flex justify-end gap-2 pt-2">
-        <Button type="button" label="Cancel" severity="secondary" text @click="$emit('update:visible', false)" />
-        <Button type="submit" :label="project ? 'Save' : 'Create'" :loading="saving" :disabled="!canSubmit" />
+      <div v-if="error" class="alert tone-danger">
+        <CircleX />
+        <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
       </div>
     </form>
+
+    <template #footer>
+      <button type="button" class="btn btn-ghost" @click="$emit('update:visible', false)">Cancel</button>
+      <button type="submit" form="project-form" class="btn btn-primary" :disabled="!canSubmit || saving">
+        <LoaderCircle v-if="saving" class="spinner" /><Plus v-else-if="!project" />{{ project ? 'Save' : 'Create project' }}
+      </button>
+    </template>
   </Dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import Dialog from 'primevue/dialog';
-import InputText from 'primevue/inputtext';
-import Button from 'primevue/button';
-import Checkbox from 'primevue/checkbox';
-import Message from 'primevue/message';
+import ToggleSwitch from 'primevue/toggleswitch';
+import { CircleCheck, CircleX, FolderGit2, GitBranch, LoaderCircle, Plus } from 'lucide-vue-next';
 import { errorMessage, gitApi, projectsApi } from '../services/api';
 import type { GitTestResult, Project } from '../types';
 import { PROJECT_SLUG_MAX_LENGTH, PROJECT_SLUG_PATTERN } from '../utils/environment';
@@ -171,4 +197,3 @@ async function submit() {
   }
 }
 </script>
-

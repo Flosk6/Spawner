@@ -1,65 +1,45 @@
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, watchEffect } from 'vue';
 
-type Theme = 'light' | 'dark';
+export type ThemePreference = 'light' | 'dark' | 'system';
 
-const THEME_STORAGE_KEY = 'spawner-theme';
+const STORAGE_KEY = 'spawner-theme';
+/** Where the dashboard kept "light" or "dark" before the system choice existed. */
+const LEGACY_KEY = 'theme';
 
-const currentTheme = ref<Theme>('light');
+const media = window.matchMedia('(prefers-color-scheme: dark)');
+const systemDark = ref(media.matches);
+media.addEventListener('change', (event) => (systemDark.value = event.matches));
 
+const preference = ref<ThemePreference>(readPreference());
+const resolved = computed<'light' | 'dark'>(() => (preference.value === 'system' ? (systemDark.value ? 'dark' : 'light') : preference.value));
+
+watchEffect(() => document.documentElement.classList.toggle('dark', resolved.value === 'dark'));
+
+function readPreference(): ThemePreference {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
+    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function setPreference(value: ThemePreference) {
+  preference.value = value;
+  try {
+    localStorage.setItem(STORAGE_KEY, value);
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    return;
+  }
+}
+
+/**
+ * The theme: the user's choice (light, dark, or the system's), kept in this
+ * browser, and the one in effect. `html.dark` follows it, which switches the
+ * tokens of styles/tokens.css and PrimeVue's dark scheme; index.html applies
+ * the same rule before the first paint.
+ */
 export function useTheme() {
-  const isDark = ref(currentTheme.value === 'dark');
-
-  // Load theme from localStorage on mount
-  onMounted(() => {
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
-    if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark')) {
-      currentTheme.value = savedTheme;
-      isDark.value = savedTheme === 'dark';
-    }
-    applyTheme(currentTheme.value);
-  });
-
-  // Watch for theme changes
-  watch(currentTheme, (newTheme) => {
-    isDark.value = newTheme === 'dark';
-    applyTheme(newTheme);
-    localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-  });
-
-  function applyTheme(theme: Theme) {
-    const root = document.documentElement;
-
-    // Remove both classes first
-    root.classList.remove('light-theme', 'dark-theme');
-
-    // Add the appropriate class
-    root.classList.add(`${theme}-theme`);
-
-    // Update #app background
-    const app = document.getElementById('app');
-    if (app) {
-      if (theme === 'dark') {
-        app.style.backgroundColor = '#111827';
-        app.style.color = '#e5e7eb';
-      } else {
-        app.style.backgroundColor = '#f3f4f6';
-        app.style.color = '#1f2937';
-      }
-    }
-  }
-
-  function toggleTheme() {
-    currentTheme.value = currentTheme.value === 'dark' ? 'light' : 'dark';
-  }
-
-  function setTheme(theme: Theme) {
-    currentTheme.value = theme;
-  }
-
-  return {
-    currentTheme,
-    isDark,
-    toggleTheme,
-    setTheme
-  };
+  return { preference, resolved, setPreference };
 }

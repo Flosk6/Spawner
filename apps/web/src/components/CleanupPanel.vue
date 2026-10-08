@@ -1,54 +1,57 @@
 <template>
-  <section class="panel">
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
-      <h2 class="panel-title !mb-0"><i class="pi pi-eraser text-sm"></i>Cleanup</h2>
-      <Button
-        v-if="scan && scan.items.length > 0"
-        label="Clean up"
-        icon="pi pi-trash"
-        severity="danger"
-        outlined
-        size="small"
-        :loading="running"
-        @click="confirmRun"
-      />
+  <section class="card">
+    <div class="card-head">
+      <div class="card-title"><Eraser />Cleanup<span v-if="scan && scan.items.length > 0" class="count">{{ scan.items.length }}</span></div>
+      <button v-if="scan && scan.items.length > 0" type="button" class="btn btn-danger btn-sm" :disabled="running" @click="confirmRun">
+        <LoaderCircle v-if="running" class="spinner" /><Trash2 v-else />Clean up
+      </button>
     </div>
-    <p class="field-hint mb-4">
-      Spawner only removes what carries its labels or lives in its data directory, never anything else of the server. What deleted environments leave behind
-      goes every minute anyway; the rest waits for you: resources labelled for environments this Spawner does not know may belong to another installation.
-    </p>
-    <div v-if="!scan" class="flex justify-center py-6"><ProgressSpinner style="width: 2rem; height: 2rem" /></div>
-    <p v-else-if="scan.items.length === 0" class="text-sm text-slate-500">Nothing to clean up.</p>
-    <table v-else class="w-full text-sm">
-      <thead class="text-left text-xs uppercase text-slate-500">
-        <tr>
-          <th class="py-2 pr-4">What</th>
-          <th class="py-2 pr-4">Why it can go</th>
-          <th class="py-2 text-right">Size</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
-        <tr v-for="item in scan.items" :key="`${item.kind}-${item.id}`">
-          <td class="py-2 pr-4">
-            <span class="text-xs text-slate-500 mr-2">{{ item.kind }}</span>
-            <span class="font-mono text-xs break-all">{{ item.name }}</span>
-          </td>
-          <td class="py-2 pr-4 text-slate-600 dark:text-slate-400">
-            {{ item.reason }}
-            <span v-if="!item.automatic" class="ml-1 text-xs font-medium text-amber-600 dark:text-amber-400">waits for you</span>
-          </td>
-          <td class="py-2 text-right font-mono text-xs">{{ item.sizeBytes === null ? '-' : formatSize(item.sizeBytes) }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-if="scan && scan.totalBytes > 0" class="text-sm text-slate-500 mt-3">{{ formatSize(scan.totalBytes) }} to free, volumes and networks aside.</p>
+    <div class="card-body flex flex-col gap-3">
+      <p class="field-hint">
+        Spawner only removes what carries its labels or lives in its data directory, never anything else of the server. What deleted environments
+        leave behind goes every minute anyway; the rest waits for you: resources labelled for environments this Spawner does not know may belong to
+        another installation.
+      </p>
+      <div v-if="!scan" class="flex justify-center py-10"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
+      <p v-else-if="scan.items.length === 0" class="text-sm text-fg-2">Nothing to clean up.</p>
+    </div>
+    <div v-if="scan && scan.items.length > 0" class="table-wrap border-t">
+      <table class="table is-compact">
+        <thead>
+          <tr>
+            <th>What</th>
+            <th class="hidden md:table-cell">Why it can go</th>
+            <th class="text-right">Size</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in scan.items" :key="`${item.kind}-${item.id}`">
+            <td>
+              <div class="flex items-center gap-2">
+                <span class="badge badge-sm flex-none">{{ item.kind }}</span>
+                <span class="min-w-0 break-all font-mono text-sm">{{ item.name }}</span>
+              </div>
+              <div class="mt-1 text-fg-2 md:hidden">
+                {{ item.reason }}
+                <span v-if="!item.automatic" class="badge badge-sm tone-warn ml-1">waits for you</span>
+              </div>
+            </td>
+            <td class="hidden text-fg-2 md:table-cell">
+              {{ item.reason }}
+              <span v-if="!item.automatic" class="badge badge-sm tone-warn ml-1">waits for you</span>
+            </td>
+            <td class="whitespace-nowrap text-right tabular-nums">{{ item.sizeBytes === null ? '-' : formatSize(item.sizeBytes) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-if="scan && scan.totalBytes > 0" class="card-foot">{{ formatSize(scan.totalBytes) }} to free, volumes and networks aside.</div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import Button from 'primevue/button';
-import ProgressSpinner from 'primevue/progressspinner';
+import { Eraser, LoaderCircle, Trash2 } from 'lucide-vue-next';
 import { useNotification } from '../composables/useNotification';
 import { errorMessage, systemApi } from '../services/api';
 import type { CleanupScan } from '../types';
@@ -68,21 +71,25 @@ async function load() {
 
 function confirmRun() {
   const count = scan.value?.items.length ?? 0;
-  confirmAction(`Remove these ${count} item${count > 1 ? 's' : ''}? Containers, volumes and images removed this way cannot come back.`, async () => {
-    running.value = true;
-    try {
-      const result = await systemApi.runCleanup();
-      if (result.failed.length > 0) {
-        showError(`${result.failed.length} could not be removed: ${result.failed.map((item) => `${item.name} (${item.error})`).join(', ')}`);
+  confirmAction(
+    'Containers, volumes and images removed this way cannot come back.',
+    async () => {
+      running.value = true;
+      try {
+        const result = await systemApi.runCleanup();
+        if (result.failed.length > 0) {
+          showError(`${result.failed.length} could not be removed: ${result.failed.map((item) => `${item.name} (${item.error})`).join(', ')}`);
+        }
+        showSuccess(`Removed ${result.removed.length} item${result.removed.length > 1 ? 's' : ''}, ${formatSize(result.freedBytes)} freed`);
+        await load();
+      } catch (err) {
+        showError(errorMessage(err, 'The cleanup failed'));
+      } finally {
+        running.value = false;
       }
-      showSuccess(`Removed ${result.removed.length} item${result.removed.length > 1 ? 's' : ''}, ${formatSize(result.freedBytes)} freed`);
-      await load();
-    } catch (err) {
-      showError(errorMessage(err, 'The cleanup failed'));
-    } finally {
-      running.value = false;
-    }
-  });
+    },
+    { header: count === 1 ? 'Remove this item?' : `Remove these ${count} items?`, acceptLabel: 'Clean up', danger: true },
+  );
 }
 
 onMounted(load);

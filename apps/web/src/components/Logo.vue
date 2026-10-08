@@ -1,57 +1,28 @@
 <template>
-  <div class="flex items-center gap-2.5">
-    <img
-      :src="logoUrl"
-      :alt="alt"
-      :class="sizeClass"
-      class="object-contain"
-    />
-    <span
-      v-if="showText"
-      :class="textSizeClass"
-      class="font-black bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 bg-clip-text text-transparent"
-      style="font-family: 'Black Ops One', sans-serif; font-weight: 900; letter-spacing: 0.02em;"
-    >
-      {{ text }}
-    </span>
-  </div>
+  <span class="inline-flex items-center" :style="{ gap: `${Math.round(size * 0.32)}px` }">
+    <svg class="brand-mark" :width="size" :height="size" viewBox="0 0 32 32" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fill-rule="evenodd"
+        d="M16 1c3.3 2.5 5 6.1 5 10.3V17H11v-5.7C11 7.1 12.7 3.5 16 1z M16 6.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4z M11 11.8l-3.4 3.9V20l3.4-2.4z M21 11.8l3.4 3.9V20L21 17.6z M13.2 17h5.6l-.8 2h-4z"
+      />
+      <path
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linecap="round"
+        d="M16 20.5v6.9 M16 20.5c0 2.3-1.9 3.1-4.1 3.1-1.9 0-2.9 1-2.9 2.6 M16 20.5c0 2.3 1.9 3.1 4.1 3.1 1.9 0 2.9 1 2.9 2.6"
+      />
+      <path fill="currentColor" d="M9 29.6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M23 29.6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M16 31.4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+    </svg>
+    <span v-if="showText" class="wordmark" :style="{ fontSize: `${textSize}px` }">Spawner</span>
+  </span>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import logoUrl from '../assets/spawner-logo.png';
-
-interface Props {
-  size?: 'sm' | 'md' | 'lg' | 'xl';
-  showText?: boolean;
-  text?: string;
-  alt?: string;
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  size: 'md',
-  showText: true,
-  text: 'Spawner',
-  alt: 'Spawner Logo'
-});
-
-const sizeClass = computed(() => {
-  const sizes = {
-    sm: 'h-8 w-8',
-    md: 'h-12 w-12',
-    lg: 'h-16 w-16',
-    xl: 'h-24 w-24'
-  };
-  return sizes[props.size];
-});
-
-const textSizeClass = computed(() => {
-  const sizes = {
-    sm: 'text-2xl',
-    md: 'text-3xl',
-    lg: 'text-4xl',
-    xl: 'text-6xl'
-  };
-  return sizes[props.size];
-});
+/**
+ * The mark (a rocket above three branches) in the violet of the brand, and the
+ * wordmark in Chakra Petch; the gap between them follows the size of the mark.
+ */
+withDefaults(defineProps<{ size?: number; showText?: boolean; textSize?: number }>(), { size: 32, showText: true, textSize: 24 });
 </script>
