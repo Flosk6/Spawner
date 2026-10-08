@@ -138,6 +138,4 @@ Every subdomain of `localtest.me` resolves to 127.0.0.1. Over plain HTTP, browse
 
 ## License
 
-**AGPL-3.0**: free to use, modify and distribute. If you run a modified Spawner as a service for others, you must share your source code with its users.
-
-**Copyright © 2025 Flosk6**. See [LICENSE](LICENSE). A commercial license is available for proprietary use.
+[Apache-2.0](LICENSE): free to use, modify and distribute, commercially too. Copyright 2025-2026 Flosk6.

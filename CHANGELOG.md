@@ -13,4 +13,6 @@ A rewrite of Spawner: preview environments for every branch, for teams and the c
 - **Updates from the dashboard**: Spawner sees new versions and updates itself in one click, backing its database up first and going back to the previous version if the new one does not start.
 - **Examples and documentation**: Node.js with PostgreSQL, and Laravel, Next.js and MySQL; guides for installing, agents, security, operations and density.
 
+Spawner is now licensed under Apache-2.0; the release candidates up to 2.0.0-rc.2 were published under AGPL-3.0.
+
 Upgrading from 2.0.0-rc.1 or rc.2, which have security issues fixed here: run `install.sh --upgrade`, then redeploy or delete the environments created with them. Compose files now need service names, network aliases and hostnames that are lowercase DNS labels without dots, not starting with `spawner` or `spn-`, and no IPv6 network; and the CLI asks for the device code to be typed in the dashboard.

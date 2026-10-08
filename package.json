@@ -2,7 +2,12 @@
   "name": "spawner-monorepo",
   "version": "2.0.0",
   "private": true,
-  "description": "Spawner - Self-hosted environment management system",
+  "description": "Preview environments for every branch, on your own server, for your team and its coding agents",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Flosk6/Spawner.git"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
