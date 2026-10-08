@@ -43,6 +43,7 @@ import type {
   ProjectManifest,
   ProjectUsage,
   ProjectVariable,
+  ServerInfo,
   SystemMetrics,
   SystemOverview,
   TerminalSessionInfo,
@@ -148,6 +149,8 @@ export const auditApi = {
 };
 
 export const systemApi = {
+  /** Version, domain and the limits the CLI checks with (everyone). */
+  info: () => api.get<ServerInfo>('/v1/info').then((res) => res.data),
   /** The host now, its alerts and each project's share (admins). */
   overview: () => api.get<SystemOverview>('/v1/system').then((res) => res.data),
   metrics: (range: MetricRange) => api.get<SystemMetrics>('/v1/system/metrics', { params: { range } }).then((res) => res.data),

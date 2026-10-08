@@ -1,30 +1,40 @@
 <template>
-  <div>
-    <p v-if="!disk" class="text-sm text-slate-500">Not measured yet: the disk is measured every 15 minutes and after each build.</p>
-    <template v-else>
-      <div class="flex items-baseline justify-between mb-3">
-        <span class="text-2xl font-bold">{{ formatSize(disk.totalBytes) }}</span>
-        <span class="text-xs text-slate-500">measured {{ timeAgo(measuredAt) }}</span>
-      </div>
-      <div class="flex h-2.5 rounded-full overflow-hidden bg-slate-200 dark:bg-dark-700 mb-4">
-        <div v-for="part in parts" :key="part.label" :style="{ width: `${share(part.bytes)}%`, background: part.color }" :title="`${part.label}: ${formatSize(part.bytes)}`"></div>
-      </div>
-      <ul class="space-y-1.5 text-sm">
-        <li v-for="part in parts" :key="part.label" class="flex items-center justify-between gap-3">
-          <span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-sm" :style="{ background: part.color }"></span>{{ part.label }}</span>
-          <span class="font-mono text-xs">{{ formatSize(part.bytes) }}</span>
-        </li>
-        <li class="flex items-center justify-between gap-3 text-slate-500 pt-2 border-t border-slate-200 dark:border-purple-800/30">
-          <span>Shared image layers (stored once for all)</span>
-          <span class="font-mono text-xs">{{ formatSize(disk.imagesSharedBytes) }}</span>
-        </li>
-      </ul>
-    </template>
-  </div>
+  <section class="card">
+    <div class="card-head">
+      <div class="card-title"><HardDrive />Disk</div>
+      <span v-if="disk" class="text-[13px] font-semibold tabular-nums">{{ formatSize(disk.totalBytes) }}</span>
+    </div>
+    <div class="card-body flex flex-col gap-3">
+      <p v-if="!disk" class="field-hint">Not measured yet: the disk is measured every 15 minutes and after each build.</p>
+      <template v-else>
+        <div class="bar bar-lg">
+          <span
+            v-for="part in parts"
+            :key="part.label"
+            class="bar-fill"
+            :style="{ width: `${share(part.bytes)}%`, background: part.color }"
+            :title="`${part.label}: ${formatSize(part.bytes)}`"
+          ></span>
+        </div>
+        <ul class="flex flex-col gap-1.5 text-[13px]">
+          <li v-for="part in parts" :key="part.label" class="flex items-center justify-between gap-3">
+            <span class="flex items-center gap-2 text-fg-2"><span class="swatch" :style="{ background: part.color }"></span>{{ part.label }}</span>
+            <span class="tabular-nums">{{ formatSize(part.bytes) }}</span>
+          </li>
+          <li class="mt-1 flex items-center justify-between gap-3 border-t pt-2.5 text-fg-3">
+            <span>Shared image layers, stored once for all</span>
+            <span class="tabular-nums">{{ formatSize(disk.imagesSharedBytes) }}</span>
+          </li>
+        </ul>
+        <p class="field-hint">Measured {{ timeAgo(measuredAt) }}, every 15 minutes and after each job.</p>
+      </template>
+    </div>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { HardDrive } from 'lucide-vue-next';
 import { environmentsApi } from '../services/api';
 import type { EnvironmentDisk } from '../types';
 import { timeAgo } from '../utils/format';
@@ -38,10 +48,10 @@ const measuredAt = ref<string | null>(null);
 const parts = computed(() =>
   disk.value
     ? [
-        { label: 'Own image layers', bytes: disk.value.imagesUniqueBytes, color: '#8b5cf6' },
-        { label: 'Volumes (data)', bytes: disk.value.volumesBytes, color: '#06b6d4' },
-        { label: 'Written by the containers', bytes: disk.value.writableBytes, color: '#f59e0b' },
-        { label: 'Sources', bytes: disk.value.sourcesBytes, color: '#10b981' },
+        { label: 'Own image layers', bytes: disk.value.imagesUniqueBytes, color: 'var(--svc-1)' },
+        { label: 'Volumes (data)', bytes: disk.value.volumesBytes, color: 'var(--svc-2)' },
+        { label: 'Written by the containers', bytes: disk.value.writableBytes, color: 'var(--svc-3)' },
+        { label: 'Sources', bytes: disk.value.sourcesBytes, color: 'var(--svc-4)' },
       ]
     : [],
 );

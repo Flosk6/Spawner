@@ -53,6 +53,7 @@ export type {
   ProjectManifest,
   ProjectUsage,
   ProjectVariable,
+  ServerInfo,
   ServiceUsage,
   SystemAlert,
   SystemMetrics,

@@ -1,113 +1,35 @@
 <template>
-  <div class="relative" ref="menuRef">
-    <button
-      @click="isOpen = !isOpen"
-      class="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 hover:bg-slate-100 dark:hover:bg-purple-500/10"
-    >
-      <img
-        v-if="user.avatarUrl"
-        :src="user.avatarUrl"
-        :alt="user.name"
-        class="w-8 h-8 rounded-full ring-2 ring-slate-200 dark:ring-slate-700"
-      />
-      <div
-        v-else
-        class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center ring-2 ring-slate-200 dark:ring-slate-700"
-      >
-        <span class="text-white font-semibold text-sm">{{ user.name[0]?.toUpperCase() }}</span>
-      </div>
-      <span class="hidden md:inline max-w-[10rem] truncate font-medium text-slate-700 dark:text-slate-300">{{ user.name }}</span>
-      <i
-        class="pi pi-chevron-down text-xs text-slate-400 transition-transform duration-200"
-        :class="{ 'rotate-180': isOpen }"
-      ></i>
+  <div>
+    <button type="button" class="side-user" aria-haspopup="menu" @click="menu?.toggle($event)">
+      <UserAvatar :user="user" />
+      <span class="flex min-w-0 flex-1 flex-col leading-4">
+        <span class="truncate text-[13px] font-medium text-fg">{{ user.name }}</span>
+        <span class="text-xs text-fg-3">{{ user.role === 'admin' ? 'Admin' : 'Member' }}</span>
+      </span>
+      <ChevronsUpDown class="size-3.5 text-fg-3" />
     </button>
-
-    <Transition
-      enter-active-class="transition ease-out duration-100"
-      enter-from-class="transform opacity-0 scale-95"
-      enter-to-class="transform opacity-100 scale-100"
-      leave-active-class="transition ease-in duration-75"
-      leave-from-class="transform opacity-100 scale-100"
-      leave-to-class="transform opacity-0 scale-95"
-    >
-      <div
-        v-if="isOpen"
-        class="absolute right-0 mt-2 w-64 bg-white dark:bg-dark-800 rounded-xl shadow-xl border border-slate-200 dark:border-purple-800/30 overflow-hidden z-50"
-      >
-        <div class="p-4 border-b border-slate-200 dark:border-purple-800/30 bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-500/10 dark:to-violet-500/10">
-          <div class="flex items-center gap-3">
-            <img
-              v-if="user.avatarUrl"
-              :src="user.avatarUrl"
-              :alt="user.name"
-              class="w-12 h-12 rounded-full ring-2 ring-purple-200 dark:ring-purple-700"
-            />
-            <div
-              v-else
-              class="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center ring-2 ring-purple-200 dark:ring-purple-700"
-            >
-              <span class="text-white font-bold text-lg">{{ user.name[0]?.toUpperCase() }}</span>
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-semibold text-slate-900 dark:text-white truncate">{{ user.name }}</p>
-              <p class="text-xs text-slate-500 dark:text-slate-400">{{ user.role === 'admin' ? 'Admin' : 'Member' }}</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="p-2">
-          <router-link
-            to="/account"
-            class="w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-purple-500/10"
-            @click="isOpen = false"
-          >
-            <i class="pi pi-user text-sm"></i>
-            <span>Account and tokens</span>
-          </router-link>
-          <button
-            @click="handleLogout"
-            class="w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
-          >
-            <i class="pi pi-sign-out text-sm"></i>
-            <span>Logout</span>
-          </button>
-        </div>
-      </div>
-    </Transition>
+    <ActionMenu ref="menu" :items="items" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { ChevronsUpDown, LogOut, UserRound } from 'lucide-vue-next';
+import ActionMenu, { type MenuAction } from './ActionMenu.vue';
+import UserAvatar from './UserAvatar.vue';
 import { useAuthStore } from '../stores/auth';
 import type { User } from '../types';
 
-interface Props {
-  user: User;
-}
+defineProps<{ user: User }>();
 
-defineProps<Props>();
-
+const router = useRouter();
 const authStore = useAuthStore();
-const isOpen = ref(false);
-const menuRef = ref<HTMLElement | null>(null);
+const menu = ref<InstanceType<typeof ActionMenu> | null>(null);
 
-function handleLogout() {
-  authStore.logout();
-}
-
-function handleClickOutside(event: MouseEvent) {
-  if (menuRef.value && !menuRef.value.contains(event.target as Node)) {
-    isOpen.value = false;
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
-});
+const items = computed<MenuAction[]>(() => [
+  { label: 'Account and tokens', icon: UserRound, command: () => router.push('/account') },
+  { separator: true },
+  { label: 'Log out', icon: LogOut, command: () => authStore.logout() },
+]);
 </script>

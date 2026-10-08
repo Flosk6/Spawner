@@ -41,6 +41,7 @@ Packages depend on each other through `workspace:*`. Shared packages must be bui
 - **Never modify the data directory** (`SPAWNER_DATA_DIR`, `local-data/` in development). It holds the mirrors and worktrees Spawner checked out: a bug in a deployed project is fixed in that project's repository by its people. Say what to change instead.
 - **The compose policy is an allowlist.** Every change to it comes with a fixture (below).
 - **The API decides.** The dashboard hides what the API would refuse (`canManage` in `apps/web/src/utils/environment.ts`), but every check lives in the API.
+- **The dashboard draws with its tokens.** Colors come from `apps/web/src/styles/tokens.css` through the classes of `apps/web/src/style.css` and Tailwind's token colors (`bg-surface`, `text-fg-3`...): never Tailwind's palette, a raw color or a `dark:` variant in a template, so both themes stay right. [The dashboard](docs/architecture.md#the-dashboard-appsweb) lists the pieces.
 - **Comments**: JSDoc on functions, methods and classes, about intent and what the code does not say; no comments inside functions but for really tricky logic. Fix a misleading comment when you touch its code.
 - **Docs** are in English. User and operator documentation goes to `docs/`.
 - **Prettier** is set up for `apps/api` and `apps/web`, but the tree is not formatted with it yet: do not run `pnpm format` in a change about something else.

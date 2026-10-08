@@ -1,40 +1,41 @@
 <template>
-  <div class="grid gap-6 lg:grid-cols-[minmax(0,18rem)_1fr]">
-    <ul class="divide-y divide-slate-200 dark:divide-purple-800/30">
-      <li v-for="job in jobs" :key="job.id">
-        <button
-          class="w-full text-left py-2.5 px-2 rounded-lg transition-colors"
-          :class="job.id === selectedId ? 'bg-purple-50 dark:bg-purple-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'"
-          @click="selectedId = job.id"
-        >
-          <div class="flex items-center gap-2 text-sm">
-            <i :class="statusIcon(job)"></i>
-            <span class="font-medium capitalize">{{ job.type }}</span>
-            <span class="text-slate-500">{{ job.status }}</span>
-          </div>
-          <p class="text-xs text-slate-500 mt-0.5 truncate">
-            {{ timeAgo(job.createdAt) }}<template v-if="job.actor"> · {{ job.actor }}</template><template v-if="duration(job)"> · {{ duration(job) }}</template>
-          </p>
-        </button>
-      </li>
-    </ul>
-    <div class="min-w-0">
-      <JobLog v-if="selected" :job="selected" @finished="refresh" />
-      <p v-else class="text-sm text-slate-500">No job yet.</p>
+  <div class="grid items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+    <section class="card flex flex-col gap-0.5 p-1.5">
+      <p v-if="jobs.length === 0" class="field-hint p-3">No job yet.</p>
+      <button
+        v-for="job in jobs"
+        :key="job.id"
+        type="button"
+        class="job"
+        :class="{ 'is-active': job.id === selectedId }"
+        :aria-pressed="job.id === selectedId"
+        @click="selectedId = job.id"
+      >
+        <component :is="statusIcon(job)" :class="[statusColor(job), { spinner: isRunning(job) }]" />
+        <span class="job-main">
+          <span class="job-top">{{ job.type }}<span class="badge badge-sm" :class="`tone-${statusTone(job)}`">{{ job.status }}</span></span>
+          <span class="job-meta">{{ timeAgo(job.createdAt) }}<template v-if="job.actor"> · {{ job.actor }}</template><template v-if="duration(job)"> · {{ duration(job) }}</template></span>
+        </span>
+      </button>
+    </section>
+    <div class="flex min-w-0 flex-col gap-2">
+      <JobLog v-if="selected" :job="selected" :environment-status="environmentStatus" @finished="refresh" />
       <p v-if="selected && hiddenLog" class="field-hint">The logs of the last five jobs are kept.</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch, type Component } from 'vue';
+import { CircleCheck, CircleDashed, CircleX, LoaderCircle } from 'lucide-vue-next';
 import JobLog from './JobLog.vue';
 import { environmentsApi } from '../services/api';
-import type { Job } from '../types';
+import type { EnvironmentStatus, Job } from '../types';
+import type { Tone } from '../utils/environment';
 import { timeAgo } from '../utils/format';
 import { formatSeconds } from '../utils/palette';
 
-const props = defineProps<{ environmentId: string; lastJobId?: string | null; focusJob?: string | null }>();
+const props = defineProps<{ environmentId: string; environmentStatus: EnvironmentStatus; lastJobId?: string | null; focusJob?: string | null }>();
 const emit = defineEmits<{ finished: [] }>();
 
 const jobs = ref<Job[]>([]);
@@ -42,14 +43,26 @@ const selectedId = ref<string | null>(props.focusJob ?? null);
 const selected = computed(() => jobs.value.find((job) => job.id === selectedId.value) ?? null);
 const hiddenLog = computed(() => jobs.value.findIndex((job) => job.id === selectedId.value) >= 5);
 
-function statusIcon(job: Job): string {
+function isRunning(job: Job): boolean {
+  return job.status === 'running' || job.status === 'queued';
+}
+
+function statusIcon(job: Job): Component {
   if (job.status === 'succeeded') {
-    return 'pi pi-check-circle text-green-500 text-sm';
+    return CircleCheck;
   }
   if (job.status === 'failed') {
-    return 'pi pi-times-circle text-red-500 text-sm';
+    return CircleX;
   }
-  return 'pi pi-spin pi-spinner text-blue-500 text-sm';
+  return isRunning(job) ? LoaderCircle : CircleDashed;
+}
+
+function statusTone(job: Job): Tone {
+  return { succeeded: 'ok', failed: 'danger', running: 'info', queued: 'info', cancelled: 'muted' }[job.status] as Tone;
+}
+
+function statusColor(job: Job): string {
+  return { ok: 'text-ok-text', danger: 'text-danger-text', info: 'text-info-text', muted: 'text-fg-3' }[statusTone(job) as 'ok' | 'danger' | 'info' | 'muted'];
 }
 
 function duration(job: Job): string {

@@ -1,58 +1,60 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center px-4">
-    <div class="max-w-md w-full space-y-8">
+  <div class="auth-page">
+    <div class="auth-card">
+      <Logo :size="34" :text-size="24" class="self-center" />
       <div class="text-center">
-        <div class="flex justify-center mb-4">
-          <Logo size="xl" :show-text="false" />
-        </div>
-        <h1 class="text-3xl font-bold mb-2 text-slate-900 dark:text-white">
-          {{ invite?.user ? `Welcome back, ${invite.user.name}` : 'Join your team on Spawner' }}
-        </h1>
-        <p v-if="invite" class="text-slate-500 dark:text-slate-400">
-          {{ invite.user ? 'Create a new passkey to get back into your account.' : `You are invited as ${invite.role === 'admin' ? 'an admin' : 'a member'}.` }}
-        </p>
+        <h1 class="page-title">{{ invite?.user ? `Welcome back, ${invite.user.name}` : 'Join your team on Spawner' }}</h1>
+        <p v-if="invite?.user" class="page-lead text-balance">Create a new passkey to get back into your account.</p>
+        <p v-else-if="invite" class="page-lead text-balance">You are invited as {{ invite.role === 'admin' ? 'an admin' : 'a member' }}.</p>
       </div>
 
-      <div class="panel">
-        <div v-if="loading" class="flex justify-center py-8">
-          <ProgressSpinner />
+      <div v-if="loading" class="flex justify-center py-8"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
+
+      <div v-else-if="!invite" class="alert tone-danger" role="alert">
+        <CircleX />
+        <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
+      </div>
+
+      <form v-else class="flex flex-col gap-4" @submit.prevent="accept">
+        <div v-if="!invite.user" class="field">
+          <label class="field-label" for="invite-name">Your name</label>
+          <input id="invite-name" v-model="name" class="input" autocomplete="name" placeholder="Ada Lovelace" />
+        </div>
+        <div v-if="passkeysSupported" class="field">
+          <label class="field-label" for="invite-device">Name of this passkey</label>
+          <input id="invite-device" v-model="passkeyName" class="input" autocomplete="off" placeholder="MacBook" />
+          <p class="field-hint">
+            A passkey is how you log in: your device keeps it (Touch ID, Windows Hello, a phone, a security key). No password.
+          </p>
+        </div>
+        <div v-else-if="invite.passkeyRequired" class="alert tone-warn">
+          <TriangleAlert />
+          <div class="alert-body">
+            <span class="alert-text">This browser cannot create a passkey here. Open the link in a recent browser.</span>
+          </div>
+        </div>
+        <div v-else class="alert tone-info">
+          <Info />
+          <div class="alert-body">
+            <span class="alert-text">Passkeys need HTTPS (or localhost). On this local install, the invitation logs you in without one.</span>
+          </div>
         </div>
 
-        <Message v-else-if="!invite" severity="error" :closable="false">{{ error }}</Message>
+        <div v-if="error" class="alert tone-danger" role="alert">
+          <CircleX />
+          <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
+        </div>
 
-        <form v-else class="space-y-5" @submit.prevent="accept">
-          <div v-if="!invite.user">
-            <label class="field-label" for="invite-name">Your name</label>
-            <InputText id="invite-name" v-model="name" class="w-full" autocomplete="name" placeholder="Ada Lovelace" />
-          </div>
-          <div v-if="passkeysSupported">
-            <label class="field-label" for="invite-device">Name of this passkey</label>
-            <InputText id="invite-device" v-model="passkeyName" class="w-full" placeholder="MacBook" />
-            <p class="field-hint">
-              A passkey is how you log in: your device keeps it (Touch ID, Windows Hello, a phone, a security key). No password.
-            </p>
-          </div>
-          <Message v-else-if="invite.passkeyRequired" severity="warn" :closable="false">
-            This browser cannot create a passkey here. Open the link in a recent browser.
-          </Message>
-          <Message v-else severity="info" :closable="false">
-            Passkeys need HTTPS (or localhost). On this local install, the invitation logs you in without one.
-          </Message>
-
-          <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-
-          <Button
-            type="submit"
-            class="w-full"
-            size="large"
-            :icon="passkeysSupported ? 'pi pi-key' : 'pi pi-sign-in'"
-            :label="passkeysSupported ? 'Create my passkey' : 'Continue without a passkey'"
-            :loading="saving"
-            :disabled="(!invite.user && !name.trim()) || (!passkeysSupported && invite.passkeyRequired)"
-          />
-          <p class="field-hint text-center">This link works once, until {{ new Date(invite.expiresAt).toLocaleString() }}.</p>
-        </form>
-      </div>
+        <button
+          type="submit"
+          class="btn btn-primary btn-block"
+          :disabled="saving || (!invite.user && !name.trim()) || (!passkeysSupported && invite.passkeyRequired)"
+        >
+          <LoaderCircle v-if="saving" class="spinner" /><KeyRound v-else-if="passkeysSupported" /><LogIn v-else />
+          {{ passkeysSupported ? 'Create my passkey' : 'Continue without a passkey' }}
+        </button>
+        <p class="text-balance text-center text-[13px] text-fg-3">This link works once, until {{ new Date(invite.expiresAt).toLocaleString() }}.</p>
+      </form>
     </div>
   </div>
 </template>
@@ -61,10 +63,7 @@
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
-import Message from 'primevue/message';
-import ProgressSpinner from 'primevue/progressspinner';
+import { CircleX, Info, KeyRound, LoaderCircle, LogIn, TriangleAlert } from 'lucide-vue-next';
 import Logo from '../components/Logo.vue';
 import { errorMessage, invitesApi } from '../services/api';
 import { useAuthStore } from '../stores/auth';
@@ -83,6 +82,7 @@ const name = ref('');
 const passkeyName = ref(guessDevice());
 const passkeysSupported = browserSupportsWebAuthn() && window.isSecureContext;
 
+/** A first name for the passkey, from the kind of device the browser runs on. */
 function guessDevice(): string {
   const agent = navigator.userAgent;
   if (/iPhone|iPad/.test(agent)) return 'iPhone';

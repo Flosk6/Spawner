@@ -32,13 +32,15 @@ onMounted(() => {
   // Create terminal instance
   terminal = new Terminal({
     cursorBlink: true,
-    fontSize: 14,
-    fontFamily: 'Monaco, Menlo, "Courier New", monospace',
+    fontSize: 13,
+    fontFamily: "'Geist Mono Variable', ui-monospace, Menlo, monospace",
+    lineHeight: 1.2,
     theme: {
-      background: '#1e1e1e',
-      foreground: '#d4d4d4',
-      cursor: '#ffffff',
-      selectionBackground: '#264f78',
+      background: '#0d0c12',
+      foreground: '#e4e3ec',
+      cursor: '#a99dff',
+      cursorAccent: '#0d0c12',
+      selectionBackground: 'rgba(110, 84, 255, 0.35)',
     },
     rows: 30,
     cols: 100,
@@ -170,10 +172,10 @@ watch(() => props.resourceName, async () => {
 <style scoped>
 .xterm-container {
   width: 100%;
-  height: 100%;
-  background: #1e1e1e;
-  padding: 1rem;
-  border-radius: 0.5rem;
+  height: 28rem;
+  background: var(--term-bg);
+  padding: 12px;
+  border-radius: 8px;
   overflow: hidden;
 }
 

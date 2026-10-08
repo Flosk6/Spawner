@@ -1,47 +1,80 @@
 <template>
-  <div class="max-w-lg mx-auto">
-    <h1 class="text-3xl font-bold mb-2">Log in the CLI</h1>
-    <p class="opacity-70 mb-8">Enter the code your terminal shows, for a login you started yourself. Approving it gives the CLI a token with your rights.</p>
-
-    <div class="panel space-y-5">
-      <form v-if="!request && !done" class="space-y-4" @submit.prevent="lookUp">
-        <div>
-          <label class="field-label" for="device-code">Code</label>
-          <InputText id="device-code" v-model="code" class="w-full font-mono text-2xl tracking-widest uppercase" placeholder="BCDF-GHJK" autocomplete="off" autofocus />
-        </div>
-        <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-        <Button type="submit" label="Continue" :loading="loading" :disabled="code.replace(/[^a-zA-Z]/g, '').length !== 8" />
-      </form>
-
-      <template v-else-if="request && !done">
-        <div class="space-y-2">
-          <p>
-            <span class="font-semibold">{{ request.clientName }}</span> asks to act as you on Spawner, with these scopes:
+  <div class="auth-page">
+    <div class="flex w-full flex-col items-center gap-4">
+      <div class="auth-card">
+        <Logo :size="34" :text-size="24" class="self-center" />
+        <div class="text-center">
+          <h1 class="page-title">Log in the CLI</h1>
+          <p class="page-lead text-balance">
+            Enter the code your terminal shows, for a login you started yourself. Approving it gives the CLI a token with your rights.
           </p>
-          <div class="flex flex-wrap gap-2">
-            <span v-for="scope in request.scopes" :key="scope" class="px-2 py-1 rounded bg-slate-100 dark:bg-dark-700 font-mono text-xs">{{ scope }}</span>
-          </div>
-          <p class="field-hint">Code {{ request.userCode }}. Only approve a login you started yourself, just now.</p>
         </div>
-        <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-        <div class="flex gap-2">
-          <Button label="Approve" icon="pi pi-check" :loading="loading" @click="decide(true)" />
-          <Button label="Deny" icon="pi pi-times" severity="secondary" outlined :disabled="loading" @click="decide(false)" />
-        </div>
-      </template>
 
-      <Message v-else :severity="done === 'approved' ? 'success' : 'info'" :closable="false">
-        {{ done === 'approved' ? 'Approved. The CLI receives its token within seconds; you can close this page.' : 'Denied. The CLI login was refused.' }}
-      </Message>
+        <form v-if="!request && !done" class="flex flex-col gap-4" @submit.prevent="lookUp">
+          <div class="field">
+            <label class="field-label" for="device-code">Code</label>
+            <input
+              id="device-code"
+              v-model="code"
+              class="input h-12 text-center font-mono text-2xl uppercase tracking-widest"
+              placeholder="BCDF-GHJK"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              autofocus
+            />
+          </div>
+          <div v-if="error" class="alert tone-danger" role="alert">
+            <CircleX />
+            <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" :disabled="loading || code.replace(/[^a-zA-Z]/g, '').length !== 8">
+            <LoaderCircle v-if="loading" class="spinner" />Continue
+          </button>
+        </form>
+
+        <template v-else-if="request && !done">
+          <div class="flex flex-col gap-3">
+            <p class="text-fg-2">
+              <span class="font-semibold text-fg">{{ request.clientName }}</span> asks to act as you on Spawner, with these scopes:
+            </p>
+            <div class="flex flex-wrap gap-1.5">
+              <span v-for="scope in request.scopes" :key="scope" class="badge font-mono">{{ scope }}</span>
+            </div>
+            <p class="field-hint">
+              Code <span class="font-mono text-fg-2">{{ request.userCode }}</span>. Only approve a login you started yourself, just now.
+            </p>
+          </div>
+          <div v-if="error" class="alert tone-danger" role="alert">
+            <CircleX />
+            <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" class="btn btn-primary btn-block" :disabled="loading" @click="decide(true)">
+              <LoaderCircle v-if="loading" class="spinner" /><Check v-else />Approve
+            </button>
+            <button type="button" class="btn btn-secondary btn-block" :disabled="loading" @click="decide(false)"><X />Deny</button>
+          </div>
+        </template>
+
+        <div v-else class="alert" :class="done === 'approved' ? 'tone-ok' : 'tone-info'" role="status">
+          <CircleCheck v-if="done === 'approved'" /><Info v-else />
+          <div class="alert-body">
+            <span v-if="done === 'approved'" class="alert-text">Approved. The CLI receives its token within seconds; you can close this page.</span>
+            <span v-else class="alert-text">Denied. The CLI login was refused.</span>
+          </div>
+        </div>
+      </div>
+
+      <RouterLink to="/home" class="link text-[13px]">Back to the dashboard</RouterLink>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
-import Message from 'primevue/message';
+import { Check, CircleCheck, CircleX, Info, LoaderCircle, X } from 'lucide-vue-next';
+import Logo from '../components/Logo.vue';
 import { deviceApi, errorMessage } from '../services/api';
 import type { DeviceRequest } from '../types';
 

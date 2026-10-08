@@ -1,176 +1,245 @@
 <template>
-  <div class="max-w-4xl mx-auto space-y-6">
+  <div class="page-head">
     <div>
-      <h1 class="text-4xl font-bold mb-2">Your account</h1>
-      <p class="text-lg opacity-70">How you log in, and the tokens of your agents and scripts</p>
+      <h1 class="page-title">Account</h1>
+      <p class="page-lead">How you log in, and the tokens of your agents and scripts.</p>
     </div>
+  </div>
 
-    <div v-if="!account" class="flex justify-center py-20">
-      <ProgressSpinner />
-    </div>
+  <div v-if="!account" class="flex justify-center py-16"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
 
-    <template v-else>
-      <!-- Profile -->
-      <section class="panel">
-        <h2 class="panel-title"><i class="pi pi-user text-sm"></i>Profile</h2>
-        <form class="flex flex-wrap items-end gap-3" @submit.prevent="rename">
-          <div class="flex-1 min-w-[220px]">
+  <template v-else>
+    <div class="grid items-start gap-4 lg:grid-cols-2">
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title"><UserRound />Profile</div>
+          <span class="field-hint">Role: {{ account.user.role }}</span>
+        </div>
+        <form class="card-body" @submit.prevent="rename">
+          <div class="field">
             <label class="field-label" for="account-name">Name</label>
-            <InputText id="account-name" v-model="name" class="w-full" />
-          </div>
-          <Button type="submit" label="Save" severity="secondary" outlined :disabled="!name.trim() || name.trim() === account.user.name" />
-        </form>
-        <p class="field-hint">Role: {{ account.user.role }}. Shown on your environments and in the audit trail.</p>
-      </section>
-
-      <!-- Logins -->
-      <section class="panel">
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 class="panel-title !mb-0"><i class="pi pi-key text-sm"></i>Passkeys</h2>
-          <Button label="Add a passkey" icon="pi pi-plus" size="small" :disabled="!passkeysSupported" :loading="adding" @click="addPasskey" />
-        </div>
-        <p v-if="account.passkeys.length === 0" class="text-sm text-slate-500">No passkey yet.</p>
-        <ul v-else class="divide-y divide-slate-200 dark:divide-purple-800/30">
-          <li v-for="passkey in account.passkeys" :key="passkey.id" class="flex items-center justify-between gap-3 py-3">
-            <div>
-              <p class="font-medium">{{ passkey.name }}</p>
-              <p class="text-xs text-slate-500">
-                Added {{ timeAgo(passkey.createdAt) }}
-                <template v-if="passkey.lastUsedAt"> · used {{ timeAgo(passkey.lastUsedAt) }}</template>
-                <template v-if="passkey.backedUp"> · synced</template>
-              </p>
+            <div class="flex gap-2">
+              <input id="account-name" v-model="name" class="input" autocomplete="name" />
+              <button type="submit" class="btn btn-secondary" :disabled="!name.trim() || name.trim() === account.user.name">Save</button>
             </div>
-            <Button icon="pi pi-trash" severity="danger" text rounded v-tooltip.top="'Remove'" @click="removePasskey(passkey.id, passkey.name)" />
-          </li>
-        </ul>
-
-        <div v-if="account.githubAvailable || github" class="mt-6 pt-4 border-t border-slate-200 dark:border-purple-800/30 flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <i class="pi pi-github"></i>
-            <span v-if="github">Linked to GitHub as <span class="font-medium">{{ github.username }}</span></span>
-            <span v-else class="text-slate-500">Log in with GitHub too</span>
+            <p class="field-hint">Shown on your environments and in the audit trail.</p>
           </div>
-          <Button v-if="github" label="Unlink" severity="secondary" text size="small" @click="unlinkGithub" />
-          <a v-else :href="authApi.githubUrl({ link: true, next: '/account' })">
-            <Button label="Link GitHub" severity="secondary" outlined size="small" />
-          </a>
-        </div>
+        </form>
       </section>
 
-      <!-- Command line -->
-      <section class="panel">
-        <h2 class="panel-title"><i class="pi pi-code text-sm"></i>Command line and agents</h2>
-        <p class="field-hint mb-4">
+      <div class="flex min-w-0 flex-col gap-4">
+        <section class="card">
+          <div class="card-head is-flush">
+            <div class="card-title"><KeyRound />Passkeys<span class="count">{{ account.passkeys.length }}</span></div>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!passkeysSupported || adding" @click="addPasskey">
+              <LoaderCircle v-if="adding" class="spinner" /><Plus v-else />Add a passkey
+            </button>
+          </div>
+          <div class="list">
+            <div v-if="account.passkeys.length === 0" class="list-row text-fg-3">No passkey yet.</div>
+            <div v-for="passkey in account.passkeys" :key="passkey.id" class="list-row">
+              <div class="svc-icon"><Fingerprint /></div>
+              <div class="list-main">
+                <div class="list-title">
+                  <span class="truncate">{{ passkey.name }}</span><span v-if="passkey.backedUp" class="badge badge-sm">synced</span>
+                </div>
+                <div class="list-sub">
+                  <span class="truncate">
+                    Added {{ timeAgo(passkey.createdAt) }}<template v-if="passkey.lastUsedAt">, used {{ timeAgo(passkey.lastUsedAt) }}</template>
+                  </span>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" @click="removePasskey(passkey.id, passkey.name)">Remove</button>
+            </div>
+          </div>
+          <div v-if="!passkeysSupported" class="card-foot">This browser cannot add a passkey here: passkeys need HTTPS, or localhost.</div>
+        </section>
+
+        <section v-if="account.githubAvailable || github" class="card">
+          <div class="card-head is-flush"><div class="card-title"><Github />GitHub</div></div>
+          <div class="list">
+            <div class="list-row">
+              <div class="list-main">
+                <span v-if="github" class="truncate">Linked to GitHub as <span class="font-semibold">{{ github.username }}</span></span>
+                <span v-else class="text-fg-3">Log in with GitHub too</span>
+              </div>
+              <button v-if="github" type="button" class="btn btn-ghost btn-sm" @click="unlinkGithub">Unlink</button>
+              <a v-else :href="authApi.githubUrl({ link: true, next: '/account' })" class="btn btn-secondary btn-sm"><Github />Link GitHub</a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><div class="card-title"><SquareTerminal />Command line and agents</div></div>
+      <div class="card-body flex flex-col gap-4">
+        <p class="field-hint">
           The <code>spawner</code> CLI needs Node.js 20 or later. Install it from this server, then log in: it sends you here to enter the code
           it shows and approve the login.
         </p>
-        <div v-for="block in cliBlocks" :key="block.label" class="mb-3 last:mb-0">
-          <p class="text-xs uppercase text-slate-500 mb-1">{{ block.label }}</p>
-          <div class="flex items-start gap-2">
-            <pre class="flex-1 min-w-0 text-xs bg-slate-100 dark:bg-black/30 rounded px-3 py-2 overflow-x-auto"><code>{{ block.code }}</code></pre>
-            <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(block.code)" />
-          </div>
-        </div>
-      </section>
+        <dl class="grid gap-y-1.5 md:grid-cols-[11rem_minmax(0,1fr)] md:gap-x-6 md:gap-y-3">
+          <template v-for="block in cliBlocks" :key="block.label">
+            <dt class="mt-2.5 text-[13px] font-medium text-fg-2 first:mt-0 md:mt-0 md:pt-2">{{ block.label }}</dt>
+            <dd class="cmd">
+              <span class="cmd-text">{{ block.code }}</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-icon"
+                :aria-label="`Copy: ${block.label}`"
+                v-tooltip.top="'Copy'"
+                @click="copy(block.code)"
+              >
+                <Copy />
+              </button>
+            </dd>
+          </template>
+        </dl>
+      </div>
+    </section>
 
-      <!-- Tokens -->
-      <section class="panel">
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
-          <h2 class="panel-title !mb-0"><i class="pi pi-lock text-sm"></i>API tokens</h2>
-          <Button label="New token" icon="pi pi-plus" size="small" @click="tokenDialog = true" />
-        </div>
-        <p class="field-hint mb-4">
-          For the CLI, the MCP server and scripts. <code>spawner login</code> creates one for you; create one here for an agent of its own, such as
-          <code>claude-laptop</code>.
+    <section class="card">
+      <div class="card-head">
+        <div class="card-title"><Lock />API tokens<span class="count">{{ tokens.length }}</span></div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="tokenDialog = true"><Plus />New token</button>
+      </div>
+      <div class="card-body flex flex-col gap-3">
+        <p class="field-hint">
+          For the CLI, the MCP server and scripts. <code class="whitespace-nowrap">spawner login</code> creates one for you; create one here
+          for an agent of its own, such as <code class="whitespace-nowrap">claude-laptop</code>.
         </p>
-
-        <Message v-if="created" severity="success" :closable="true" class="mb-4" @close="created = null">
-          <p class="font-semibold mb-2">Token "{{ created.info.name }}" created. Copy it now: it will not be shown again.</p>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 break-all text-xs bg-white/60 dark:bg-black/20 rounded px-2 py-1">{{ created.token }}</code>
-            <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copy(created.token)" />
+        <div v-if="created" class="alert tone-ok">
+          <CircleCheck />
+          <div class="alert-body gap-2">
+            <div class="flex flex-col gap-0.5">
+              <span class="alert-title">Token "{{ created.info.name }}" created</span>
+              <span class="alert-text">Copy it now: it will not be shown again.</span>
+            </div>
+            <div class="cmd">
+              <span class="cmd-text">{{ created.token }}</span>
+              <button type="button" class="btn btn-ghost btn-sm btn-icon" aria-label="Copy the token" v-tooltip.top="'Copy'" @click="copy(created.token)">
+                <Copy />
+              </button>
+            </div>
           </div>
-        </Message>
-
-        <p v-if="tokens.length === 0" class="text-sm text-slate-500">No token.</p>
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-left text-xs uppercase text-slate-500">
-              <tr>
-                <th class="py-2 pr-4">Name</th>
-                <th class="py-2 pr-4">Scopes</th>
-                <th class="py-2 pr-4">Project</th>
-                <th class="py-2 pr-4">Last used</th>
-                <th class="py-2 pr-4">Expires</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-purple-800/30">
-              <tr v-for="token in tokens" :key="token.id">
-                <td class="py-2 pr-4">
-                  <span class="font-medium">{{ token.name }}</span>
-                  <span class="block font-mono text-xs text-slate-500">{{ token.hint }}</span>
-                </td>
-                <td class="py-2 pr-4 font-mono text-xs">{{ token.scopes.join(' ') }}</td>
-                <td class="py-2 pr-4">{{ token.project ?? 'all' }}</td>
-                <td class="py-2 pr-4">{{ token.lastUsedAt ? timeAgo(token.lastUsedAt) : 'never' }}</td>
-                <td class="py-2 pr-4">{{ token.expiresAt ? timeLeft(token.expiresAt) : 'never' }}</td>
-                <td class="py-2 text-right">
-                  <Button icon="pi pi-ban" severity="danger" text rounded v-tooltip.top="'Revoke'" @click="revoke(token.id, token.name)" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="alert-actions">
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" aria-label="Dismiss" @click="created = null"><X /></button>
+          </div>
         </div>
-      </section>
+      </div>
+
+      <div v-if="tokens.length === 0" class="empty border-t">No token yet.</div>
+      <div v-else class="table-wrap border-t">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th class="hidden sm:table-cell">Scopes</th>
+              <th class="hidden md:table-cell">Project</th>
+              <th class="hidden lg:table-cell">Last used</th>
+              <th class="hidden sm:table-cell">Expires</th>
+              <th><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="token in tokens" :key="token.id">
+              <td class="max-w-[16rem]">
+                <div class="row-title">{{ token.name }}</div>
+                <div class="row-sub">
+                  <span class="commit">{{ token.hint }}</span>
+                  <span class="sm:hidden" aria-hidden="true">·</span>
+                  <span class="sm:hidden">{{ expiry(token) }}</span>
+                </div>
+                <div class="mt-1.5 flex flex-wrap gap-1 sm:hidden">
+                  <span v-for="scope in token.scopes" :key="scope" class="badge badge-sm font-mono">{{ scope }}</span>
+                </div>
+              </td>
+              <td class="hidden sm:table-cell">
+                <div class="flex flex-wrap gap-1">
+                  <span v-for="scope in token.scopes" :key="scope" class="badge badge-sm font-mono">{{ scope }}</span>
+                </div>
+              </td>
+              <td class="hidden text-fg-2 md:table-cell">{{ token.project ?? 'all' }}</td>
+              <td class="hidden whitespace-nowrap text-fg-2 lg:table-cell">{{ token.lastUsedAt ? timeAgo(token.lastUsedAt) : 'never' }}</td>
+              <td class="hidden whitespace-nowrap text-fg-2 sm:table-cell">{{ token.expiresAt ? timeLeft(token.expiresAt) : 'never' }}</td>
+              <td class="cell-actions">
+                <button type="button" class="btn btn-ghost btn-sm" @click="revoke(token.id, token.name)">Revoke</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </template>
+
+  <Dialog v-model:visible="tokenDialog" header="New API token" modal :style="{ width: 'min(32.5rem, calc(100vw - 2rem))' }">
+    <form id="new-token" class="flex flex-col gap-4" @submit.prevent="createToken">
+      <div class="field">
+        <label class="field-label" for="token-name">Name</label>
+        <input id="token-name" v-model="form.name" class="input" placeholder="claude-laptop" autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="field" role="group" aria-labelledby="token-scopes">
+        <span id="token-scopes" class="field-label">Scopes</span>
+        <div class="flex flex-col rounded-lg border">
+          <label
+            v-for="scope in availableScopes"
+            :key="scope"
+            :for="`scope-${scope}`"
+            class="flex cursor-pointer items-start gap-2.5 border-t px-3 py-2 first:border-t-0 hover:bg-surface-hover"
+          >
+            <Checkbox v-model="form.scopes" :value="scope" :input-id="`scope-${scope}`" />
+            <span class="flex min-w-0 flex-col">
+              <code class="font-medium text-fg">{{ scope }}</code>
+              <span class="text-[12.5px] leading-[18px] text-fg-3">{{ SCOPE_LABELS[scope] }}</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="field">
+          <label class="field-label" for="token-days">Expires after (days)</label>
+          <InputNumber v-model="form.days" input-id="token-days" :min="1" :max="365" fluid />
+        </div>
+        <div class="field">
+          <label class="field-label" for="token-project">Project</label>
+          <Select
+            v-model="form.project"
+            input-id="token-project"
+            :options="projects"
+            option-label="name"
+            option-value="slug"
+            placeholder="All projects"
+            show-clear
+            class="w-full"
+          />
+        </div>
+      </div>
+
+      <div v-if="formError" class="alert tone-danger" role="alert">
+        <CircleX />
+        <div class="alert-body"><span class="alert-text">{{ formError }}</span></div>
+      </div>
+    </form>
+
+    <template #footer>
+      <button type="button" class="btn btn-ghost" @click="tokenDialog = false">Cancel</button>
+      <button type="submit" form="new-token" class="btn btn-primary" :disabled="saving || !form.name.trim() || form.scopes.length === 0">
+        <LoaderCircle v-if="saving" class="spinner" /><Plus v-else />Create
+      </button>
     </template>
-
-    <Dialog v-model:visible="tokenDialog" header="New API token" modal :style="{ width: '520px' }">
-      <form class="space-y-5" @submit.prevent="createToken">
-        <div>
-          <label class="field-label" for="token-name">Name</label>
-          <InputText id="token-name" v-model="form.name" class="w-full" placeholder="claude-laptop" />
-        </div>
-        <div>
-          <span class="field-label">Scopes</span>
-          <div class="space-y-2">
-            <label v-for="scope in availableScopes" :key="scope" class="flex items-start gap-2 text-sm">
-              <Checkbox v-model="form.scopes" :value="scope" :input-id="`scope-${scope}`" />
-              <span><code>{{ scope }}</code> <span class="text-slate-500">{{ SCOPE_LABELS[scope] }}</span></span>
-            </label>
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="field-label" for="token-days">Expires after (days)</label>
-            <InputNumber v-model="form.days" input-id="token-days" :min="1" :max="365" class="w-full" />
-          </div>
-          <div>
-            <label class="field-label" for="token-project">Project</label>
-            <Select v-model="form.project" input-id="token-project" :options="projects" option-label="name" option-value="slug" placeholder="All projects" show-clear class="w-full" />
-          </div>
-        </div>
-        <Message v-if="formError" severity="error" :closable="false">{{ formError }}</Message>
-        <div class="flex justify-end gap-2">
-          <Button type="button" label="Cancel" severity="secondary" text @click="tokenDialog = false" />
-          <Button type="submit" label="Create" :loading="saving" :disabled="!form.name.trim() || form.scopes.length === 0" />
-        </div>
-      </form>
-    </Dialog>
-  </div>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import Dialog from 'primevue/dialog';
 import InputNumber from 'primevue/inputnumber';
-import InputText from 'primevue/inputtext';
-import Message from 'primevue/message';
-import ProgressSpinner from 'primevue/progressspinner';
 import Select from 'primevue/select';
+import { CircleCheck, CircleX, Copy, Fingerprint, Github, KeyRound, LoaderCircle, Lock, Plus, SquareTerminal, UserRound, X } from 'lucide-vue-next';
 import { useNotification } from '../composables/useNotification';
 import { authApi, errorMessage, meApi, projectsApi, tokensApi } from '../services/api';
 import { useAuthStore } from '../stores/auth';
@@ -214,6 +283,15 @@ const cliBlocks = computed(() => {
   ];
 });
 
+/** The Expires column in a few words, for the rows of small screens, where the column is hidden. */
+function expiry(token: ApiTokenInfo): string {
+  if (!token.expiresAt) {
+    return 'never expires';
+  }
+  const left = timeLeft(token.expiresAt);
+  return left === 'expired' ? left : `expires ${left}`;
+}
+
 async function load() {
   try {
     [account.value, tokens.value, projects.value] = await Promise.all([meApi.get(), tokensApi.list(), projectsApi.list()]);
@@ -251,14 +329,18 @@ async function addPasskey() {
 }
 
 function removePasskey(id: string, label: string) {
-  confirmAction(`Remove the passkey "${label}"? You will no longer log in with it.`, async () => {
-    try {
-      await meApi.removePasskey(id);
-      await load();
-    } catch (err) {
-      showError(errorMessage(err, 'The passkey could not be removed'));
-    }
-  });
+  confirmAction(
+    `You will no longer log in with the passkey "${label}".`,
+    async () => {
+      try {
+        await meApi.removePasskey(id);
+        await load();
+      } catch (err) {
+        showError(errorMessage(err, 'The passkey could not be removed'));
+      }
+    },
+    { header: 'Remove this passkey?', acceptLabel: 'Remove', danger: true },
+  );
 }
 
 function unlinkGithub() {
@@ -266,14 +348,18 @@ function unlinkGithub() {
   if (!identity) {
     return;
   }
-  confirmAction('Stop logging in with GitHub?', async () => {
-    try {
-      await meApi.removeIdentity(identity.id);
-      await load();
-    } catch (err) {
-      showError(errorMessage(err, 'GitHub could not be unlinked'));
-    }
-  });
+  confirmAction(
+    'You will no longer log in with GitHub.',
+    async () => {
+      try {
+        await meApi.removeIdentity(identity.id);
+        await load();
+      } catch (err) {
+        showError(errorMessage(err, 'GitHub could not be unlinked'));
+      }
+    },
+    { header: 'Unlink GitHub?', acceptLabel: 'Unlink', danger: true },
+  );
 }
 
 async function createToken() {
@@ -292,14 +378,18 @@ async function createToken() {
 }
 
 function revoke(id: string, label: string) {
-  confirmAction(`Revoke the token "${label}"? Whatever uses it stops working at once.`, async () => {
-    try {
-      await tokensApi.revoke(id);
-      tokens.value = await tokensApi.list();
-    } catch (err) {
-      showError(errorMessage(err, 'The token could not be revoked'));
-    }
-  });
+  confirmAction(
+    `Whatever uses "${label}" stops working at once.`,
+    async () => {
+      try {
+        await tokensApi.revoke(id);
+        tokens.value = await tokensApi.list();
+      } catch (err) {
+        showError(errorMessage(err, 'The token could not be revoked'));
+      }
+    },
+    { header: 'Revoke this token?', acceptLabel: 'Revoke', danger: true },
+  );
 }
 
 async function copy(value: string) {

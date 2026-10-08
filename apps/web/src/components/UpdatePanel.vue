@@ -1,57 +1,65 @@
 <template>
-  <section class="panel">
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
-      <h2 class="panel-title !mb-0"><i class="pi pi-sync text-sm"></i>Spawner {{ status?.current ?? '' }}</h2>
-      <div v-if="status" class="flex gap-2">
-        <Button label="Check now" icon="pi pi-refresh" text size="small" :loading="checking" :disabled="updating" @click="check" />
-        <Button
-          v-if="status.latest && status.managed"
-          :label="`Update to ${status.latest.version}`"
-          icon="pi pi-download"
-          size="small"
-          :loading="updating"
-          @click="confirmUpdate"
-        />
+  <section class="card">
+    <div class="card-head flex-wrap">
+      <div class="card-title"><CircleArrowUp />Spawner {{ status?.current ?? '' }}</div>
+      <div v-if="status" class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="checking || updating" @click="check">
+          <LoaderCircle v-if="checking" class="spinner" /><RefreshCw v-else />Check now
+        </button>
+        <button v-if="status.latest && status.managed" type="button" class="btn btn-primary btn-sm" :disabled="updating" @click="confirmUpdate">
+          <LoaderCircle v-if="updating" class="spinner" /><Download v-else />Update to {{ status.latest.version }}
+        </button>
       </div>
     </div>
 
-    <div v-if="!status" class="flex justify-center py-6"><ProgressSpinner style="width: 2rem; height: 2rem" /></div>
+    <div v-if="!status" class="flex justify-center py-10"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
 
-    <template v-else>
-      <Message v-if="updating" severity="info" :closable="false" class="mb-3">{{ progress }}</Message>
-      <Message v-else-if="status.run?.state === 'failed'" severity="error" :closable="false" class="mb-3">
-        {{ status.run.error }}
-        <details v-if="status.run.log.length > 0" class="mt-2">
-          <summary class="cursor-pointer text-sm">The installer's output</summary>
-          <pre class="mt-2 text-xs whitespace-pre-wrap">{{ status.run.log.join('\n') }}</pre>
-        </details>
-      </Message>
-      <Message v-else-if="status.run?.state === 'succeeded' && status.run.to === status.current" severity="success" :closable="false" class="mb-3">
-        Updated from {{ status.run.from }} {{ timeAgo(status.run.finishedAt) }}, by {{ status.run.by }}.
-      </Message>
+    <div v-else class="card-body flex flex-col gap-3">
+      <div v-if="updating" class="alert tone-info">
+        <LoaderCircle class="spinner" />
+        <div class="alert-body"><span class="alert-title">{{ progress }}</span></div>
+      </div>
+      <div v-else-if="status.run?.state === 'failed'" class="alert tone-danger">
+        <CircleX />
+        <div class="alert-body">
+          <span class="alert-title">{{ status.run.error }}</span>
+          <details v-if="status.run.log.length > 0" class="mt-1">
+            <summary class="cursor-pointer text-[12.5px] font-medium text-fg-2">The installer's output</summary>
+            <pre class="pre max-h-96 overflow-auto">{{ status.run.log.join('\n') }}</pre>
+          </details>
+        </div>
+      </div>
+      <div v-else-if="status.run?.state === 'succeeded' && status.run.to === status.current" class="alert tone-ok">
+        <CircleCheck />
+        <div class="alert-body">
+          <span class="alert-title">Updated from {{ status.run.from }} {{ timeAgo(status.run.finishedAt) }}, by {{ status.run.by }}.</span>
+        </div>
+      </div>
 
-      <p v-if="status.latest" class="text-sm">
-        Spawner <strong>{{ status.latest.version }}</strong> is available<span v-if="status.latest.publishedAt">, released {{ timeAgo(status.latest.publishedAt) }}</span>.
-        <a v-if="status.latest.url" :href="status.latest.url" target="_blank" rel="noopener" class="underline">Release notes</a>
+      <p v-if="status.latest">
+        Spawner <strong class="font-semibold">{{ status.latest.version }}</strong>
+        is available<template v-if="status.latest.publishedAt">, released {{ timeAgo(status.latest.publishedAt) }}</template>.
+        <a v-if="status.latest.url" :href="status.latest.url" target="_blank" rel="noopener" class="link inline-flex items-center gap-1">
+          Release notes<ExternalLink class="size-3.5" />
+        </a>
       </p>
-      <p v-else class="text-sm text-slate-500">
-        Spawner is up to date<span v-if="status.checkedAt">: checked {{ timeAgo(status.checkedAt) }}</span>.
-      </p>
+      <p v-else class="text-fg-2">Spawner is up to date<template v-if="status.checkedAt">: checked {{ timeAgo(status.checkedAt) }}</template>.</p>
       <p v-if="status.checkError" class="field-hint">The list of releases could not be read: {{ status.checkError }}</p>
       <p v-if="status.latest && !status.managed" class="field-hint">{{ status.reason }}.</p>
       <p v-if="status.managed" class="field-hint">
-        Updating backs the database up, then restarts Spawner on the new version: the dashboard is away for about a minute, environments keep running. If the new
-        version does not start, Spawner goes back to this one.<span v-if="!status.automaticChecks"> Spawner does not look for new versions by itself here (SPAWNER_UPDATE_CHECK).</span>
+        Updating backs the database up, then restarts Spawner on the new version: the dashboard is away for about a minute, environments keep
+        running. If the new version does not start, Spawner goes back to this one.
+        <template v-if="!status.automaticChecks">
+          Spawner does not look for new versions by itself here (<code>SPAWNER_UPDATE_CHECK</code>).
+        </template>
       </p>
-    </template>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import Button from 'primevue/button';
-import Message from 'primevue/message';
-import ProgressSpinner from 'primevue/progressspinner';
+import { CircleArrowUp, CircleCheck, CircleX, Download, ExternalLink, LoaderCircle, RefreshCw } from 'lucide-vue-next';
 import { useNotification } from '../composables/useNotification';
 import { errorMessage, systemApi } from '../services/api';
 import type { UpdateStatus } from '../types';
@@ -108,7 +116,7 @@ function confirmUpdate() {
     return;
   }
   confirmAction(
-    `Update Spawner to ${next}? Spawner backs its database up, then restarts on the new version: the dashboard is away for about a minute, environments keep running. If ${next} does not start, Spawner goes back to ${status.value?.current}.`,
+    `Spawner backs its database up, then restarts on the new version: the dashboard is away for about a minute, environments keep running. If ${next} does not start, Spawner goes back to ${status.value?.current}.`,
     async () => {
       try {
         await systemApi.startUpdate();
@@ -117,8 +125,7 @@ function confirmUpdate() {
         showError(errorMessage(error, 'The update could not start'));
       }
     },
-    undefined,
-    `Update to ${next}`,
+    { header: `Update to ${next}`, acceptLabel: `Update to ${next}` },
   );
 }
 

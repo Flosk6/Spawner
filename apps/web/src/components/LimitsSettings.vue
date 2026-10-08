@@ -1,30 +1,65 @@
 <template>
-  <section class="panel">
-    <h2 class="panel-title"><i class="pi pi-sliders-h text-sm"></i>Environments</h2>
-    <div v-if="!view" class="flex justify-center py-8">
-      <ProgressSpinner />
+  <section class="card">
+    <div class="card-head">
+      <div class="card-title"><SlidersHorizontal />Environment limits</div>
     </div>
-    <form v-else class="space-y-5" @submit.prevent="save">
-      <p class="text-sm text-slate-600 dark:text-slate-400">
-        Lifetimes, sleep and quotas apply to every project. Durations read like 72h, 30m or 14d, sizes like 2g or 512m. An empty field goes back to what the
-        server sets.
-      </p>
-      <div v-for="group in GROUPS" :key="group.title">
-        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">{{ group.title }}</h3>
-        <div class="grid sm:grid-cols-2 gap-4">
-          <div v-for="field in group.fields" :key="field.key">
-            <label class="field-label" :for="`limit-${field.key}`">{{ field.label }}</label>
-            <InputText :id="`limit-${field.key}`" v-model="form[field.key]" class="w-full font-mono" :placeholder="display(field.key, view.defaults[field.key])" />
-            <p class="field-hint">
-              {{ field.hint }}
-              <span v-if="view.overridden.includes(field.key)"> Server default: {{ display(field.key, view.defaults[field.key]) }}.</span>
-            </p>
+
+    <div v-if="!view" class="card-body">
+      <div v-if="error" class="alert tone-danger">
+        <CircleX />
+        <div class="alert-body"><span class="alert-title">{{ error }}</span></div>
+      </div>
+      <div v-else class="flex justify-center py-8"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
+    </div>
+
+    <form v-else @submit.prevent="save">
+      <div class="card-body flex flex-col gap-6">
+        <p class="field-hint max-w-3xl">
+          Lifetimes, sleep and quotas apply to every project. Durations read like 72h, 30m or 14d, sizes like 2g or 512m. An empty field goes back to what the
+          server sets.
+        </p>
+
+        <div v-for="group in GROUPS" :key="group.title" class="flex flex-col gap-3">
+          <h3 class="text-[13px] font-semibold text-fg">{{ group.title }}</h3>
+          <div class="grid gap-x-6 gap-y-5 sm:grid-cols-2 2xl:grid-cols-4">
+            <div v-for="field in group.fields" :key="field.key" class="field">
+              <label class="field-label" :for="`limit-${field.key}`">{{ field.label }}</label>
+              <div class="relative">
+                <input
+                  :id="`limit-${field.key}`"
+                  v-model="form[field.key]"
+                  class="input pr-10 font-mono"
+                  :placeholder="display(field.key, view.defaults[field.key])"
+                  :inputmode="field.key === 'envsPerUser' ? 'numeric' : undefined"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  v-if="form[field.key].trim()"
+                  type="button"
+                  class="btn btn-ghost btn-sm btn-icon absolute right-0.5 top-1/2 -translate-y-1/2"
+                  :aria-label="`${field.label}: use the server default`"
+                  v-tooltip.top="`Server default: ${display(field.key, view.defaults[field.key])}`"
+                  @click="resetToDefault(field.key)"
+                >
+                  <RotateCcw />
+                </button>
+              </div>
+              <p class="field-hint">
+                {{ field.hint }}<template v-if="view.overridden.includes(field.key)"> Server default: {{ display(field.key, view.defaults[field.key]) }}.</template>
+              </p>
+            </div>
           </div>
         </div>
+
+        <div v-if="error" class="alert tone-danger">
+          <CircleX />
+          <div class="alert-body"><span class="alert-text">{{ error }}</span></div>
+        </div>
       </div>
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-      <div class="flex justify-end">
-        <Button type="submit" label="Save" :loading="saving" />
+
+      <div class="card-foot justify-end">
+        <button type="submit" class="btn btn-primary" :disabled="saving"><LoaderCircle v-if="saving" class="spinner" /><Save v-else />Save</button>
       </div>
     </form>
   </section>
@@ -32,10 +67,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
-import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
-import Message from 'primevue/message';
-import ProgressSpinner from 'primevue/progressspinner';
+import { CircleX, LoaderCircle, RotateCcw, Save, SlidersHorizontal } from 'lucide-vue-next';
 import { useNotification } from '../composables/useNotification';
 import { errorMessage, settingsApi } from '../services/api';
 import type { Limits, LimitsView } from '../types';
@@ -100,6 +132,12 @@ function display(key: Key, value: number): string {
 function fill(next: LimitsView) {
   view.value = next;
   KEYS.forEach((key) => (form[key] = next.overridden.includes(key) ? display(key, next.values[key]) : ''));
+}
+
+/** Empties a field, which goes back to the server's default once saved, and keeps the focus in it. */
+function resetToDefault(key: Key) {
+  form[key] = '';
+  document.getElementById(`limit-${key}`)?.focus();
 }
 
 async function save() {
