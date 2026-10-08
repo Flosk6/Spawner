@@ -497,11 +497,14 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 [ "$(api GET "/envs/$agent_id/metrics?range=1h" | json "$both")" = "true" ] || fail "the metrics should hold a minute of both services"
+# A measure taken while the environment was being created shows its images
+# but an empty database: wait for the one Spawner takes after the job.
+volumes='v.disk ? v.disk.volumesBytes > 0 : false'
 for _ in $(seq 1 90); do
-  [ "$(api GET "/envs/$agent_id/disk" | json 'v.disk ? v.disk.totalBytes > 0 : false')" = "true" ] && break
+  [ "$(api GET "/envs/$agent_id/disk" | json "$volumes")" = "true" ] && break
   sleep 2
 done
-[ "$(api GET "/envs/$agent_id/disk" | json 'v.disk ? v.disk.volumesBytes > 0 : false')" = "true" ] || fail "the disk of the environment should be measured"
+[ "$(api GET "/envs/$agent_id/disk" | json "$volumes")" = "true" ] || fail "the disk of the environment should be measured"
 [ "$(spawner capacity --json | json 'typeof v.projects.find((p) => p.project === "agent").places')" = "number" ] || fail "spawner capacity should count the room left"
 [ "$(api GET /projects/agent/usage | json 'v.environments.total')" = "1" ] || fail "the project usage should count its environment"
 pass "minute metrics of each service, the disk of the environment, the capacity and the project usage"
