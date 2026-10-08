@@ -39,7 +39,7 @@ DEFAULT_VERSION="2.0.0"
 IMAGE_REPOSITORY="ghcr.io/flosk6/spawner"
 RELEASES_API="https://api.github.com/repos/Flosk6/Spawner/releases/latest"
 INSTALL_DIR="${SPAWNER_INSTALL_DIR:-/opt/spawner}"
-DATA_DIR="${SPAWNER_DATA_DIR:-/var/lib/spawner}"
+DATA_DIR="${SPAWNER_DATA_DIR:-}"
 ENV_FILE="$INSTALL_DIR/.env"
 DNS_ENV_FILE="$INSTALL_DIR/dns.env"
 SETTINGS_FILE="$INSTALL_DIR/spawner.env"
@@ -61,6 +61,10 @@ PURGE=false
 DNS_VARS=()
 declare -A DNS_VALUES=()
 DOCKER_INSTALLED_NOW=false
+# An upgrade in progress: a failure puts the previous version back (roll_back).
+ROLLBACK=false
+REPLACED=false
+BACKUP_FILE=""
 
 # --- Output -------------------------------------------------------------------
 
@@ -76,6 +80,7 @@ ok() { printf '%sok%s %s\n' "$GREEN" "$RESET" "$*"; }
 warn() { printf '%swarning:%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
 die() {
   printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2
+  [ "$ROLLBACK" != true ] || roll_back
   exit 1
 }
 
@@ -171,12 +176,16 @@ parse_args() {
 
 # Values of a previous installation, kept unless an option changes them.
 load_previous() {
-  [ -f "$ENV_FILE" ] || return 0
+  if [ ! -f "$ENV_FILE" ]; then
+    DATA_DIR=${DATA_DIR:-/var/lib/spawner}
+    return 0
+  fi
   head -1 "$COMPOSE_FILE" 2>/dev/null | grep -q "^$MARKER" ||
     die "$INSTALL_DIR holds an installation this installer did not make (an older Spawner?): back it up and remove it first"
   local key value
   while IFS='=' read -r key value; do
     case "$key" in
+      SPAWNER_DATA_DIR) DATA_DIR=${DATA_DIR:-$value} ;;
       SPAWNER_PREVIEW_DOMAIN) DOMAIN=${DOMAIN:-$value} ;;
       ACME_EMAIL) EMAIL=${EMAIL:-$value} ;;
       SPAWNER_DNS_PROVIDER) DNS_PROVIDER=${DNS_PROVIDER:-$value} ;;
@@ -188,6 +197,7 @@ load_previous() {
       SPAWNER_BOOTSTRAP_TOKEN) BOOTSTRAP_TOKEN=$value ;;
     esac
   done <"$ENV_FILE"
+  DATA_DIR=${DATA_DIR:-/var/lib/spawner}
 }
 
 # --- Checks -------------------------------------------------------------------
@@ -629,20 +639,33 @@ start() {
     compose pull --quiet postgres traefik
   fi
   STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  REPLACED=true
   compose up -d --remove-orphans
   wait_healthy
   wait_served
 }
 
-wait_healthy() {
-  local status=""
+# Waits up to 3 minutes for Spawner to report healthy; gives up as soon as it
+# keeps restarting.
+wait_for_spawner() {
+  local status="" restarts
   for _ in $(seq 1 90); do
     status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' spawner 2>/dev/null || true)
-    [ "$status" = healthy ] && { ok "Spawner is up"; return 0; }
+    [ "$status" = healthy ] && return 0
+    restarts=$(docker inspect -f '{{.RestartCount}}' spawner 2>/dev/null || echo 0)
+    [ "${restarts:-0}" -lt 3 ] || return 1
     sleep 2
   done
+  return 1
+}
+
+wait_healthy() {
+  if wait_for_spawner; then
+    ok "Spawner is up"
+    return 0
+  fi
   docker logs --tail 40 spawner >&2 || true
-  die "Spawner did not start (status: ${status:-none}): its last logs are above"
+  die "Spawner did not start: its last logs are above"
 }
 
 # Waits until Traefik serves the dashboard, with a certificate over HTTPS.
@@ -689,6 +712,7 @@ backup_database() {
   file="$INSTALL_DIR/backups/spawner-$(date -u +%Y%m%d-%H%M%S)-${PREVIOUS_VERSION:-unknown}.sql.gz"
   docker exec spawner-postgres pg_dump -U spawner -d spawner | gzip >"$file"
   chmod 600 "$file"
+  BACKUP_FILE=$file
   ok "database saved to $file"
   local backups
   mapfile -t backups < <(find "$INSTALL_DIR/backups" -maxdepth 1 -name 'spawner-*.sql.gz' | sort)
@@ -702,9 +726,44 @@ upgrade() {
   step "Upgrading from ${PREVIOUS_VERSION:-an unknown version} to $VERSION"
   backup_database
   [ "$DNS_PROVIDER" = none ] || [ "$TLS" = off ] || ask_dns_credentials
+  cp -p "$ENV_FILE" "$ENV_FILE.previous"
+  cp -p "$COMPOSE_FILE" "$COMPOSE_FILE.previous"
+  ROLLBACK=true
   write_files
   start
+  ROLLBACK=false
+  rm -f "$ENV_FILE.previous" "$COMPOSE_FILE.previous"
   summary
+}
+
+# Puts the previous version back after a failed upgrade: its files and, when
+# the new version already ran (it may have migrated the database), the
+# database as the backup holds it.
+roll_back() {
+  ROLLBACK=false
+  step "Going back to ${PREVIOUS_VERSION:-the previous version}"
+  cp -p "$ENV_FILE.previous" "$ENV_FILE"
+  cp -p "$COMPOSE_FILE.previous" "$COMPOSE_FILE"
+  rm -f "$ENV_FILE.previous" "$COMPOSE_FILE.previous"
+  if [ "$REPLACED" != true ]; then
+    ok "nothing was changed: Spawner ${PREVIOUS_VERSION:-} still runs"
+    return 0
+  fi
+  compose stop spawner >/dev/null 2>&1 || true
+  if [ -n "$BACKUP_FILE" ]; then
+    if docker exec spawner-postgres psql -q -U spawner -d postgres -c 'DROP DATABASE spawner WITH (FORCE)' -c 'CREATE DATABASE spawner' >/dev/null &&
+      gunzip -c "$BACKUP_FILE" | docker exec -i spawner-postgres psql -q -U spawner -d spawner >/dev/null; then
+      ok "database restored from $BACKUP_FILE"
+    else
+      warn "the database could not be restored: restore $BACKUP_FILE by hand (docs/operations.md)"
+    fi
+  fi
+  compose up -d --remove-orphans >/dev/null 2>&1 || true
+  if wait_for_spawner; then
+    ok "Spawner ${PREVIOUS_VERSION:-} runs again"
+  else
+    warn "the previous version does not start either: docker logs spawner"
+  fi
 }
 
 uninstall() {
@@ -721,6 +780,7 @@ uninstall() {
     confirm "Stop Spawner and its environments? Their data stays: rerun the installer to start again." y || die "nothing was stopped"
   fi
   step "Stopping Spawner"
+  docker rm -f spawner-upgrade >/dev/null 2>&1 || true
   local down=(down)
   [ "$PURGE" = false ] || down+=(--volumes)
   [ ! -f "$COMPOSE_FILE" ] || compose "${down[@]}" || true
@@ -748,6 +808,7 @@ main() {
   parse_args "$@"
   case "$ACTION" in
     uninstall)
+      load_previous
       uninstall
       return
       ;;
