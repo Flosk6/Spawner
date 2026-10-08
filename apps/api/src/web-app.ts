@@ -47,6 +47,6 @@ export function serveWebApp(app: NestExpressApplication) {
       return next();
     }
     res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(indexHtml);
+    res.sendFile('index.html', { root: webDist });
   });
 }

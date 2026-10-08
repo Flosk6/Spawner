@@ -61,7 +61,7 @@ export class MetaController {
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Cache-Control", "no-cache");
     response.setHeader("X-Spawner-Version", VERSION);
-    response.sendFile(file);
+    response.sendFile(path.basename(file), { root: path.dirname(file) });
   }
 }
 
