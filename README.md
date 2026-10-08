@@ -82,6 +82,7 @@ See [coding agents](docs/agents.md) and [the CLI](docs/cli.md).
 - **Shared layers**: environments share their base images and dependencies; each one only adds its code and build output (about 4 MiB for the Laravel example). Spawner warns about Dockerfiles that prevent it.
 - **Capacity**: Spawner says how many more environments of each project fit, from what they really use, and refuses one the server has no room for.
 - **Lifetime and quotas**: environments expire after 72 hours unless someone deploys them again; 5 per person. Spawner cleans up what deleted environments leave, and nothing else.
+- **Updates in one click**: when a new version is out, the dashboard offers it; Spawner backs its database up, restarts on it, and goes back by itself if it does not start.
 
 See [density](docs/density.md).
 
