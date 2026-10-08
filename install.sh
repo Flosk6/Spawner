@@ -37,7 +37,7 @@
 
 set -euo pipefail
 
-DEFAULT_VERSION="2.0.0"
+DEFAULT_VERSION="2.1.0"
 IMAGE_REPOSITORY="ghcr.io/flosk6/spawner"
 RELEASES_API="https://api.github.com/repos/Flosk6/Spawner/releases/latest"
 INSTALL_DIR="${SPAWNER_INSTALL_DIR:-/opt/spawner}"
