@@ -8,6 +8,8 @@
       <span v-if="overview?.at" class="text-sm text-slate-500">Sampled {{ timeAgo(overview.at) }}</span>
     </div>
 
+    <UpdatePanel />
+
     <div v-if="!overview" class="flex justify-center py-20"><ProgressSpinner /></div>
 
     <template v-else>
@@ -145,6 +147,7 @@ import ProgressSpinner from 'primevue/progressspinner';
 import SelectButton from 'primevue/selectbutton';
 import BreakdownBar from '../components/BreakdownBar.vue';
 import CleanupPanel from '../components/CleanupPanel.vue';
+import UpdatePanel from '../components/UpdatePanel.vue';
 import UsageChart, { type ChartSeries } from '../components/UsageChart.vue';
 import { systemApi } from '../services/api';
 import type { Capacity, MetricRange, SystemMetrics, SystemOverview } from '../types';

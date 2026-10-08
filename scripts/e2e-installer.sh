@@ -2,17 +2,22 @@
 #
 # End-to-end test of install.sh, in local mode, on a throwaway Ubuntu machine
 # with Docker and sudo (the CI runner):
-#   1. installs Spawner with an image built beforehand (--image), over HTTP on
-#      localtest.me, and checks the dashboard and the first admin link
+#   1. installs Spawner with an image built beforehand (--image, tagged with
+#      its version as a release image is), over HTTP on localtest.me, and
+#      checks the dashboard and the first admin link
 #   2. deploys examples/node-postgres with the CLI downloaded from the server,
 #      calls its URL with a preview token, and asks the MCP server its status
 #   3. two agents deploy examples/laravel-next-mysql from two branches of the
 #      same repository at once, then update both at once: each environment
 #      serves its own branch and keeps its own data, and its own part of the
 #      disk holds neither vendor nor node_modules (shared between them)
-#   4. upgrades: the database is backed up, the environment keeps running
-#   5. runs it again without options: the secrets stay
-#   6. removes everything with --uninstall --purge: nothing may be left
+#   4. updates from the dashboard (the API of its Update button) to a newer
+#      version, then to a version that does not start: Spawner goes back to
+#      the version before by itself, with its database
+#   5. upgrades with the installer: the database is backed up, the
+#      environment keeps running
+#   6. runs it again without options: the secrets stay
+#   7. removes everything with --uninstall --purge: nothing may be left
 #
 # Usage: IMAGE=spawner:ci scripts/e2e-installer.sh
 # It changes the machine (Docker settings, /opt/spawner, /var/lib/spawner):
@@ -41,6 +46,23 @@ api() {
   curl -sS -X "$method" -H "Authorization: Bearer $SPAWNER_TOKEN" "$DASHBOARD/api/v1$path" "$@"
 }
 secret() { sudo grep "^$1=" /opt/spawner/.env | cut -d= -f2; }
+# feed VERSION: the list of releases Spawner reads (SPAWNER_RELEASES_URL), with this one only.
+feed() {
+  printf '[{"tag_name":"v%s","name":"Spawner %s","html_url":"https://example.invalid/v%s","prerelease":false,"draft":false}]\n' "$1" "$1" "$1" |
+    sudo tee /var/lib/spawner/e2e-releases.json >/dev/null
+}
+# update_state: the state of the last update started from the dashboard, or "away" while Spawner restarts.
+update_state() {
+  api GET /system/update 2>/dev/null | json '(v.run && v.run.state) || "none"' 2>/dev/null || echo away
+}
+# wait_update STATE SECONDS: waits until the last update has this state.
+wait_update() {
+  for _ in $(seq 1 $(($2 / 3))); do
+    [ "$(update_state)" = "$1" ] && return 0
+    sleep 3
+  done
+  return 1
+}
 # replace FILE FROM TO: replaces a text in a file.
 replace() {
   node -e "const fs = require('fs'); const [file, from, to] = process.argv.slice(1); const text = fs.readFileSync(file, 'utf8'); if (!text.includes(from)) process.exit(1); fs.writeFileSync(file, text.replace(from, to))" "$@" \
@@ -49,7 +71,12 @@ replace() {
 
 step "Installing in local mode"
 VERSION=$(sed -n 's/^DEFAULT_VERSION="\(.*\)"$/\1/p' install.sh)
-sudo bash install.sh --tls off --domain localtest.me --image "$IMAGE" --yes --min-disk 5 | tee "$WORK/install.log"
+# Tagged with its version, as a release image is: the dashboard then offers updates.
+INSTALLED="spawner-e2e:$VERSION"
+sudo docker tag "$IMAGE" "$INSTALLED"
+sudo mkdir -p /opt/spawner
+echo "SPAWNER_RELEASES_URL=file:///var/lib/spawner/e2e-releases.json" | sudo tee /opt/spawner/spawner.env >/dev/null
+sudo bash install.sh --tls off --domain localtest.me --image "$INSTALLED" --yes --min-disk 5 | tee "$WORK/install.log"
 grep -q "Spawner $VERSION is running" "$WORK/install.log" || fail "the installer should end with its summary, for Spawner $VERSION"
 [ "$(secret SPAWNER_VERSION)" = "$VERSION" ] || fail "the installation should be of Spawner $VERSION, not $(secret SPAWNER_VERSION)"
 grep -q "First admin   http://spawner.localtest.me/invite/" "$WORK/install.log" || fail "the installer should print the first admin link"
@@ -148,6 +175,32 @@ for id in "$main_id" "$hello_id"; do
     || fail "the environment $id left containers or volumes"
 done
 pass "both are deleted, without leftovers"
+
+step "Updating from the dashboard"
+IFS=. read -r major minor patch <<<"${VERSION%%-*}"
+NEXT="$major.$minor.$((patch + 1))"
+BROKEN="$major.$minor.$((patch + 2))"
+printf 'FROM %s\nENV SPAWNER_VERSION=%s\n' "$INSTALLED" "$NEXT" | sudo docker build -q -t "spawner-e2e:$NEXT" - >/dev/null
+printf 'FROM %s\nENV SPAWNER_VERSION=%s\nENTRYPOINT ["false"]\n' "$INSTALLED" "$BROKEN" | sudo docker build -q -t "spawner-e2e:$BROKEN" - >/dev/null
+feed "$NEXT"
+[ "$(api POST /system/update/check | json 'v.managed + " " + (v.latest && v.latest.version)')" = "true $NEXT" ] || fail "the dashboard should offer $NEXT"
+[ "$(api POST /system/update -o /dev/null -w '%{http_code}')" = "202" ] || fail "the update to $NEXT should start"
+wait_update succeeded 400 || fail "the update to $NEXT should succeed, not end $(update_state): $(api GET /system/update)"
+[ "$(api GET /info | json 'v.version')" = "$NEXT" ] || fail "Spawner should run $NEXT"
+[ "$(api GET "/envs/$env_id" | json 'v.status')" = "ready" ] || fail "the environment should survive the update"
+[ -z "$(sudo docker ps -aq --filter 'name=^spawner-upgrade$')" ] || fail "the update container should be gone"
+[ -n "$(sudo find /opt/spawner/backups -name "spawner-*-$VERSION.sql.gz" -size +1k)" ] || fail "the update should back the database up"
+pass "the dashboard updated Spawner from $VERSION to $NEXT, database backed up, environment kept"
+
+feed "$BROKEN"
+api POST /system/update/check >/dev/null
+[ "$(api POST /system/update -o /dev/null -w '%{http_code}')" = "202" ] || fail "the update to $BROKEN should start"
+wait_update failed 500 || fail "the update to $BROKEN should fail, not end $(update_state)"
+[ "$(api GET /info | json 'v.version')" = "$NEXT" ] || fail "Spawner should be back on $NEXT"
+[[ "$(api GET /system/update | json 'v.run.error')" == *"went back to the previous one"* ]] || fail "the dashboard should say Spawner went back"
+[ "$(api GET "/envs/$env_id" | json 'v.status')" = "ready" ] || fail "the environment should survive the failed update"
+sudo grep -q "^SPAWNER_VERSION=$NEXT$" /opt/spawner/.env || fail "the files of the installation should be those of $NEXT again"
+pass "an update to a version that does not start went back to $NEXT by itself, database restored"
 
 step "Upgrading"
 secret_before=$(secret SPAWNER_SECRET)

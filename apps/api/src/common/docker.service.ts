@@ -77,6 +77,51 @@ export class DockerService implements OnModuleInit {
   }
 
   /**
+   * The container Spawner runs in, or null outside one (development).
+   */
+  async self(): Promise<Docker.ContainerInspectInfo | null> {
+    return this.docker
+      .getContainer(os.hostname())
+      .inspect()
+      .catch(() => null);
+  }
+
+  /**
+   * Downloads an image, unless the daemon already has it.
+   */
+  async pullImage(reference: string): Promise<void> {
+    if (await this.docker.getImage(reference).inspect().then(() => true, () => false)) {
+      return;
+    }
+    const progress = await this.docker.pull(reference);
+    await new Promise<void>((resolve, reject) =>
+      this.docker.modem.followProgress(progress, (error: Error | null) => (error ? reject(error) : resolve())),
+    );
+  }
+
+  /**
+   * Removes a container by name, whatever its state; nothing when there is none.
+   */
+  async removeContainer(name: string): Promise<void> {
+    await this.docker
+      .getContainer(name)
+      .remove({ force: true })
+      .catch((error: { statusCode?: number }) => {
+        if (error.statusCode !== 404) {
+          throw error;
+        }
+      });
+  }
+
+  /**
+   * The last lines a container wrote, without the escape codes of colors.
+   */
+  async tail(name: string, lines: number): Promise<string[]> {
+    const buffer = (await this.docker.getContainer(name).logs({ stdout: true, stderr: true, timestamps: true, tail: lines, follow: false })) as unknown as Buffer;
+    return decodeLogs(buffer, false).map((line) => line.text.replace(/\u001b\[[0-9;]*m/g, ""));
+  }
+
+  /**
    * The compose project of Spawner's own containers (spawner, postgres,
    * traefik), read from the labels of the container Spawner runs in.
    *

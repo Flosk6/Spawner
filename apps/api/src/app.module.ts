@@ -21,6 +21,7 @@ import { ProjectsModule } from "./modules/projects/projects.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { LifecycleModule } from "./modules/lifecycle/lifecycle.module";
 import { SupervisionModule } from "./modules/supervision/supervision.module";
+import { UpdatesModule } from "./modules/updates/updates.module";
 import { SystemModule } from "./modules/system/system.module";
 import { TeamModule } from "./modules/team/team.module";
 import { TerminalModule } from "./modules/terminal/terminal.module";
@@ -58,6 +59,7 @@ config({ path: envPath });
     TerminalModule,
     SystemModule,
     SupervisionModule,
+    UpdatesModule,
     HealthModule,
     MetaModule,
   ],
