@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key services.front.networks.default.aliases[0]
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+    networks:
+      default:
+        aliases: [spawner]

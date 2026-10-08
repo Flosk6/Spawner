@@ -2,11 +2,15 @@
 #
 # End-to-end test of the environment engine, access and the CLI.
 #
-# Starts the local stack (Postgres, Traefik, Spawner), then with
-# examples/node-postgres sent as an archive through the API:
+# Starts the local stack (Postgres, Traefik, Spawner), checks that the
+# dashboard refuses to be framed and that its Socket.IO server refuses the
+# polling transport, then with examples/node-postgres sent as an archive
+# through the API:
 #   1. creates an environment and waits until it is ready
 #   2. calls its URL through Traefik (with an agent's preview token) and
-#      checks the seeded data
+#      checks the seeded data; then an impostor calling itself "spawner" and
+#      taking the names of the environment's service, on a network Docker's
+#      DNS asks before Spawner's, must receive none of their traffic
 #   3. checks the URL is protected: anonymous visitors go to the dashboard,
 #      API clients get a 401, a share link opens it, and an invited teammate
 #      (scripts/e2e/teammate.mjs: passkey, device login, dashboard) opens it
@@ -86,6 +90,17 @@ status() {
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: $host" "$@" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/"
 }
 
+# A container on a network whose name sorts before spawner-core, which
+# Traefik joins: Docker's DNS asks it first for a bare name.
+IMPOSTOR=e2e-impostor
+IMPOSTOR_NETWORK=aaa-e2e-impostor
+
+remove_impostor() {
+  docker rm -f "$IMPOSTOR" >/dev/null 2>&1 || true
+  docker network disconnect -f "$IMPOSTOR_NETWORK" spawner-traefik >/dev/null 2>&1 || true
+  docker network rm "$IMPOSTOR_NETWORK" >/dev/null 2>&1 || true
+}
+
 # Compose projects of the environments the test creates, with names of their
 # own: the cleanup removes them, and the README's quick start creates
 # example/demo on a developer's stack.
@@ -137,6 +152,7 @@ cleanup() {
     echo "--- spawner logs (last 60 lines)"
     docker logs spawner --tail 60 2>&1 || true
   fi
+  remove_impostor
   if [ "${KEEP:-0}" != "1" ]; then
     # A failed run can leave its environments behind; the next run must not reuse their data.
     for project in "${TEST_PROJECTS[@]}"; do
@@ -178,6 +194,7 @@ step "Starting the local stack"
 for project in "${TEST_PROJECTS[@]}"; do
   remove_project "$project" >/dev/null 2>&1 || true
 done
+remove_impostor
 mkdir -p "$SPAWNER_DATA_DIR/traefik"
 "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180
 for _ in $(seq 1 60); do
@@ -190,6 +207,17 @@ step "Installing the CLI from the server"
 curl -fsS "$API/cli/spawner" -o "$WORK/spawner"
 chmod +x "$WORK/spawner"
 pass "spawner $(spawner --version), downloaded from $API/cli/spawner"
+
+step "Protecting the dashboard"
+for path in / /api/v1/healthz; do
+  headers=$(curl -sS -D - -o /dev/null --max-time 10 -H "Host: spawner.localtest.me" "http://127.0.0.1:${SPAWNER_HTTP_PORT}$path" | tr -d '\r')
+  grep -qi '^x-frame-options: deny$' <<<"$headers" || fail "the dashboard ($path) should answer X-Frame-Options: DENY: $headers"
+  grep -qi "^content-security-policy:.*frame-ancestors 'none'" <<<"$headers" || fail "the dashboard ($path) should answer frame-ancestors 'none': $headers"
+done
+pass "the dashboard and its API cannot be framed (X-Frame-Options, frame-ancestors)"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: spawner.localtest.me" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/socket.io/?EIO=4&transport=polling")
+[ "$code" = "400" ] || fail "the Socket.IO server of the terminal should refuse the polling transport with a 400, not $code"
+pass "Socket.IO refuses the polling transport (the terminal runs over WebSocket: spawner shell, below)"
 
 step "Creating the project"
 api POST /projects -H 'Content-Type: application/json' \
@@ -212,6 +240,41 @@ echo "$page"
 [[ "$page" == *"Hello from Spawner (e2e-demo)"* ]] || fail "unexpected page"
 [[ "$page" == *"1 user(s)"* ]] || fail "the seed did not run"
 pass "the app answers with the seeded data"
+
+step "Routing past an impostor"
+# Traefik sits on spawner-core and on every published environment network,
+# and Docker's DNS answers a bare name from the first network that knows it.
+app_container=$(docker ps --filter "label=dev.spawner.env=$env_id" --filter "label=dev.spawner.service=app" --format '{{.Names}}')
+# Read as Traefik reads them: Spawner writes them for itself and Traefik only.
+routes=$(docker exec spawner-traefik cat "/etc/traefik/dynamic/$env_id.yaml" 2>&1 || true)
+grep -qF "url: http://app.spn-example--e2e-demo_default:3000" <<<"$routes" \
+  || fail "the route should reach the app service by its name on the environment network: $routes"
+routes=$(docker exec spawner-traefik cat /etc/traefik/dynamic/_spawner.yaml 2>&1 || true)
+grep -qF "http://spawner.spawner-core:3000" <<<"$routes" \
+  || fail "the dashboard and forwardAuth should reach Spawner by its name on spawner-core: $routes"
+if [ "$(printf '%s\n' 1.48 "$(docker version -f '{{.Server.APIVersion}}')" | sort -V | head -1)" = 1.48 ]; then
+  priority=$(docker inspect -f '{{(index .NetworkSettings.Networks "spn-example--e2e-demo_default").GwPriority}}' spawner-traefik 2>&1 || true)
+  [ "$priority" = "-1" ] || fail "Traefik should join the environment network below spawner-core (GwPriority -1), not $priority"
+fi
+docker network create "$IMPOSTOR_NETWORK" >/dev/null
+docker run -d --name "$IMPOSTOR" --network "$IMPOSTOR_NETWORK" --network-alias spawner --network-alias app --network-alias "$app_container" \
+  node:22-alpine node -e "require('http').createServer((request, response) => response.end('impostor')).listen(3000)" >/dev/null
+docker network connect "$IMPOSTOR_NETWORK" spawner-traefik
+for _ in $(seq 1 30); do
+  [ "$(docker exec spawner-traefik wget -qO- -T 2 http://spawner:3000/ 2>/dev/null)" = "impostor" ] && break
+  sleep 1
+done
+[ "$(docker exec spawner-traefik wget -qO- -T 2 http://spawner:3000/ 2>/dev/null)" = "impostor" ] \
+  || fail "seen from Traefik, the bare name spawner should lead to the impostor, or this check proves nothing"
+# Traefik reuses the idle connections of the previous steps, which Node
+# closes after 5 seconds: past that, every request below resolves afresh.
+sleep 6
+dashboard=$(curl -sS --max-time 10 -H "Host: spawner.localtest.me" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/api/v1/healthz")
+[ "$dashboard" = '{"status":"ok"}' ] || fail "the dashboard should answer from Spawner, not: $dashboard"
+[[ "$(preview "$host")" == *"Hello from Spawner (e2e-demo)"* ]] || fail "the preview should answer from the environment, not: $(preview "$host")"
+[ "$(status "$host" -H 'Accept: application/json')" = "401" ] || fail "Spawner, not the impostor, should check each request to the preview"
+remove_impostor
+pass "an impostor named spawner, app and $app_container, on a network asked first: Traefik still reaches Spawner and the environment"
 
 step "Protecting the previews"
 [ "$(status "$host" -H 'Accept: text/html')" = "302" ] || fail "an anonymous visitor reached the preview"

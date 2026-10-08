@@ -122,7 +122,9 @@ The file is interpolated with Spawner's variables only; any other `${...}` is an
 
 Allowed: `image`, `build` (context and Dockerfile inside a source, `args`, `target`), `command`, `entrypoint`, `environment`, `env_file` (inside a source), `depends_on`, `healthcheck`, `working_dir`, `user`, `expose`, `volumes` (named volumes, tmpfs, and files mounted from a source), `tmpfs`, `read_only`, `init`, `labels`, `hostname`, `extra_hosts`, `platform`, `pull_policy`, `tty`, `stdin_open`, `stop_signal`, `stop_grace_period`, `cap_drop`, `shm_size` (1 GiB at most), `mem_limit`, `cpus`, `deploy.resources.limits`, networks declared in the file, `x-*` extensions.
 
-Refused: `ports` (declare an exposure instead), host mounts outside the sources, `privileged`, `cap_add`, `devices`, `network_mode`, `pid`, `ipc`, host namespaces, `security_opt`, `sysctls`, `container_name`, external volumes and networks, `include`, `secrets`, `configs`, labels starting with `traefik.`, `com.docker.` or `dev.spawner.`.
+Refused: `ports` (declare an exposure instead), host mounts outside the sources, `privileged`, `cap_add`, `devices`, `network_mode`, `pid`, `ipc`, host namespaces, `security_opt`, `sysctls`, `container_name`, external volumes and networks, `enable_ipv6: true` (environment networks are IPv4 only), `include`, `secrets`, `configs`, labels starting with `traefik.`, `com.docker.` or `dev.spawner.`.
+
+Service names, network `aliases` and `hostname` become DNS names on the environment's network: lowercase letters, digits, `-` and `_`, without dots and not ending with `-`, 63 characters at most (`domainname` may hold a domain). Names starting with `spawner` or `spn-` are reserved for Spawner.
 
 Spawner sets on every service: a memory limit (512 MiB unless given, within the environment's total), CPU and process limits, `no-new-privileges`, `restart: unless-stopped` and capped local logs.
 

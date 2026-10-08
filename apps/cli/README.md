@@ -4,7 +4,7 @@ The command line and MCP server of [Spawner](https://github.com/Flosk6/Spawner):
 
 ```bash
 npm install -g spawner-cli
-spawner login https://spawner.preview.example.com   # approve the code in the dashboard
+spawner login https://spawner.preview.example.com   # enter the code it shows in the dashboard
 cd my-project && spawner init                        # .spawner/, and the instructions for coding agents
 spawner up --wait                                    # the environment of the current branch
 spawner exec feat-login db -- psql -U app -c "select count(*) from users"

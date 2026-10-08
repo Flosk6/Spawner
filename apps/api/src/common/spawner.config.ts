@@ -49,7 +49,13 @@ export class SpawnerConfig {
   readonly releasesUrl = process.env.SPAWNER_RELEASES_URL || "https://api.github.com/repos/Flosk6/Spawner/releases?per_page=30";
   readonly entrypoint = process.env.SPAWNER_TRAEFIK_ENTRYPOINT || (this.tls === "off" ? "web" : "websecure");
   readonly dashboardHost = process.env.SPAWNER_DASHBOARD_HOST || `spawner.${this.previewDomain}`;
-  readonly dashboardUpstream = process.env.SPAWNER_DASHBOARD_UPSTREAM || "http://spawner:3000";
+  /**
+   * Spawner as Traefik reaches it, for the dashboard and the preview checks:
+   * its name qualified by the network of the stack. Traefik also joins every
+   * published environment network, and Docker's DNS answers a bare name from
+   * the first of them that knows it.
+   */
+  readonly dashboardUpstream = process.env.SPAWNER_DASHBOARD_UPSTREAM || "http://spawner.spawner-core:3000";
   /** Public URL of the dashboard, without a trailing slash. */
   readonly dashboardUrl = (process.env.FRONTEND_URL || `${this.scheme}://${this.dashboardHost}`).replace(/\/+$/, "");
   /**

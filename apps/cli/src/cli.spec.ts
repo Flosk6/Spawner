@@ -70,6 +70,30 @@ describe("spawner", () => {
     expect(JSON.parse(output().stdout)).toMatchObject({ error: { code: "not_logged_in" } });
   });
 
+  it("logs in with a code to type in the dashboard, never a link that carries it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "GET /healthz": () => ({ status: "ok" }),
+        "POST /auth/device": () => ({
+          deviceCode: "device",
+          userCode: "BCDF-GHJK",
+          verificationUri: `${SERVER}/device`,
+          verificationUriComplete: `${SERVER}/device?code=BCDF-GHJK`,
+          expiresIn: 600,
+          interval: 0.001,
+        }),
+        "POST /auth/device/token": () => ({ token: "spn_abcdefgh_secret", id: "t1", name: "laptop", scopes: ["envs:read"], expiresAt: null, user: { id: 1, name: "Ada", role: "admin" } }),
+      }),
+    );
+    const { streams, output } = io();
+    expect(await runCli(["login", SERVER, "--no-browser"], streams)).toBe(EXIT.ok);
+    expect(output().stderr).toContain(`Open ${SERVER}/device\nand enter the code BCDF-GHJK (it expires in 10 minutes).\n`);
+    expect(output().stderr).not.toContain("?code=");
+    expect(`${output().stderr}${output().stdout}`.match(/[A-Z]{4}-[A-Z]{4}/g)).toEqual(["BCDF-GHJK"]);
+    expect(output().stdout).toContain(`Logged in to ${SERVER} as Ada (admin).`);
+  });
+
   it("lists the environments of the project of the directory", async () => {
     const calls: FakeRequest[] = [];
     vi.stubGlobal("fetch", fakeFetch({ "GET /envs": () => [ENVIRONMENT] }, calls));

@@ -1,0 +1,8 @@
+# expect: compose.invalid services["app.spn-blog--main_default"]
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+  app.spn-blog--main_default:
+    image: nginx:alpine

@@ -1,0 +1,11 @@
+# expect: compose.forbidden_key services.spawner
+# expect: compose.forbidden_key services.Spn-cache
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+  spawner:
+    image: nginx:alpine
+  Spn-cache:
+    image: redis:7-alpine

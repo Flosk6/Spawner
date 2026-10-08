@@ -1,6 +1,8 @@
 import { Logger } from "@nestjs/common";
 import { OnModuleDestroy } from "@nestjs/common";
-import { ConnectedSocket, MessageBody, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
+import { ConnectedSocket, MessageBody, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway, type GatewayMetadata } from "@nestjs/websockets";
+import { TERMINAL_INPUT_CHUNK } from "@spawner/core";
+import type { IncomingMessage } from "http";
 import type { Namespace, Socket } from "socket.io";
 import { StringDecoder } from "string_decoder";
 import type { Duplex } from "stream";
@@ -9,17 +11,36 @@ import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
-import { WsTicketsService } from "../auth/ws-tickets.service";
+import { WsTicketsService, type TicketHolder } from "../auth/ws-tickets.service";
 import { TerminalSessionsService, type TerminalEndReason, type TerminalRecorder } from "./terminal-sessions.service";
 import { ActivityService } from "../lifecycle/activity.service";
 
 const MAX_TERMINALS_PER_USER = 3;
-const MAX_INPUT_LENGTH = 4096;
 const IDLE_LIMIT_MS = 15 * 60_000;
 const DURATION_LIMIT_MS = 4 * 3600_000;
 const LIMITS_CHECK_MS = 30_000;
 /** bash when the image has it, sh otherwise. */
 const SHELL = ["/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"];
+
+/**
+ * Options of the Socket.IO server (this gateway is its only one), chosen to
+ * keep small what a client reaches before it is authenticated: WebSocket
+ * only (no long-polling), no client bundle served, 10 seconds to join a
+ * namespace, and 64 KiB per message instead of 1 MB. The largest message a
+ * client sends is a terminal-input piece of TERMINAL_INPUT_CHUNK code units,
+ * under 25 KiB with its envelope however it is escaped; a larger message
+ * closes the connection.
+ */
+export const TERMINAL_SOCKET_OPTIONS = {
+  namespace: "terminal",
+  transports: ["websocket"],
+  serveClient: false,
+  connectTimeout: 10_000,
+  maxHttpBufferSize: 64 * 1024,
+} satisfies GatewayMetadata;
+
+/** The handshake request of a connection, with the ticket it redeemed. */
+type TicketRequest = IncomingMessage & { spawnerTicket?: TicketHolder };
 
 interface TerminalSession {
   environmentId: string;
@@ -44,15 +65,15 @@ function dimension(value: unknown, fallback: number): number {
  * Interactive terminals in the services of an environment, over Socket.IO:
  * a TTY exec session through the Docker API. A connection needs a one-time
  * ticket, and the dashboard origin when it comes from a browser (the CLI
- * sends no Origin; a page always does), both checked during the handshake:
- * a refused client gets a connect_error and never connects. A terminal
+ * sends no Origin; a page always does), both checked before the WebSocket
+ * opens: a refused client never gets a connection. A terminal
  * opens only in an environment the user may run commands in (their own, or
  * any for an admin), within the project of the token that asked for the
  * ticket, and is recorded in the audit trail. A person has 3 terminals at
  * most; a terminal closes after 15 minutes without input and after 4 hours;
  * what it shows is recorded (2 MiB) for the admins.
  */
-@WebSocketGateway({ namespace: "terminal" })
+@WebSocketGateway(TERMINAL_SOCKET_OPTIONS)
 export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
   private readonly logger = new Logger(TerminalGateway.name);
   private readonly sessions = new Map<string, TerminalSession>();
@@ -91,11 +112,19 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
   }
 
   /**
-   * Authenticates each connection during its handshake, so that no message
-   * arrives before the actor is known (a client may send start-terminal as
-   * soon as it is connected).
+   * Checks each connection before its WebSocket opens, so that a client
+   * without a ticket gets no connection to send anything on, then
+   * authenticates it when it joins /terminal, before any message (a client
+   * may send start-terminal as soon as it is connected). The main namespace
+   * serves nothing. A refused namespace connection closes the connection:
+   * one connection, one attempt.
    */
   afterInit(namespace: Namespace): void {
+    namespace.server.engine.opts.allowRequest = (request, callback) => {
+      const refusal = this.admit(request as TicketRequest);
+      callback(refusal, refusal === null);
+    };
+    namespace.server.use((client, next) => this.refuse(client, next, new Error("terminals are in the /terminal namespace")));
     namespace.use((client, next) => {
       this.authenticate(client).then(
         (actor) => {
@@ -104,18 +133,43 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
         },
         (error: Error) => {
           this.logger.warn(`Terminal connection refused: ${error.message}`);
-          next(error);
+          this.refuse(client, next, error);
         },
       );
     });
   }
 
-  private async authenticate(client: Socket): Promise<Actor> {
-    const origin = client.handshake.headers.origin;
+  /**
+   * Lets a connection open only from the dashboard's origin (or without
+   * one: the CLI) and with a valid ticket, which it redeems for the
+   * namespace middleware.
+   *
+   * @returns null when the connection may open, the reason otherwise
+   */
+  private admit(request: TicketRequest): string | null {
+    const origin = request.headers.origin;
     if (origin && !this.config.dashboardOrigins.includes(origin)) {
-      throw new Error("terminals open from the dashboard or the CLI only");
+      return "terminals open from the dashboard or the CLI only";
     }
-    const holder = this.tickets.redeem(client.handshake.query.token ?? client.handshake.auth?.token);
+    const holder = this.tickets.redeem(new URL(request.url ?? "/", "http://localhost").searchParams.get("token"));
+    if (!holder) {
+      return "Unauthorized: invalid or expired ticket";
+    }
+    request.spawnerTicket = holder;
+    return null;
+  }
+
+  /**
+   * Refuses a namespace connection, then closes the connection once the
+   * refusal is sent (Socket.IO writes it on the next tick).
+   */
+  private refuse(client: Socket, next: (error?: Error) => void, error: Error): void {
+    next(error);
+    setImmediate(() => client.conn.close());
+  }
+
+  private async authenticate(client: Socket): Promise<Actor> {
+    const holder = (client.request as TicketRequest).spawnerTicket;
     const user = holder?.userId ? await this.prisma.user.findUnique({ where: { id: holder.userId } }) : null;
     if (!holder || !user?.isActive || !isRole(user.role)) {
       throw new Error("Unauthorized: invalid or expired ticket");
@@ -218,6 +272,12 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
     }
   }
 
+  /**
+   * Writes what is typed to the shell. Clients split a large paste into
+   * pieces of TERMINAL_INPUT_CHUNK code units at most (a longer one is
+   * ignored); the pieces arrive in order on the one WebSocket, and this
+   * handler, synchronous, writes them to the shell in that order.
+   */
   @SubscribeMessage("terminal-input")
   input(@ConnectedSocket() client: Socket, @MessageBody() data: { input?: string; resourceName?: string }): void {
     const session = this.sessions.get(`${client.id}:${data?.resourceName}`);
@@ -225,7 +285,7 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
       client.emit("terminal-error", "No active terminal session");
       return;
     }
-    if (typeof data.input !== "string" || data.input.length > MAX_INPUT_LENGTH) {
+    if (typeof data.input !== "string" || data.input.length > TERMINAL_INPUT_CHUNK) {
       return;
     }
     session.lastInputAt = Date.now();

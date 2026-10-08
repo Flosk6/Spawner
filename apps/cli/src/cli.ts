@@ -133,7 +133,7 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
 
   program
     .command("login")
-    .description("log in to a Spawner server (approve the code in the dashboard)")
+    .description("log in to a Spawner server (enter the code it shows in the dashboard)")
     .argument("[url]", "dashboard URL, such as https://spawner.preview.example.com")
     .option("--name <name>", "name of the token, shown on your environments (default: this machine)")
     .option("--no-browser", "do not open the browser")
@@ -149,10 +149,10 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
             name: options.name,
             signal: interrupt.signal,
             onCode: (code) => {
-              output.stderr(`Open ${output.err.cyan(code.verificationUriComplete)}`);
-              output.stderr(`and confirm the code ${output.err.bold(code.userCode)} (it expires in ${Math.round(code.expiresIn / 60)} minutes).`);
+              output.stderr(`Open ${output.err.cyan(code.verificationUri)}`);
+              output.stderr(`and enter the code ${output.err.bold(code.userCode)} (it expires in ${Math.round(code.expiresIn / 60)} minutes).`);
               if (options.browser && output.interactive) {
-                openBrowser(code.verificationUriComplete);
+                openBrowser(code.verificationUri);
               }
               output.stderr(output.err.dim("Waiting for approval..."));
             },

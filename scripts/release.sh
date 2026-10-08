@@ -3,9 +3,11 @@
 # Prepares a release: sets the version of every package.json and the
 # default version of install.sh, commits, and tags. Pushing the tag starts
 # the Release workflow (.github/workflows/release.yml), which publishes the
-# images, the CLI and the GitHub release.
+# images, the CLI and the GitHub release. The workflow refuses a tag whose
+# commit is not on master: merge the branch into master with a merge commit
+# (squash and rebase would rewrite the tagged commit) before pushing the tag.
 #
-# Usage: scripts/release.sh 2.0.1        (then: git push origin <branch> v2.0.1)
+# Usage: scripts/release.sh 2.0.1        (then: merge into master, git push origin v2.0.1)
 #        scripts/release.sh 2.1.0-rc.1   (a prerelease: versions stay, only the tag is made)
 #
 # Write the CHANGELOG.md section of the version first: its text becomes the
@@ -37,4 +39,9 @@ if [[ "$version" != *-* ]]; then
 fi
 
 git tag -a "v$version" -m "Spawner $version"
-echo "Tagged v$version. Publish it with: git push origin $(git branch --show-current) v$version"
+branch=$(git branch --show-current)
+if [ "$branch" = master ]; then
+  echo "Tagged v$version. Publish it with: git push origin master v$version"
+else
+  echo "Tagged v$version. Push $branch and merge it into master with a merge commit (the Release workflow refuses a tag that is not on master), then publish it with: git push origin v$version"
+fi

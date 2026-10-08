@@ -63,6 +63,7 @@ curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
 | `--version <version>` | Version to install, or `latest` (default: the installer's own) [`SPAWNER_VERSION`] |
 | `--zram yes\|no` | Compressed swap, offered below 8 GiB [`SPAWNER_ZRAM`] |
 | `--min-disk <GiB>` | Free disk required, 20 by default [`SPAWNER_MIN_DISK_GB`] |
+| `--memory-limit <size>` | Memory of the Spawner container, such as `1536m` or `2g` (default `1g`, at least `512m`): Spawner uses about 150 MiB at rest, plus the git and `docker compose` processes it runs during builds (give `2g` to large monorepos), and the limit keeps it from taking the server's memory if something goes wrong [`SPAWNER_MEMORY_LIMIT`] |
 | `--tls off` | Plain HTTP, for a local install (below) [`SPAWNER_TLS`] |
 | `--image <image>` | An image of your own instead of `ghcr.io/flosk6/spawner` [`SPAWNER_IMAGE`] |
 | `--yes` | Ask nothing; fail when an answer is missing |
@@ -92,7 +93,7 @@ The credentials go to `/opt/spawner/dns.env`, readable by root only, and only Tr
   - `live-restore`: containers keep running while Docker restarts;
   - on a Docker installed by the installer only, `"containerd-snapshotter": false`: images are stored once (overlay2) rather than twice. On an existing Docker it changes nothing, since switching would hide the images already there.
 - **zram**, if you accept it: `zram-tools`, half of the memory, zstd.
-- **`/opt/spawner`**: `compose.yaml`, `.env` (secrets), `dns.env`, `backups/`; mode 700.
+- **`/opt/spawner`**: `compose.yaml`, `.env` (settings and secrets), `dns.env`, `backups/`; mode 700.
 - **`/var/lib/spawner`**: the data directory (repository mirrors, environment sources, routes, job logs, deploy keys).
 
 Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself, Postgres and Traefik run as containers named `spawner`, `spawner-postgres` and `spawner-traefik`.
@@ -109,7 +110,7 @@ curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
 
 It backs the database up to `/opt/spawner/backups/` (the 5 most recent are kept), downloads the images of the new version and restarts Spawner, which applies its database migrations; if the new version does not start, it puts the previous one back. Environments keep running. `--version 2.1.0` picks a version; release notes are on the [releases page](https://github.com/Flosk6/Spawner/releases).
 
-Running the installer again without `--upgrade` keeps everything as it is: the version, the domain, the secrets. Give an option to change a value, such as `--dns-provider` to move from one certificate per URL to a wildcard.
+Running the installer again without `--upgrade` keeps everything as it is: the version, the domain, the secrets, the memory of the Spawner container. Give an option to change a value, such as `--dns-provider` to move from one certificate per URL to a wildcard, or `--memory-limit 2g`.
 
 ## Removing Spawner
 
@@ -139,5 +140,6 @@ Every subdomain of `localtest.me` resolves to 127.0.0.1: the dashboard is `http:
 | `the images could not be downloaded` | The server must reach `ghcr.io`. Check `--version`: it must be a published release. |
 | The admin link expired | `docker exec -u node spawner node dist/admin.js invite --role admin` prints a new one. |
 | Spawner does not start | `docker logs spawner`, and `docker compose --project-directory /opt/spawner ps`. |
+| Spawner restarts by itself | `docker inspect -f '{{.State.OOMKilled}}' spawner`: `true` means it reached its memory limit. Rerun the installer with `--memory-limit 2g`. |
 
 More in [operations](operations.md).

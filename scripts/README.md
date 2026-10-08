@@ -29,7 +29,9 @@ lists every check.
 It needs Docker with Compose, curl, Node.js, tar, git and python3, and port 80:
 stop the development stack first (`docker compose down`, without `-v` to keep
 its data). It removes only what it created: the compose projects of its own
-environments, its stack and its data directory.
+environments, its stack, its data directory, and the impostor container and
+network (`e2e-impostor`, `aaa-e2e-impostor`, from `node:22-alpine`) it puts
+next to Traefik to check that routing never follows a bare name.
 
 - `e2e/teammate.mjs` plays an invited teammate with Node built-ins only: a
   software passkey, the device login of the CLI, a preview opened through the
@@ -85,16 +87,20 @@ the refusal check.
 ## release.sh
 
 ```bash
-scripts/release.sh 2.1.0        # then: git push origin <branch> v2.1.0
+scripts/release.sh 2.1.0        # then: merge into master, git push origin v2.1.0
 scripts/release.sh 2.1.0-rc.1   # a prerelease: only the tag
 ```
 
 Write the `CHANGELOG.md` section of the version first: the release notes come
 from it. The script sets the version of every `package.json` and the default
-version of `install.sh`, commits, and makes an annotated tag. Pushing the tag
-starts `.github/workflows/release.yml`, which publishes the images on GHCR
-(`linux/amd64`, `linux/arm64`), the CLI on npm (`spawner-cli`) and the GitHub
-release with `install.sh`, the CLI bundle and their checksums.
+version of `install.sh`, commits, and makes an annotated tag. The tag must be
+on a commit of `master`: merge the branch with a merge commit (squash and
+rebase rewrite the tagged commit), then push the tag. It starts
+`.github/workflows/release.yml`, which refuses a tag that is not on `master`,
+then, once a reviewer approves the jobs of the `release` environment,
+publishes the images on GHCR (`linux/amd64`, `linux/arm64`), the CLI on npm
+(`spawner-cli`) and the GitHub release with `install.sh`, the CLI bundle and
+their checksums.
 
 npm publishes through trusted publishing: the settings of the `spawner-cli`
 package on npmjs.com trust this repository's `release.yml`, so no token is

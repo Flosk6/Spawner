@@ -7,6 +7,7 @@ import session from "express-session";
 import { join } from "path";
 import { Pool } from "pg";
 import { AppModule } from "./app.module";
+import { frameHeaders } from "./common/frame-headers";
 import { SecretsService } from "./common/secrets.service";
 import { SpawnerConfig } from "./common/spawner.config";
 import { serveWebApp } from "./web-app";
@@ -23,6 +24,8 @@ async function bootstrap() {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
 
+  // Before the web app: its static files are answered without going further.
+  app.use(frameHeaders);
   serveWebApp(app);
 
   app.enableCors({ origin: settings.dashboardOrigins, credentials: true });

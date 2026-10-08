@@ -1,0 +1,7 @@
+# expect: compose.forbidden_key services.api.hostname
+services:
+  api:
+    build: ..
+    hostname: spn-blog--main-app-1
+  front:
+    image: nginx:alpine

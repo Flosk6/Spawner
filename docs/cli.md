@@ -26,7 +26,7 @@ From a clone of this repository: `pnpm install && pnpm build`, then link `apps/c
 spawner login https://spawner.preview.example.com
 ```
 
-The CLI shows a code and opens the dashboard, where you approve it (device flow, as `gh auth login` does). It receives a personal token named after the machine (`--name` to choose), valid 90 days, with the scopes `envs:read`, `envs:write`, `envs:exec` and `preview`, and stores it in `~/.config/spawner/credentials.json` (mode 0600; `$XDG_CONFIG_HOME` is honored).
+The CLI shows a code and opens the dashboard's `/device` page, where you type that code and approve the login (device flow, as `gh auth login` does). The page never takes the code from a link: only enter a code from a login you started yourself. The CLI then receives a personal token named after the machine (`--name` to choose), valid 90 days, with the scopes `envs:read`, `envs:write`, `envs:exec` and `preview`, and stores it in `~/.config/spawner/credentials.json` (mode 0600; `$XDG_CONFIG_HOME` is honored).
 
 - `spawner whoami` shows the server, the user and the token in use.
 - `spawner logout` revokes the token and forgets it.
@@ -178,6 +178,8 @@ Errors, with `--json`: `{ "error": { "code": "not_found", "message": "...", "hin
 ```json
 { "mcpServers": { "spawner": { "command": "spawner", "args": ["mcp"] } } }
 ```
+
+On Windows, an agent started in a worktree looks for `spawner` (and the `node` it runs) in that worktree before the `PATH`, where a branch could commit a `spawner.cmd`: give the MCP client absolute paths (`"command": "C:\\Program Files\\nodejs\\node.exe"`, `"args": ["<npm prefix>\\node_modules\\spawner-cli\\spawner.cjs", "mcp"]`), and set `NoDefaultCurrentDirectoryInExePath=1` in the user's environment. The CLI itself runs `git` and the browser by their absolute paths.
 
 | Tool | Parameters |
 |---|---|

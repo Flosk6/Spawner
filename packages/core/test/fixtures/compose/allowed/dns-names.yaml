@@ -1,0 +1,22 @@
+services:
+  api:
+    build: ..
+    hostname: api-1
+    networks:
+      default:
+        aliases: [backend, api_v2]
+      jobs:
+  front:
+    image: nginx:alpine
+  queue_worker2:
+    image: alpine
+    command: sleep infinity
+    hostname: worker
+    domainname: preview.internal
+    networks: [jobs]
+
+networks:
+  default:
+    enable_ipv6: false
+  jobs:
+    internal: true

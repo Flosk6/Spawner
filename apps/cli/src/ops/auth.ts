@@ -4,6 +4,7 @@ import type { ApiTokenInfo, CreatedToken, Scope, WhoAmI } from "@spawner/types";
 import { ApiClient } from "../api";
 import { credentialsPath, normalizeServer, readCredentials, writeCredentials } from "../config";
 import { CliError, EXIT, usageError } from "../errors";
+import { findProgram } from "../runtime";
 import { Context } from "../context";
 
 /** What the CLI shows while a login waits for approval. */
@@ -121,13 +122,18 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Opens a URL in the default browser, without a shell; failures are
- * silent (the URL is printed anyway).
+ * Opens a URL in the default browser, without a shell, by the absolute path
+ * of the opener (see findProgram); failures are silent (the URL is printed
+ * anyway).
  */
 export function openBrowser(url: string, platform: NodeJS.Platform = process.platform): void {
   const [command, args] =
     platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["xdg-open", [url]];
-  const child = execFile(command, args, { timeout: 10_000 }, () => undefined);
+  const program = findProgram(command, { platform });
+  if (!program) {
+    return;
+  }
+  const child = execFile(program, args, { timeout: 10_000 }, () => undefined);
   child.on("error", () => undefined);
   child.unref();
 }

@@ -1,13 +1,25 @@
 import { execFile } from "child_process";
+import { findProgram } from "./runtime";
+
+let gitPath: string | null | undefined;
 
 /**
  * Runs git with an argument array (never through a shell), without
- * prompts, and returns its standard output.
+ * prompts, and returns its standard output. git runs by its absolute path
+ * from the PATH, never from the worktree it works in (see findProgram).
  */
 export function git(args: string[], cwd: string): Promise<string> {
+  if (gitPath === undefined) {
+    gitPath = findProgram("git");
+  }
+  const program = gitPath;
   return new Promise((resolve, reject) => {
+    if (!program) {
+      reject(Object.assign(new Error("git is not installed, or not in the PATH"), { code: "ENOENT" }));
+      return;
+    }
     execFile(
-      "git",
+      program,
       args,
       { cwd, maxBuffer: 512 * 1024 * 1024, encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } },
       (error, stdout, stderr) => {

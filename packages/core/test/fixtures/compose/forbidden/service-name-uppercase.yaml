@@ -1,0 +1,9 @@
+# expect: compose.invalid services.Worker
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+  Worker:
+    image: alpine
+    command: sleep infinity
