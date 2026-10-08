@@ -1,5 +1,5 @@
 <template>
-  <span class="inline-flex items-center gap-2.5">
+  <span class="inline-flex items-center" :style="{ gap: `${Math.round(size * 0.32)}px` }">
     <svg class="brand-mark" :width="size" :height="size" viewBox="0 0 32 32" aria-hidden="true">
       <path
         fill="currentColor"
@@ -20,6 +20,9 @@
 </template>
 
 <script setup lang="ts">
-/** The mark (a rocket above three branches) in the violet of the brand, and the wordmark. */
-withDefaults(defineProps<{ size?: number; showText?: boolean; textSize?: number }>(), { size: 26, showText: true, textSize: 18 });
+/**
+ * The mark (a rocket above three branches) in the violet of the brand, and the
+ * wordmark in Chakra Petch; the gap between them follows the size of the mark.
+ */
+withDefaults(defineProps<{ size?: number; showText?: boolean; textSize?: number }>(), { size: 32, showText: true, textSize: 24 });
 </script>

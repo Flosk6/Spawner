@@ -2,7 +2,7 @@
   <div class="auth-page">
     <div class="flex w-full flex-col items-center gap-4">
       <div class="auth-card">
-        <Logo :size="34" :text-size="24" class="self-center" />
+        <Logo :size="44" :text-size="35" class="self-center" />
         <div class="text-center">
           <h1 class="page-title">Log in the CLI</h1>
           <p class="page-lead text-balance">

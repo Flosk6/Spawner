@@ -6,7 +6,7 @@ import ConfirmationService from 'primevue/confirmationservice';
 import Tooltip from 'primevue/tooltip';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
-import '@fontsource/black-ops-one';
+import '@fontsource/chakra-petch/latin-700.css';
 import './styles/tokens.css';
 import './style.css';
 import App from './App.vue';

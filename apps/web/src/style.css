@@ -116,10 +116,11 @@
   }
 
   .wordmark {
-    font-family: 'Black Ops One', 'Geist Variable', ui-sans-serif, sans-serif;
-    font-size: 18px;
+    font-family: 'Chakra Petch', 'Geist Variable', ui-sans-serif, sans-serif;
+    font-size: 24px;
+    font-weight: 700;
     line-height: 1;
-    letter-spacing: 0.02em;
+    letter-spacing: -0.005em;
     color: var(--text);
   }
 
@@ -127,7 +128,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    height: 32px;
+    height: 40px;
     padding: 0 4px;
     border-radius: 8px;
   }

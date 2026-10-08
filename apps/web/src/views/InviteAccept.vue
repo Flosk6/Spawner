@@ -1,7 +1,7 @@
 <template>
   <div class="auth-page">
     <div class="auth-card">
-      <Logo :size="34" :text-size="24" class="self-center" />
+      <Logo :size="44" :text-size="35" class="self-center" />
       <div class="text-center">
         <h1 class="page-title">{{ invite?.user ? `Welcome back, ${invite.user.name}` : 'Join your team on Spawner' }}</h1>
         <p v-if="invite?.user" class="page-lead text-balance">Create a new passkey to get back into your account.</p>

@@ -215,7 +215,7 @@ importers:
       '@fontsource-variable/geist-mono':
         specifier: ^5.3.0
         version: 5.3.0
-      '@fontsource/black-ops-one':
+      '@fontsource/chakra-petch':
         specifier: ^5.3.0
         version: 5.3.0
       '@primevue/themes':
@@ -1000,8 +1000,8 @@ packages:
     resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
     dev: false
 
-  /@fontsource/black-ops-one@5.3.0:
-    resolution: {integrity: sha512-kDqkJFtvMErjajEeMXv6nyIW3t6UKb5usW+1/sQox9vA5q8dyMpAdAW9tU6+aIWo6xIQlatqNrfUlrBdJu6D4A==}
+  /@fontsource/chakra-petch@5.3.0:
+    resolution: {integrity: sha512-QZvbM/q2R6n1pg2x+TJPftZmBNS+ADU37L4Z4L/6UJIz+JZ/SRaEf8usPFRiP7Ht28sIideMu/Bm1SnGlSrwNw==}
     dev: false
 
   /@grpc/grpc-js@1.14.6:
