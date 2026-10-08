@@ -7,3 +7,14 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+  # Security updates only, grouped into one pull request; version updates
+  # of the dependencies stay a deliberate change.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]

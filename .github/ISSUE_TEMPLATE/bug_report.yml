@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in Spawner, its CLI or its installer does not work as documented
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Before you start
+      options:
+        - label: This is not a security vulnerability (those go to [SECURITY.md](https://github.com/Flosk6/Spawner/blob/master/SECURITY.md), never in an issue)
+          required: true
+        - label: I removed secrets (tokens, passwords, variables) from what I paste below
+          required: true
+  - type: input
+    attributes:
+      label: Server version
+      description: "`/api/v1/info` on the server, or the dashboard"
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: CLI version
+      description: "`spawner --version`, if the CLI or the MCP server is involved"
+  - type: dropdown
+    attributes:
+      label: Installation
+      options:
+        - install.sh on a server
+        - docker compose from the repository (development)
+        - Something else (say how below)
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Server
+      description: Distribution, `docker version`, memory
+      placeholder: Ubuntu 24.04, Docker 29.4, 8 GiB
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Logs
+      description: The log of the failed job (`spawner logs <env> --job`, or the Jobs tab), and `docker logs spawner` if Spawner itself misbehaves
+      render: text
+  - type: textarea
+    attributes:
+      label: The project's .spawner/ directory
+      description: "`spawner.yaml` and the compose file, if the problem comes from a project"
+      render: yaml

@@ -1,0 +1,23 @@
+name: Feature request
+description: Something Spawner should do
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: The problem
+      description: What you are trying to do, with which kind of project, and what gets in the way today
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Who drives it
+      multiple: true
+      options:
+        - People, in the dashboard
+        - People, with the CLI
+        - Coding agents (CLI or MCP)
+        - CI
+  - type: textarea
+    attributes:
+      label: What you would like
+      description: The behaviour you have in mind, and what you tried or considered instead

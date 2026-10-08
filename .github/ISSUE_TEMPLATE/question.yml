@@ -1,0 +1,10 @@
+name: Question
+description: How to do something with Spawner
+labels: [question]
+body:
+  - type: textarea
+    attributes:
+      label: Question
+      description: What you want to do, and what you read or tried (the documentation is listed in the README)
+    validations:
+      required: true
