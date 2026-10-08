@@ -20,8 +20,8 @@ export type DeviceError = "authorization_pending" | "slow_down" | "access_denied
 
 /**
  * Login of the CLI (device flow, like `gh auth login`): the CLI shows a code,
- * its user approves it in the dashboard, and the CLI receives a personal
- * token named after the machine.
+ * its user types it in the dashboard and approves the login, and the CLI
+ * receives a personal token named after the machine.
  */
 @Injectable()
 export class DeviceService {
@@ -32,6 +32,15 @@ export class DeviceService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Starts a login: a secret device code the CLI polls with, and a user
+   * code its user types on the approval page. The page never takes the code
+   * from its URL, so that a link alone cannot lead someone to approve a login
+   * they did not start; verificationUriComplete stays in the answer for
+   * older CLIs, whose page now asks for the code too.
+   *
+   * @param clientName - Name of the token to create, the machine's by default
+   */
   async start(clientName: unknown) {
     const name = typeof clientName === "string" && clientName.trim() ? clientName.trim().slice(0, 40) : "cli";
     const deviceCode = randomToken(32);

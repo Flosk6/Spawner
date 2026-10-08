@@ -20,7 +20,7 @@ Every command prints JSON with `--json`, and exits with a code the agent can act
 ## Setting an agent up
 
 1. **Install the CLI** on the machine the agent runs on (Node.js 20 or later): `npm install -g spawner-cli`, or the copy every server serves at `/api/v1/cli/spawner`.
-2. **Log in**: `spawner login https://spawner.preview.example.com`, approved in the dashboard. The CLI stores a personal token named after the machine. An agent running elsewhere (a container, CI, a cloud agent) gets a token of its own instead, given as environment variables:
+2. **Log in**: `spawner login https://spawner.preview.example.com`, then type the code it shows in the dashboard and approve the login. The CLI stores a personal token named after the machine. An agent running elsewhere (a container, CI, a cloud agent) gets a token of its own instead, given as environment variables:
 
    ```bash
    spawner token create --name claude --project blog --expires 30d   # shown once

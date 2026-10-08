@@ -1,13 +1,13 @@
 <template>
   <div class="max-w-lg mx-auto">
     <h1 class="text-3xl font-bold mb-2">Log in the CLI</h1>
-    <p class="opacity-70 mb-8">Enter the code your terminal shows. Approving it gives the CLI a token with your rights.</p>
+    <p class="opacity-70 mb-8">Enter the code your terminal shows, for a login you started yourself. Approving it gives the CLI a token with your rights.</p>
 
     <div class="panel space-y-5">
       <form v-if="!request && !done" class="space-y-4" @submit.prevent="lookUp">
         <div>
           <label class="field-label" for="device-code">Code</label>
-          <InputText id="device-code" v-model="code" class="w-full font-mono text-2xl tracking-widest uppercase" placeholder="BCDF-GHJK" autocomplete="off" />
+          <InputText id="device-code" v-model="code" class="w-full font-mono text-2xl tracking-widest uppercase" placeholder="BCDF-GHJK" autocomplete="off" autofocus />
         </div>
         <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
         <Button type="submit" label="Continue" :loading="loading" :disabled="code.replace(/[^a-zA-Z]/g, '').length !== 8" />
@@ -38,16 +38,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { ref } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import { deviceApi, errorMessage } from '../services/api';
 import type { DeviceRequest } from '../types';
 
-const route = useRoute();
-const code = ref(typeof route.query.code === 'string' ? route.query.code : '');
+/**
+ * Typed by the user, never taken from the URL: a link from someone else, or a
+ * page framing this one, cannot bring a login to approve in one click.
+ */
+const code = ref('');
 const request = ref<DeviceRequest | null>(null);
 const done = ref<'approved' | 'denied' | null>(null);
 const loading = ref(false);
@@ -79,10 +81,4 @@ async function decide(approve: boolean) {
     loading.value = false;
   }
 }
-
-onMounted(() => {
-  if (code.value) {
-    lookUp();
-  }
-});
 </script>

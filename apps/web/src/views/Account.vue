@@ -61,8 +61,8 @@
       <section class="panel">
         <h2 class="panel-title"><i class="pi pi-code text-sm"></i>Command line and agents</h2>
         <p class="field-hint mb-4">
-          The <code>spawner</code> CLI needs Node.js 20 or later. Install it from this server, then log in: it sends you here to approve the
-          login.
+          The <code>spawner</code> CLI needs Node.js 20 or later. Install it from this server, then log in: it sends you here to enter the code
+          it shows and approve the login.
         </p>
         <div v-for="block in cliBlocks" :key="block.label" class="mb-3 last:mb-0">
           <p class="text-xs uppercase text-slate-500 mb-1">{{ block.label }}</p>

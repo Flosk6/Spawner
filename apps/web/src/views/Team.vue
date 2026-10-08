@@ -42,12 +42,13 @@
               </td>
               <td class="py-2 pr-4">
                 <Select
+                  :key="`${member.id}-${redraws}`"
                   :model-value="member.role"
                   :options="roles"
                   :disabled="!member.isActive"
                   size="small"
                   class="w-32"
-                  @update:model-value="(role: Role) => update(member, { role })"
+                  @update:model-value="(role: Role) => changeRole(member, role)"
                 />
               </td>
               <td class="py-2 pr-4 text-xs text-slate-500">
@@ -139,6 +140,11 @@ const inviteDialog = ref(false);
 const saving = ref(false);
 const link = ref<(CreatedInvite & { title: string }) | null>(null);
 const form = reactive({ note: '', role: 'member' as Role, hours: 24 });
+/**
+ * Bumped to redraw the role selects: a Select keeps showing the option just
+ * picked even though its model did not change, until it is drawn again.
+ */
+const redraws = ref(0);
 
 async function load() {
   try {
@@ -185,9 +191,28 @@ async function update(member: TeamMember, change: { role?: Role; isActive?: bool
   }
 }
 
+/**
+ * Asks before changing a role, saying what it grants or takes away. The
+ * select goes back to the current role at once: it shows the new one only
+ * once the change is confirmed and saved.
+ */
+function changeRole(member: TeamMember, role: Role) {
+  redraws.value++;
+  if (role === member.role) {
+    return;
+  }
+  const message =
+    role === 'admin'
+      ? `Make ${member.name} an admin? They will manage everything: projects, the team, settings, deploy keys, the audit trail and every environment.`
+      : `Make ${member.name} a member? They lose projects, the team, settings, deploy keys and the audit trail, and manage only their own environments; their tokens lose the admin scope at once.`;
+  confirmAction(message, () => update(member, { role }));
+}
+
 function toggle(member: TeamMember) {
   if (!member.isActive) {
-    update(member, { isActive: true });
+    confirmAction(`Reactivate ${member.name}? They can log in again, and their sessions, tokens and preview access that have not expired work again at once.`, () =>
+      update(member, { isActive: true }),
+    );
     return;
   }
   confirmAction(`Deactivate ${member.name}? Their sessions, tokens and preview access stop at once.`, () => update(member, { isActive: false }));
