@@ -1,8 +1,13 @@
 # Spawner
 
 > Preview environments for every branch, on your own server, for your team and its coding agents.
->
-> **License:** AGPL-3.0 | **Copyright © 2025 Flosk6**
+
+[![CI](https://github.com/Flosk6/Spawner/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Flosk6/Spawner/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Flosk6/Spawner?include_prereleases&sort=semver)](https://github.com/Flosk6/Spawner/releases)
+[![npm](https://img.shields.io/npm/v/spawner-cli)](https://www.npmjs.com/package/spawner-cli)
+[![License](https://img.shields.io/github/license/Flosk6/Spawner)](LICENSE)
+
+**Status: beta.** Spawner 2.0 is a rewrite: the manifest, the API and the CLI may still change before 2.1.
 
 Spawner runs a copy of your application for each branch, with its own URLs, database and logs, on a server you own. Developers, reviewers and coding agents create one in seconds from a branch or straight from a worktree, uncommitted changes included, then open it, run commands in it, read its logs, share it, and delete it. Environments nobody uses go to sleep, and many fit on one server.
 
@@ -138,6 +143,4 @@ Every subdomain of `localtest.me` resolves to 127.0.0.1. Over plain HTTP, browse
 
 ## License
 
-**AGPL-3.0**: free to use, modify and distribute. If you run a modified Spawner as a service for others, you must share your source code with its users.
-
-**Copyright © 2025 Flosk6**. See [LICENSE](LICENSE). A commercial license is available for proprietary use.
+[Apache-2.0](LICENSE): free to use, modify and distribute, commercially too. Copyright 2025-2026 Flosk6.

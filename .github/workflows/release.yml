@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p release/npm
           cp apps/cli/dist/spawner.cjs release/npm/spawner.cjs
-          cp apps/cli/README.md LICENSE release/npm/
+          cp apps/cli/README.md LICENSE NOTICE release/npm/
           node -e '
             const fs = require("fs");
             fs.writeFileSync("release/npm/package.json", JSON.stringify({
@@ -94,9 +94,9 @@ jobs:
               keywords: ["preview", "environments", "docker", "compose", "mcp", "coding agents"],
               homepage: "https://github.com/Flosk6/Spawner",
               repository: { type: "git", url: "git+https://github.com/Flosk6/Spawner.git", directory: "apps/cli" },
-              license: "AGPL-3.0-only",
+              license: "Apache-2.0",
               bin: { spawner: "spawner.cjs" },
-              files: ["spawner.cjs", "README.md", "LICENSE"],
+              files: ["spawner.cjs", "README.md", "LICENSE", "NOTICE"],
               engines: { node: ">=20" },
             }, null, 2) + "\n");
           '

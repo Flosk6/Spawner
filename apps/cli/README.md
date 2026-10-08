@@ -23,4 +23,4 @@ It needs Node.js 20 or later, and a Spawner server: [install one](https://github
 
 Commands, JSON outputs and exit codes: [docs/cli.md](https://github.com/Flosk6/Spawner/blob/master/docs/cli.md).
 
-License: AGPL-3.0.
+License: [Apache-2.0](https://github.com/Flosk6/Spawner/blob/master/LICENSE).

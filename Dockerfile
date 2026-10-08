@@ -30,7 +30,7 @@ ARG SPAWNER_VERSION=
 LABEL org.opencontainers.image.title="Spawner" \
       org.opencontainers.image.description="Preview environments for every branch, on your own server" \
       org.opencontainers.image.source="https://github.com/Flosk6/Spawner" \
-      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${SPAWNER_VERSION}"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client tini curl \
@@ -43,7 +43,7 @@ COPY --from=build --chown=node:node /repo/apps/web/dist ./web
 COPY --from=build --chown=node:node /repo/apps/cli/dist/spawner.cjs ./cli/spawner
 # The installer of this version: an update from the dashboard runs it with
 # --upgrade, from a short-lived container of this image.
-COPY install.sh ./install.sh
+COPY install.sh LICENSE NOTICE ./
 ENV NODE_ENV=production \
     PORT=3000 \
     WEB_DIST_PATH=/app/web \
