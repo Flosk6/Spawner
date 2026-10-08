@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 2.1.0
 
-- **A new dashboard**: a sidebar with breadcrumbs, dense tables, one status badge everywhere, environment pages with their services as cards (memory of each), a lifecycle card, and jobs that show the phase they are at or failed in. Search everything with Ctrl+K (Cmd+K on a Mac).
+A new dashboard, and patched dependencies.
+
+- **A new dashboard**: a sidebar with breadcrumbs, dense tables, one status badge everywhere, environment pages with their services as cards (memory of each), a lifecycle card, and jobs that show the phase they are at or failed in. Search everything with Ctrl+K (Cmd+K on a Mac). Every page works on a phone.
 - **Light and dark themes that hold**, or the system's: the dark theme no longer has buttons, menus and banners you could not read, and the page no longer flashes light before it turns dark. The waiting page of sleeping environments follows the same colors.
 - The dashboard loads no font from another site any more: they are bundled.
+- **Patched dependencies**: the packages Dependabot flagged, among them protobufjs (code execution, through dockerode) and proxy-addr (IP spoofing through trusted subnets, used by Express).
 
 ## 2.0.0
 
