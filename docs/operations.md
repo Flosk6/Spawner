@@ -32,14 +32,7 @@ Most limits change from the dashboard (System, Settings): lifetimes, sleep, quot
 docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up -d
 ```
 
-| Variable | Default | |
-|---|---|---|
-| `SPAWNER_BUILD_CONCURRENCY` | 1 below 8 GiB of memory, 2 above | Builds at once |
-| `SPAWNER_UPLOAD_MAX`, `SPAWNER_UPLOAD_MAX_FILES`, `SPAWNER_UPLOAD_MAX_EXTRACTED` | `100m`, 50000, `1g` | Limits of a worktree upload |
-| `SPAWNER_START_TIMEOUT_SECONDS`, `SPAWNER_JOB_TIMEOUT_SECONDS` | 300, 1800 | How long services may take to start, and a whole job |
-| `SESSION_MAX_AGE` | 86400000 (24 hours) | Dashboard sessions, in milliseconds |
-| `ENABLE_MEMORY_CHECK` | `true` | The memory guard before builds |
-| `SPAWNER_UPDATE_CHECK` | `true` | `false`: Spawner no longer looks for new versions by itself (the System page can still check) |
+The variables, their defaults, and those the installer sets itself are listed in [configuration](configuration.md).
 
 The Spawner container may use 1 GiB of memory: rerun the installer with `--memory-limit 2g` to change it ([install](install.md#without-questions)).
 

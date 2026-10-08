@@ -58,8 +58,8 @@ export function hasScope(actor: Actor, scope: Scope): boolean {
 }
 
 /**
- * How the audit trail and the interface name an actor: "Florian",
- * "Florian via claude-laptop", "bootstrap token".
+ * How the audit trail and the interface name an actor: "Ada",
+ * "Ada via claude-laptop", "bootstrap token".
  */
 export function describeActor(actor: Actor | null): string {
   if (!actor) {

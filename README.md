@@ -110,6 +110,9 @@ Branches run unreviewed code, so Spawner treats them as such: compose files are 
 - [Operations](docs/operations.md): backups, restores, disk, monitoring
 - [Density](docs/density.md): Dockerfiles and databases that make environments cheap
 - [Spawner and the alternatives](docs/comparison.md): when Coolify, Dokploy, Preevy or hosted previews fit better
+- [Configuration](docs/configuration.md): every setting of the server
+- [API](docs/api.md): the routes the dashboard, the CLI and your scripts use
+- [Architecture](docs/architecture.md): how Spawner is built, for those who read its code
 - [Changelog](CHANGELOG.md)
 
 ## Development
