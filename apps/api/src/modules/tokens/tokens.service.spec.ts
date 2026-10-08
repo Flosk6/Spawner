@@ -14,6 +14,7 @@ interface Row {
   hash: string;
   scopes: string[];
   projectId: string | null;
+  parentTokenId: string | null;
   expiresAt: Date | null;
   lastUsedAt: Date | null;
   revokedAt: Date | null;
@@ -41,9 +42,16 @@ describe("TokensService", () => {
         },
         findUnique: async ({ where }: { where: { id?: string; prefix?: string } }) =>
           withRelations(where.id ? rows.get(where.id) : [...rows.values()].find((row) => row.prefix === where.prefix)),
-        findMany: async ({ where }: { where: { userId?: number } }) =>
-          [...rows.values()].filter((row) => !row.revokedAt && (where.userId === undefined || row.userId === where.userId)).map(withRelations),
+        findMany: async ({ where }: { where: { userId?: number; parentTokenId?: { in: string[] } } }) =>
+          [...rows.values()]
+            .filter((row) => !row.revokedAt && (where.userId === undefined || row.userId === where.userId))
+            .filter((row) => !where.parentTokenId || where.parentTokenId.in.includes(row.parentTokenId ?? ""))
+            .map(withRelations),
         update: async ({ where, data }: { where: { id: string }; data: Partial<Row> }) => Object.assign(rows.get(where.id) as Row, data),
+        updateMany: async ({ where, data }: { where: { id: { in: string[] } }; data: Partial<Row> }) => {
+          where.id.in.forEach((id) => Object.assign(rows.get(id) as Row, data));
+          return { count: where.id.in.length };
+        },
       },
       project: { findUnique: async ({ where }: { where: { slug: string } }) => projects.find((project) => project.slug === where.slug) ?? null },
     };
@@ -61,11 +69,11 @@ describe("TokensService", () => {
     expect(Math.round((row.expiresAt!.getTime() - Date.now()) / 86_400_000)).toBe(90);
   });
 
-  it("authenticates a token as its user, with its scopes", async () => {
-    const { token } = await service.create(admin, { name: "ci", scopes: ["envs:read", "admin"], project: "blog" });
-    const actor = (await service.authenticate(token)) as Actor;
-
-    expect(actor).toMatchObject({ user: { id: 1, name: "Ada" }, via: "token", scopes: ["envs:read", "admin"], tokenName: "ci", projectId: "p1" });
+  it("authenticates a token as its user, with its scopes and project", async () => {
+    const { token } = await service.create(admin, { name: "ci", scopes: ["envs:read", "admin"] });
+    expect(await service.authenticate(token)).toMatchObject({ user: { id: 1, name: "Ada" }, via: "token", scopes: ["envs:read", "admin"], tokenName: "ci", projectId: null });
+    const restricted = await service.create(admin, { name: "agent", scopes: ["envs:read"], project: "blog" });
+    expect(await service.authenticate(restricted.token)).toMatchObject({ scopes: ["envs:read"], projectId: "p1" });
     expect(await service.authenticate(`${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`)).toBeNull();
     expect(await service.authenticate("spn_nothere1_" + "a".repeat(43))).toBeNull();
   });
@@ -102,6 +110,30 @@ describe("TokensService", () => {
     users[1].role = "member";
 
     expect((await service.authenticate(token))?.scopes).toEqual(["envs:read"]);
+  });
+
+  it("keeps the admin scope off tokens restricted to a project, created before that was refused too", async () => {
+    await expect(service.create(admin, { name: "ops", scopes: ["admin"], project: "blog" })).rejects.toBeInstanceOf(BadRequestException);
+
+    const { token, info } = await service.create(admin, { name: "old", scopes: ["envs:read", "admin"] });
+    (rows.get(info.id) as Row).projectId = "p1";
+    expect((await service.authenticate(token))?.scopes).toEqual(["envs:read"]);
+  });
+
+  it("ties a token created with a token to it: it expires with it at the latest, and is revoked with it", async () => {
+    const laptop = await service.create(member, { name: "laptop", expiresInDays: 10 });
+    const ci = await service.create((await service.authenticate(laptop.token)) as Actor, { name: "ci", expiresInDays: 365 });
+    const nested = await service.create((await service.authenticate(ci.token)) as Actor, { name: "nested" });
+    const dashboard = await service.create(member, { name: "dashboard", expiresInDays: 365 });
+
+    expect(rows.get(ci.info.id)).toMatchObject({ parentTokenId: laptop.info.id, expiresAt: rows.get(laptop.info.id)?.expiresAt });
+    expect(rows.get(nested.info.id)).toMatchObject({ parentTokenId: ci.info.id, expiresAt: rows.get(laptop.info.id)?.expiresAt });
+    expect(rows.get(dashboard.info.id)?.parentTokenId).toBeNull();
+
+    await service.revoke(member, laptop.info.id);
+    expect(await service.authenticate(ci.token)).toBeNull();
+    expect(await service.authenticate(nested.token)).toBeNull();
+    expect(await service.authenticate(dashboard.token)).not.toBeNull();
   });
 
   it("lets users revoke their own tokens, and admins anyone's", async () => {

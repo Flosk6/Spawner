@@ -230,7 +230,7 @@ Connection configured via `DATABASE_URL` environment variable.
 - `identities`: external logins of a user (GitHub)
 - `passkeys`: WebAuthn credentials (public key, counter)
 - `invites`: one-time links, by SHA-256; with `user_id`, a new passkey for an existing user
-- `api_tokens`: personal tokens (prefix, SHA-256, scopes, project, expiry, revocation)
+- `api_tokens`: personal tokens (prefix, SHA-256, scopes, project, expiry, revocation, and the token it was created with)
 - `device_codes`: CLI logins waiting for approval
 - `share_links`: guest links to an environment's previews, by SHA-256
 - `audit_events`: the audit trail
@@ -396,7 +396,7 @@ The environment ends `ready` (with an expiry) or `failed` (with the phase and th
 
 - Each request has an actor (`ActorMiddleware`): a bearer token (personal token, or the bootstrap token of the installation) or the dashboard session. The global `AuthGuard` requires one unless the route is `@Public()`, plus the scopes listed with `@Scopes()`.
 - Scopes: `envs:read`, `envs:write`, `envs:exec`, `preview`, `admin`. A session has all the scopes of its role; a token has those it was given, never more than its user's role allows (a demoted admin's tokens lose `admin` at once), and may be restricted to one project.
-- Personal tokens: `spn_<prefix>_<secret>`, shown once; only their SHA-256 is stored. 90 days by default, revocable, last use recorded. A token creates tokens of at most its own scopes.
+- Personal tokens: `spn_<prefix>_<secret>`, shown once; only their SHA-256 is stored. 90 days by default, revocable, last use recorded. A token creates tokens of at most its own scopes; they expire with it at the latest and are revoked with it (`parentTokenId`). A token restricted to a project never has `admin` (refused at creation, ignored on older tokens). Renaming the account (`PATCH /me`) needs a dashboard session.
 - CLI login (device flow, RFC 8628): the CLI gets a code, its user types it at `/device` (the page never reads it from the URL; `verificationUriComplete` stays in the answer for older CLIs) and approves it from a dashboard session, and the CLI receives a token named after the machine.
 - Framing: no response of Spawner may be shown in a frame (`X-Frame-Options: DENY`, `frame-ancestors 'none'`): previews are on the same site as the dashboard, so the session cookie (SameSite=Lax) would reach a dashboard framed by a branch, which could steer a click.
 - CSRF: every request that changes something without a bearer token must carry `X-Spawner-Client`, which a page on another origin cannot add without a CORS preflight that only the dashboard origin passes. The session cookie is `__Host-spawner_session` over HTTPS, so previews can neither receive nor overwrite it.

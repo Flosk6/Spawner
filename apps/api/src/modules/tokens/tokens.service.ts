@@ -24,7 +24,9 @@ export interface TokenRequest {
 /**
  * Personal API tokens: `spn_<prefix>_<secret>`, shown once. The prefix finds
  * the token, only the SHA-256 of the whole token is stored, and a token never
- * holds more than its user's role allows, even after the role changes.
+ * holds more than its user's role allows, even after the role changes. A
+ * token created with another token depends on it: it expires with it at the
+ * latest, and is revoked with it.
  */
 @Injectable()
 export class TokensService {
@@ -35,7 +37,9 @@ export class TokensService {
 
   /**
    * Creates a token for the actor's user, with at most the actor's own
-   * scopes and project.
+   * scopes and project. Created with a token, it becomes that token's child:
+   * it expires with it at the latest, and is revoked with it, so that a
+   * token cannot outlive its own revocation through another one.
    *
    * @returns The token, to show once, and its description
    */
@@ -50,20 +54,31 @@ export class TokensService {
       throw new ForbiddenException(`you cannot give scopes you do not have: ${missing.join(", ")}`);
     }
     const projectId = await this.projectId(actor, request.project);
+    if (projectId && scopes.includes("admin")) {
+      throw new BadRequestException("a token restricted to a project cannot have the admin scope: admin rights reach the whole installation");
+    }
     const days = this.days(request.expiresInDays);
+    const parent = actor.tokenId ? await this.prisma.apiToken.findUnique({ where: { id: actor.tokenId }, select: { id: true, expiresAt: true } }) : null;
 
-    const issued = await this.issue(actor.user.id, { name, scopes, projectId, days });
-    await this.audit.record(actor, "token.create", { target: name, details: { scopes, days, projectId } });
+    const issued = await this.issue(actor.user.id, { name, scopes, projectId, days, parent });
+    await this.audit.record(actor, "token.create", { target: name, details: { scopes, days, projectId, parentTokenId: parent?.id ?? null } });
     return issued;
   }
 
   /**
-   * Issues a token without an actor, for the device flow once the user
+   * Issues a token; without an actor for the device flow, once the user
    * approved the login.
+   *
+   * @param options.parent - The token that creates it: the new one expires with it at the latest
    */
-  async issue(userId: number, options: { name: string; scopes: readonly Scope[]; projectId?: string | null; days?: number | null }) {
+  async issue(
+    userId: number,
+    options: { name: string; scopes: readonly Scope[]; projectId?: string | null; days?: number | null; parent?: { id: string; expiresAt: Date | null } | null },
+  ) {
     const prefix = await this.freePrefix();
     const token = `spn_${prefix}_${randomToken(32)}`;
+    const requested = options.days === null ? null : new Date(Date.now() + (options.days ?? DEFAULT_TOKEN_DAYS) * 86_400_000);
+    const ceiling = options.parent?.expiresAt ?? null;
     const record = await this.prisma.apiToken.create({
       data: {
         userId,
@@ -72,7 +87,8 @@ export class TokensService {
         hash: sha256(token),
         scopes: [...options.scopes],
         projectId: options.projectId ?? null,
-        expiresAt: options.days === null ? null : new Date(Date.now() + (options.days ?? DEFAULT_TOKEN_DAYS) * 86_400_000),
+        parentTokenId: options.parent?.id ?? null,
+        expiresAt: ceiling && (!requested || ceiling < requested) ? ceiling : requested,
       },
       include: { project: true },
     });
@@ -98,11 +114,11 @@ export class TokensService {
     if (!record.lastUsedAt || Date.now() - record.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
       void this.prisma.apiToken.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
     }
-    const allowed = ROLE_SCOPES[record.user.role];
+    const allowed: readonly string[] = record.projectId ? ROLE_SCOPES[record.user.role].filter((scope) => scope !== "admin") : ROLE_SCOPES[record.user.role];
     return {
       user: { id: record.user.id, name: record.user.name, role: record.user.role },
       via: "token",
-      scopes: record.scopes.filter((scope): scope is Scope => (allowed as readonly string[]).includes(scope)),
+      scopes: record.scopes.filter((scope): scope is Scope => allowed.includes(scope)),
       tokenId: record.id,
       tokenName: record.name,
       projectId: record.projectId,
@@ -122,13 +138,27 @@ export class TokensService {
     return records.map((record) => ({ ...this.present(record), user: { id: record.user.id, name: record.user.name } }));
   }
 
+  /**
+   * Revokes a token, and the tokens created with it, at any depth.
+   */
   async revoke(actor: Actor, id: string): Promise<void> {
     const record = await this.prisma.apiToken.findUnique({ where: { id } });
     if (!record || record.revokedAt || (record.userId !== actor.user?.id && !hasScope(actor, "admin"))) {
       throw new NotFoundException("token not found");
     }
-    await this.prisma.apiToken.update({ where: { id }, data: { revokedAt: new Date() } });
-    await this.audit.record(actor, "token.revoke", { target: record.name, details: { tokenId: id, userId: record.userId } });
+    const now = new Date();
+    await this.prisma.apiToken.update({ where: { id }, data: { revokedAt: now } });
+    let parents = [id];
+    let children = 0;
+    while (parents.length > 0) {
+      const found = await this.prisma.apiToken.findMany({ where: { parentTokenId: { in: parents }, revokedAt: null }, select: { id: true } });
+      parents = found.map((token) => token.id);
+      if (parents.length > 0) {
+        await this.prisma.apiToken.updateMany({ where: { id: { in: parents } }, data: { revokedAt: now } });
+        children += parents.length;
+      }
+    }
+    await this.audit.record(actor, "token.revoke", { target: record.name, details: { tokenId: id, userId: record.userId, children } });
   }
 
   present(record: ApiToken & { project?: Project | null; user?: User }) {

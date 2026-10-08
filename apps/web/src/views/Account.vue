@@ -162,7 +162,7 @@
 
 <script setup lang="ts">
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import Dialog from 'primevue/dialog';
@@ -194,7 +194,16 @@ const form = reactive({ name: '', scopes: [...MEMBER_SCOPES] as Scope[], days: 9
 const passkeysSupported = browserSupportsWebAuthn() && window.isSecureContext;
 
 const github = computed(() => account.value?.identities.find((identity) => identity.provider === 'github') ?? null);
-const availableScopes = computed<Scope[]>(() => (authStore.isAdmin ? [...MEMBER_SCOPES, 'admin'] : MEMBER_SCOPES));
+/** Admin rights reach the whole installation: a token restricted to a project cannot have them. */
+const availableScopes = computed<Scope[]>(() => (authStore.isAdmin && !form.project ? [...MEMBER_SCOPES, 'admin'] : MEMBER_SCOPES));
+watch(
+  () => form.project,
+  (project) => {
+    if (project) {
+      form.scopes = form.scopes.filter((scope) => scope !== 'admin');
+    }
+  },
+);
 const cliBlocks = computed(() => {
   const origin = window.location.origin;
   return [
