@@ -124,7 +124,7 @@ describe("RouterService", () => {
     const middlewares = read("_spawner.yaml").http.middlewares;
     expect(middlewares["spawner-preview-gate"].forwardAuth).toEqual({
       address: "http://spawner.spawner-core:3000/api/v1/auth/verify",
-      authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview"],
+      authRequestHeaders: ["Accept", "Cookie", "X-Spawner-Preview", "Origin", "Access-Control-Request-Method"],
       authResponseHeaders: ["Cookie"],
     });
     expect(middlewares["spawner-preview-auth"].forwardAuth.authResponseHeaders).toBeUndefined();

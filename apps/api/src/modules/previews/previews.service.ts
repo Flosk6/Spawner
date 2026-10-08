@@ -14,6 +14,7 @@ const PREVIEW_COOKIE_SECONDS = 12 * 3600;
 const PREVIEW_HEADER_SECONDS = 3600;
 const HOST_CACHE_MS = 30_000;
 const USER_CACHE_MS = 60_000;
+const SHARE_CACHE_MS = 30_000;
 
 /** The original request, as Traefik describes it to forwardAuth. */
 export interface PreviewRequest {
@@ -24,6 +25,9 @@ export interface PreviewRequest {
   accept: string;
   cookies: Record<string, string>;
   header: string | undefined;
+  /** Origin and Access-Control-Request-Method: what makes an OPTIONS request a CORS preflight. */
+  origin?: string;
+  preflightMethod?: string;
 }
 
 /** What forwardAuth answers Traefik. */
@@ -38,6 +42,8 @@ interface PreviewClaims {
   sub?: number;
   /** Environment the token is limited to. */
   env?: string;
+  /** Share link a share cookie comes from: the cookie dies with it. */
+  share?: string;
 }
 
 /**
@@ -46,12 +52,15 @@ interface PreviewClaims {
  * preview token header (agents), a share link or its cookie (guests), or the
  * team's preview cookie, set by the dashboard for logged-in users. Browsers
  * without any are sent to the dashboard to log in; other clients get a 401.
+ * CORS preflights pass without credentials, which browsers never send with
+ * them.
  */
 @Injectable()
 export class PreviewsService implements OnModuleInit {
   private readonly logger = new Logger(PreviewsService.name);
   private readonly hosts = new Map<string, { environmentId: string | null; until: number }>();
   private readonly users = new Map<number, { active: boolean; until: number }>();
+  private readonly shares = new Map<string, { environmentId: string; revokedAt: Date | null; expiresAt: Date; until: number }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -78,8 +87,8 @@ export class PreviewsService implements OnModuleInit {
     if (!environmentId) {
       return { status: 404, body: { error: "unknown_preview" } };
     }
-    if (request.method === "OPTIONS") {
-      return this.allow(environmentId);
+    if (request.method === "OPTIONS" && request.origin && request.preflightMethod) {
+      return { status: 200, environmentId };
     }
 
     const header = this.secrets.verify<PreviewClaims>("preview-header", request.header);
@@ -97,7 +106,7 @@ export class PreviewsService implements OnModuleInit {
         return {
           status: 302,
           location: url.toString(),
-          cookie: this.cookie(`${SHARE_COOKIE_PREFIX}${environmentId}`, this.secrets.sign<PreviewClaims>("share", { exp, env: environmentId }), exp),
+          cookie: this.cookie(`${SHARE_COOKIE_PREFIX}${environmentId}`, this.secrets.sign<PreviewClaims>("share", { exp, env: environmentId, share: share.id }), exp),
         };
       }
     }
@@ -107,7 +116,7 @@ export class PreviewsService implements OnModuleInit {
       return this.allow(environmentId);
     }
     const shared = this.secrets.verify<PreviewClaims>("share", request.cookies[`${SHARE_COOKIE_PREFIX}${environmentId}`]);
-    if (shared?.env === environmentId) {
+    if (shared?.env === environmentId && shared.share && (await this.isShareOpen(shared.share, environmentId))) {
       return this.allow(environmentId);
     }
 
@@ -195,6 +204,29 @@ export class PreviewsService implements OnModuleInit {
     const environmentId = exposure?.environmentId ?? null;
     this.hosts.set(host, { environmentId, until: now + HOST_CACHE_MS });
     return environmentId;
+  }
+
+  /**
+   * Forgets what is known of a share link, so that its revocation applies
+   * to the next request.
+   */
+  forgetShare(shareId: string): void {
+    this.shares.delete(shareId);
+  }
+
+  /** A share cookie opens its environment while its link is neither revoked nor expired. */
+  private async isShareOpen(shareId: string, environmentId: string): Promise<boolean> {
+    const now = Date.now();
+    let share = this.shares.get(shareId);
+    if (!share || share.until <= now) {
+      const record = await this.prisma.shareLink.findUnique({ where: { id: shareId }, select: { environmentId: true, revokedAt: true, expiresAt: true } });
+      if (!record) {
+        return false;
+      }
+      share = { ...record, until: now + SHARE_CACHE_MS };
+      this.shares.set(shareId, share);
+    }
+    return share.environmentId === environmentId && !share.revokedAt && share.expiresAt.getTime() > now;
   }
 
   /** A token given to a user is only worth something while the user is active. */

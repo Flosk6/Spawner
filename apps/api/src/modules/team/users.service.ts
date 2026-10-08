@@ -90,12 +90,16 @@ export class UsersService {
     };
   }
 
+  /**
+   * Renames the user, from a dashboard session only: the name shows in the
+   * audit trail and on environments, and a token is not the person.
+   */
   async rename(actor: Actor, name: unknown) {
     const value = typeof name === "string" ? name.trim() : "";
     if (value.length === 0 || value.length > 60) {
       throw new BadRequestException("name must be 1 to 60 characters");
     }
-    return presentUser(await this.prisma.user.update({ where: { id: this.userId(actor) }, data: { name: value } }));
+    return presentUser(await this.prisma.user.update({ where: { id: this.sessionUserId(actor) }, data: { name: value } }));
   }
 
   async passkeyOptions(request: Request, actor: Actor) {

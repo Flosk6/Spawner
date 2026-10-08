@@ -666,7 +666,7 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
     .description("create a token (shown once)")
     .requiredOption("--name <name>", "name, shown on the environments it creates (such as claude)")
     .option("--scopes <scopes>", "comma-separated: envs:read, envs:write, envs:exec, preview, admin (default: all but admin)")
-    .option("--expires <duration>", "lifetime, such as 30d (default: 90d, at most 365d)")
+    .option("--expires <duration>", "lifetime, such as 30d (default: 90d, at most 365d, and never past the login that creates it)")
     .addOption(new Option("-p, --project <slug>", "restrict the token to one project"))
     .action(
       run(async ({ output, ctx }, options: { name: string; scopes?: string; expires?: string; project?: string }) => {

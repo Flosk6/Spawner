@@ -92,21 +92,26 @@ model Invite {
 /// A personal API key: spn_<prefix>_<secret>. Only the SHA-256 of the whole
 /// token is stored; the prefix finds it.
 model ApiToken {
-  id         String    @id @default(cuid())
-  userId     Int       @map("user_id")
-  name       String    @db.VarChar(40)
-  prefix     String    @unique @db.VarChar(16)
-  hash       String    @db.VarChar(64)
-  scopes     String[]
-  projectId  String?   @map("project_id")
-  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
-  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project    Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id            String     @id @default(cuid())
+  userId        Int        @map("user_id")
+  name          String     @db.VarChar(40)
+  prefix        String     @unique @db.VarChar(16)
+  hash          String     @db.VarChar(64)
+  scopes        String[]
+  projectId     String?    @map("project_id")
+  /// The token this one was created with: it expires with it at the latest, and is revoked with it.
+  parentTokenId String?    @map("parent_token_id")
+  expiresAt     DateTime?  @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt    DateTime?  @map("last_used_at") @db.Timestamptz(6)
+  revokedAt     DateTime?  @map("revoked_at") @db.Timestamptz(6)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project       Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent        ApiToken?  @relation("TokenChildren", fields: [parentTokenId], references: [id], onDelete: SetNull)
+  children      ApiToken[] @relation("TokenChildren")
 
   @@index([userId])
+  @@index([parentTokenId])
   @@map("api_tokens")
 }
 

@@ -47,7 +47,7 @@ Service names, network aliases and hostnames are the names Docker's DNS answers 
 - **CSRF**: every change made without a token must carry an `X-Spawner-Client` header, which a page on another origin cannot send without a CORS preflight that only the dashboard's origin passes.
 - **Framing**: no page or answer of Spawner can be shown in a frame (`X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`). Previews share the dashboard's site, so a branch could otherwise frame the dashboard with a visitor's session and steer a click. Role changes and reactivations on the Team page ask for confirmation.
 - **Rate limits** per user (per address without one), tighter on the login routes.
-- **Personal tokens** (`spn_<prefix>_<secret>`) are shown once; Spawner stores their SHA-256 only. They carry scopes (never more than their owner's role: a demoted admin's tokens lose `admin` at once), an expiry (90 days by default) and optionally a project, and can be revoked. The CLI receives its token through a device code its user types and approves in the dashboard (the page never takes the code from a link), and stores it readable by its owner only.
+- **Personal tokens** (`spn_<prefix>_<secret>`) are shown once; Spawner stores their SHA-256 only. They carry scopes (never more than their owner's role: a demoted admin's tokens lose `admin` at once), an expiry (90 days by default) and optionally a project, and can be revoked. A token restricted to a project never has the `admin` scope, which reaches the whole installation. A token created with another token depends on it: it expires with it at the latest, and is revoked with it. The CLI receives its token through a device code its user types and approves in the dashboard (the page never takes the code from a link), and stores it readable by its owner only.
 - **Roles**: members act on their own environments only (create, update, share, delete, run commands, open terminals); they read the others. Projects, the team, settings, deploy keys and the audit trail are for admins.
 - **Terminals** open with a one-time ticket (30 seconds) that keeps the scopes of who asked for it, check the dashboard's origin, close after 15 minutes without input or 4 hours, and are recorded for the admins (30 days). Their Socket.IO server opens a WebSocket only for a valid ticket (no long-polling), takes messages of 64 KiB at most, and serves nothing but `/terminal`.
 - **The CLI** runs `git` and the browser opener by their absolute paths, found in the absolute directories of the `PATH`: never from the worktree a branch checked out, where Windows would look first (and every platform for relative `PATH` entries). On Windows it also sets `NoDefaultCurrentDirectoryInExePath` for the programs it starts. Give MCP clients on Windows absolute paths too (see [agents](agents.md)).
@@ -55,11 +55,11 @@ Service names, network aliases and hostnames are the names Docker's DNS answers 
 
 ## Protected previews
 
-Before each request to a protected URL (`auth: team`, the default), Traefik asks Spawner, sending only the `Accept`, `Cookie` and `X-Spawner-Preview` headers. Spawner lets the request through for:
+Before each request to a protected URL (`auth: team`, the default), Traefik asks Spawner, sending only the `Accept`, `Cookie`, `X-Spawner-Preview`, `Origin` and `Access-Control-Request-Method` headers. Spawner lets the request through for:
 
-1. CORS preflights;
+1. CORS preflights (`OPTIONS` with `Origin` and `Access-Control-Request-Method`), which browsers send without credentials; they neither count as activity nor wake a sleeping environment;
 2. an `X-Spawner-Preview` header: a token valid one hour for one environment, for agents and scripts; Traefik removes it before the request reaches the application;
-3. a share link (`?__spawner_share=`), answered by a redirect that sets a cookie valid for that environment only;
+3. a share link (`?__spawner_share=`), answered by a redirect that sets a cookie valid for that environment only, and checked against its link at every request: revoking the link closes it to whoever opened it;
 4. the team's preview cookie (12 hours), set on the preview domain by the dashboard for an active member;
 5. a share cookie.
 

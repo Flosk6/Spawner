@@ -31,7 +31,7 @@ The CLI shows a code and opens the dashboard's `/device` page, where you type th
 - `spawner whoami` shows the server, the user and the token in use.
 - `spawner logout` revokes the token and forgets it.
 - Without a login, `SPAWNER_URL` and `SPAWNER_TOKEN` give the server and a token: for CI jobs and agents in containers. They win over the stored login.
-- For an agent of its own, create a dedicated token, restricted to a project if you like: `spawner token create --name claude --project blog --expires 30d`. Environments it creates show "Florian via claude".
+- For an agent of its own, create a dedicated token, restricted to a project if you like: `spawner token create --name claude --project blog --expires 30d`. Environments it creates show "Florian via claude". A token created this way depends on your login: it expires with it at the latest, and `spawner logout` revokes it too. Create the tokens that must outlive it from the dashboard (Account).
 
 ## Which project, which environment
 
