@@ -13,3 +13,4 @@ export * from './compose/paths';
 export * from './compose/validate';
 export * from './compose/render';
 export * from './compose/prepare';
+export * from './terminal';

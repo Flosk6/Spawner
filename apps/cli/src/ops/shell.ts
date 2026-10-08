@@ -1,8 +1,8 @@
+import { StringDecoder } from "string_decoder";
+import { chunkTerminalInput } from "@spawner/core";
 import { io } from "socket.io-client";
 import { CliError, EXIT, usageError } from "../errors";
 import { Context, ensureAwake, findEnvironment, resolveTarget, type TargetOptions } from "../context";
-
-const MAX_INPUT_CHUNK = 4000;
 
 interface Terminal {
   stdin: NodeJS.ReadStream;
@@ -12,7 +12,9 @@ interface Terminal {
 /**
  * Opens an interactive terminal in a service, through the terminal
  * WebSocket of the dashboard: the same sessions as the browser terminal,
- * with the same rights (envs:exec, the owner or an admin) and audit.
+ * with the same rights (envs:exec, the owner or an admin) and audit. What
+ * is typed goes in pieces the server accepts, a large paste included, and a
+ * character read in two halves is sent whole.
  *
  * @returns The exit code of the shell
  */
@@ -49,10 +51,10 @@ export async function shell(ctx: Context, options: TargetOptions & { service: st
     const finish = (code: number) => settle(() => resolve(code));
     const fail = (message: string) =>
       settle(() => reject(new CliError(message, { exit: /unauthor|ticket|owner|scope/i.test(message) ? EXIT.auth : EXIT.error, code: "terminal" })));
+    const decoder = new StringDecoder("utf8");
     const onInput = (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      for (let offset = 0; offset < text.length; offset += MAX_INPUT_CHUNK) {
-        socket.emit("terminal-input", { input: text.slice(offset, offset + MAX_INPUT_CHUNK), resourceName: options.service });
+      for (const input of chunkTerminalInput(decoder.write(chunk))) {
+        socket.emit("terminal-input", { input, resourceName: options.service });
       }
     };
     const onResize = () => socket.emit("terminal-resize", { resourceName: options.service, cols: terminal.stdout.columns, rows: terminal.stdout.rows });

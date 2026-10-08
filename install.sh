@@ -23,6 +23,8 @@
 #                          [SPAWNER_IMAGE]
 #   --zram yes|no          compressed swap, offered below 8 GiB of memory [SPAWNER_ZRAM]
 #   --min-disk <GiB>       free disk required (default: 20) [SPAWNER_MIN_DISK_GB]
+#   --memory-limit <size>  memory of the Spawner container, such as 1g or 1536m
+#                          (default: 1g) [SPAWNER_MEMORY_LIMIT]
 #   --yes                  ask nothing, and fail when an answer is missing
 #   --upgrade              back the database up, then move to --version
 #   --uninstall            stop Spawner and its environments; the data stays
@@ -55,6 +57,7 @@ VERSION="${SPAWNER_VERSION:-}"
 IMAGE="${SPAWNER_IMAGE:-}"
 ZRAM="${SPAWNER_ZRAM:-}"
 MIN_DISK_GB="${SPAWNER_MIN_DISK_GB:-20}"
+MEMORY_LIMIT="${SPAWNER_MEMORY_LIMIT:-}"
 ASSUME_YES=false
 ACTION=install
 PURGE=false
@@ -91,7 +94,7 @@ Spawner installer: sets up a server dedicated to preview environments.
   install.sh [--domain preview.example.com] [--email you@example.com]
              [--dns-provider cloudflare|ovh|hetzner|scaleway|digitalocean|route53|gandiv5|<lego code>|none]
              [--dns-env KEY=VALUE]... [--version 2.0.0|latest] [--image IMAGE]
-             [--zram yes|no] [--min-disk GiB] [--yes]
+             [--zram yes|no] [--min-disk GiB] [--memory-limit 1g] [--yes]
   install.sh --tls off --domain localtest.me --yes     local install over HTTP
   install.sh --upgrade [--version VERSION]             back the database up, then upgrade
   install.sh --uninstall [--purge]                     stop Spawner (--purge: delete everything)
@@ -159,6 +162,7 @@ parse_args() {
       --image) IMAGE=${2:?--image needs a value}; shift 2 ;;
       --zram) ZRAM=${2:?--zram needs yes or no}; shift 2 ;;
       --min-disk) MIN_DISK_GB=${2:?--min-disk needs a number}; shift 2 ;;
+      --memory-limit) MEMORY_LIMIT=${2:?--memory-limit needs a size}; shift 2 ;;
       --yes | -y) ASSUME_YES=true; shift ;;
       --upgrade) ACTION=upgrade; shift ;;
       --uninstall) ACTION=uninstall; shift ;;
@@ -172,6 +176,12 @@ parse_args() {
     *) die "--tls is off or letsencrypt, not $TLS" ;;
   esac
   [ "$PURGE" = false ] || [ "$ACTION" = uninstall ] || die "--purge goes with --uninstall"
+  if [ -n "$MEMORY_LIMIT" ]; then
+    [[ "$MEMORY_LIMIT" =~ ^[1-9][0-9]*[mg]$ ]] || die "--memory-limit is a size such as 1g or 1536m, not $MEMORY_LIMIT"
+    local mib=${MEMORY_LIMIT%?}
+    [ "${MEMORY_LIMIT: -1}" = m ] || mib=$((mib * 1024))
+    [ "$mib" -ge 512 ] || die "--memory-limit: Spawner needs 512m at least"
+  fi
 }
 
 # Values of a previous installation, kept unless an option changes them.
@@ -192,6 +202,7 @@ load_previous() {
       SPAWNER_TLS) TLS=${TLS:-$value} ;;
       SPAWNER_VERSION) PREVIOUS_VERSION=$value ;;
       SPAWNER_IMAGE) PREVIOUS_IMAGE=$value ;;
+      SPAWNER_MEMORY_LIMIT) MEMORY_LIMIT=${MEMORY_LIMIT:-$value} ;;
       SPAWNER_SECRET) SECRET=$value ;;
       POSTGRES_PASSWORD) POSTGRES_PASSWORD=$value ;;
       SPAWNER_BOOTSTRAP_TOKEN) BOOTSTRAP_TOKEN=$value ;;
@@ -469,6 +480,7 @@ write_files() {
   SECRET=${SECRET:-$(random_secret)}
   POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(random_secret)}
   BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN:-$(random_secret)}
+  MEMORY_LIMIT=${MEMORY_LIMIT:-1g}
   local wildcard=false
   [ "$TLS" = off ] || [ "$DNS_PROVIDER" = none ] || wildcard=true
 
@@ -486,6 +498,7 @@ ACME_EMAIL=$EMAIL
 SPAWNER_SECRET=$SECRET
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 SPAWNER_BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN
+SPAWNER_MEMORY_LIMIT=$MEMORY_LIMIT
 EOF
   : >"$DNS_ENV_FILE"
   if [ "$wildcard" = true ]; then
@@ -590,6 +603,7 @@ $ports
     image: \${SPAWNER_IMAGE}
     container_name: spawner
     restart: unless-stopped
+    mem_limit: \${SPAWNER_MEMORY_LIMIT}
     depends_on:
       postgres: { condition: service_healthy }
     env_file: [spawner.env]

@@ -12,6 +12,7 @@ import { WebLinksAddon } from 'xterm-addon-web-links';
 import { io, Socket } from 'socket.io-client';
 import 'xterm/css/xterm.css';
 import { authApi } from '../services/api';
+import { chunkTerminalInput } from '../utils/terminal';
 
 interface Props {
   environmentId: string;
@@ -55,13 +56,12 @@ onMounted(() => {
   // Connect to WebSocket
   connectWebSocket();
 
-  // Handle terminal input
+  // A large paste goes in pieces: the server closes the connection on a message above its limit.
   terminal.onData((data) => {
     if (socket && socket.connected) {
-      socket.emit('terminal-input', {
-        input: data,
-        resourceName: props.resourceName,
-      });
+      for (const input of chunkTerminalInput(data)) {
+        socket.emit('terminal-input', { input, resourceName: props.resourceName });
+      }
     }
   });
 
@@ -77,7 +77,7 @@ async function connectWebSocket() {
 
     socket = io('/terminal', {
       query: { token: ticket },
-      transports: ['polling', 'websocket'],
+      transports: ['websocket'],
     });
   } catch (error) {
     console.error('Failed to connect WebSocket:', error);

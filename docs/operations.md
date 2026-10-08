@@ -7,7 +7,7 @@ Running a Spawner server day to day: where things are, backups, restores, upgrad
 | Path | What it holds |
 |---|---|
 | `/opt/spawner/compose.yaml` | The stack: `spawner`, `spawner-postgres`, `spawner-traefik`. Written by the installer; rerun it rather than editing this file |
-| `/opt/spawner/.env` | Version, domain, and the secrets: `SPAWNER_SECRET`, `POSTGRES_PASSWORD`, `SPAWNER_BOOTSTRAP_TOKEN` |
+| `/opt/spawner/.env` | Version, domain, memory of the Spawner container (`SPAWNER_MEMORY_LIMIT`), and the secrets: `SPAWNER_SECRET`, `POSTGRES_PASSWORD`, `SPAWNER_BOOTSTRAP_TOKEN` |
 | `/opt/spawner/dns.env` | Credentials of the DNS provider, for Traefik |
 | `/opt/spawner/spawner.env` | Settings of your own (below); the installer never overwrites it |
 | `/opt/spawner/backups/` | Database backups taken by upgrades |
@@ -40,6 +40,8 @@ docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up 
 | `SESSION_MAX_AGE` | 86400000 (24 hours) | Dashboard sessions, in milliseconds |
 | `ENABLE_MEMORY_CHECK` | `true` | The memory guard before builds |
 | `SPAWNER_UPDATE_CHECK` | `true` | `false`: Spawner no longer looks for new versions by itself (the System page can still check) |
+
+The Spawner container may use 1 GiB of memory: rerun the installer with `--memory-limit 2g` to change it ([install](install.md#without-questions)).
 
 ## Backups
 

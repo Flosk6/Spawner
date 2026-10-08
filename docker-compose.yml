@@ -49,6 +49,8 @@ services:
       dockerfile: Dockerfile
     container_name: spawner
     restart: unless-stopped
+    # A memory exhaustion of Spawner stops at its container, not at the host.
+    mem_limit: ${SPAWNER_MEMORY_LIMIT:-1g}
     ports:
       - "8080:3000"
     environment:
