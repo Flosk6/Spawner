@@ -1,0 +1,9 @@
+# expect: compose.forbidden_key networks.default.enable_ipv6
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+networks:
+  default:
+    enable_ipv6: true

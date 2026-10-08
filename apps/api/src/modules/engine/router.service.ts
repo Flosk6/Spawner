@@ -1,10 +1,12 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from "@nestjs/common";
+import { composeProjectName } from "@spawner/core";
 import * as fs from "fs";
 import * as http from "http";
 import * as https from "https";
 import * as path from "path";
 import { stringify } from "yaml";
 import { DockerService } from "../../common/docker.service";
+import { PrismaService } from "../../common/prisma.service";
 import { SecretsService } from "../../common/secrets.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
@@ -48,13 +50,35 @@ const ROUTE_POLL_MS = 250;
 export const WAKE_HEADER = "x-spawner-wake";
 
 /**
+ * Priority of the environment networks among Traefik's, below the 0 of
+ * Spawner's own network: Docker's DNS asks spawner-core first, and Traefik's
+ * default route stays on it.
+ */
+const ENVIRONMENT_NETWORK_PRIORITY = -1;
+
+/**
+ * The host of an upstream URL when it is a bare name, which Docker's DNS
+ * may answer from any network of Traefik; null when it is qualified by a
+ * network or a domain, an IP address, or localhost.
+ */
+export function bareUpstreamHost(upstream: string): string | null {
+  let host: string;
+  try {
+    host = new URL(upstream).hostname;
+  } catch {
+    return null;
+  }
+  return host.includes(".") || host.startsWith("[") || host === "localhost" ? null : host;
+}
+
+/**
  * Publishes environments through Traefik's file provider: one dynamic
  * configuration file per environment, so Traefik never needs the Docker
  * socket. Traefik joins each environment network while it is published and
  * leaves it afterwards; environments share no network with each other.
  */
 @Injectable()
-export class RouterService implements OnModuleInit {
+export class RouterService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(RouterService.name);
 
   constructor(
@@ -62,9 +86,16 @@ export class RouterService implements OnModuleInit {
     private readonly storage: StorageService,
     private readonly docker: DockerService,
     private readonly secrets: SecretsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   onModuleInit() {
+    const bare = bareUpstreamHost(this.config.dashboardUpstream);
+    if (bare) {
+      this.logger.warn(
+        `SPAWNER_DASHBOARD_UPSTREAM names "${bare}" without its network: Traefik joins every environment network, where an environment could answer to that name. Qualify it, such as http://spawner.spawner-core:3000`,
+      );
+    }
     fs.mkdirSync(this.storage.traefikDir, { recursive: true });
     this.storage.writeAtomic(
       path.join(this.storage.traefikDir, "_spawner.yaml"),
@@ -87,15 +118,71 @@ export class RouterService implements OnModuleInit {
   }
 
   /**
-   * Routes each exposure host to its service container.
+   * Publishes the awake environments again once Spawner has started, before
+   * it serves requests: their route files may come from an older version,
+   * and Traefik leaves their networks when its container is recreated.
+   * Sleeping and stopped environments lead to the waiting page through the
+   * routes of _spawner.yaml, written at every start.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    if (process.env.NODE_ENV === "test") {
+      return;
+    }
+    try {
+      await this.republishAwake();
+    } catch (error) {
+      this.logger.error(`Could not publish the awake environments again: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Publishes again every awake environment (ready or degraded) that has no
+   * job queued or running; the job publishes it otherwise. A failure is
+   * logged, and the others go on.
+   *
+   * @returns How many environments were published
+   */
+  async republishAwake(): Promise<number> {
+    const environments = await this.prisma.environment.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ["ready", "degraded"] },
+        NOT: { jobs: { some: { status: { in: ["queued", "running"] } } } },
+      },
+      select: { id: true, slug: true, project: { select: { slug: true } }, exposures: true },
+    });
+    let published = 0;
+    for (const environment of environments) {
+      try {
+        await this.publish(environment.id, composeProjectName(environment.project.slug, environment.slug), environment.exposures);
+        published++;
+      } catch (error) {
+        this.logger.warn(`Could not publish ${environment.project.slug}/${environment.slug} again: ${(error as Error).message}`);
+      }
+    }
+    if (published > 0) {
+      this.logger.log(`Published the routes of ${published} awake environment(s) again`);
+    }
+    return published;
+  }
+
+  /**
+   * Routes each exposure host to its service container. Traefik joins the
+   * environment network, below Spawner's own, and reaches each service by
+   * its name qualified by that network (<service>.<project>_default):
+   * Docker's DNS answers a bare name from the first of Traefik's networks
+   * that knows it, which could belong to another environment. The service
+   * name, rather than the container's, keeps every label of the host within
+   * the 63 characters a DNS resolver accepts.
    *
    * @param environmentId - Environment being published
    * @param composeProject - Compose project name (its network is <project>_default)
    * @param exposures - Hosts and the service port they reach
    */
   async publish(environmentId: string, composeProject: string, exposures: RoutedExposure[]): Promise<void> {
+    const network = `${composeProject}_default`;
     try {
-      await this.docker.connectNetwork(`${composeProject}_default`, this.config.traefikContainer);
+      await this.docker.connectNetwork(network, this.config.traefikContainer, ENVIRONMENT_NETWORK_PRIORITY);
     } catch (error) {
       throw new Error(`Traefik could not join the environment network: ${(error as Error).message} (container "${this.config.traefikContainer}", see SPAWNER_TRAEFIK_CONTAINER)`);
     }
@@ -109,7 +196,7 @@ export class RouterService implements OnModuleInit {
       }
       const id = `${environmentId}-${exposure.name}`;
       routers[id] = { ...this.router(exposure.host, id), middlewares: exposure.auth === "none" ? PUBLIC_MIDDLEWARES : PREVIEW_MIDDLEWARES };
-      services[id] = { loadBalancer: { servers: [{ url: `http://${container.Names[0].replace(/^\//, "")}:${exposure.port}` }] } };
+      services[id] = { loadBalancer: { servers: [{ url: `http://${exposure.service}.${network}:${exposure.port}` }] } };
     }
     this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers, services } }));
   }

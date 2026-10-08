@@ -1,0 +1,7 @@
+# expect: compose.invalid services.api.hostname
+services:
+  api:
+    build: ..
+    hostname: front.spn-blog--main_default
+  front:
+    image: nginx:alpine

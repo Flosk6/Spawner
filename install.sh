@@ -622,7 +622,7 @@ $ports
       SPAWNER_SECRET: \${SPAWNER_SECRET}
       SPAWNER_BOOTSTRAP_TOKEN: \${SPAWNER_BOOTSTRAP_TOKEN}
       SPAWNER_TRAEFIK_CONTAINER: spawner-traefik
-      SPAWNER_DASHBOARD_UPSTREAM: http://spawner:3000
+      SPAWNER_DASHBOARD_UPSTREAM: http://spawner.spawner-core:3000
       DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - \${SPAWNER_DATA_DIR}:\${SPAWNER_DATA_DIR}

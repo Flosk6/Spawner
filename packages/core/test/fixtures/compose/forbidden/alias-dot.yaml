@@ -1,0 +1,12 @@
+# expect: compose.invalid services.front.networks.default.aliases[0]
+# expect: compose.forbidden_key services.front.networks.default.aliases[1]
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+    networks:
+      default:
+        aliases:
+          - app.spn-blog--main_default
+          - spn-blog--main-app-1.spn-blog--main_default

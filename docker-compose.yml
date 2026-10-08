@@ -68,7 +68,8 @@ services:
       - SPAWNER_PREVIEW_DOMAIN=${SPAWNER_PREVIEW_DOMAIN:-localtest.me}
       - SPAWNER_TLS=off
       - SPAWNER_TRAEFIK_CONTAINER=spawner-traefik
-      - SPAWNER_DASHBOARD_UPSTREAM=http://spawner:3000
+      # Qualified by its network: Traefik also joins every environment network.
+      - SPAWNER_DASHBOARD_UPSTREAM=http://spawner.spawner-core:3000
       - SPAWNER_BOOTSTRAP_TOKEN=${SPAWNER_BOOTSTRAP_TOKEN:-}
       - DOCKER_SOCKET=/var/run/docker.sock
       # GitHub OAuth

@@ -130,8 +130,12 @@ const DEPENDS_ON_CONDITIONS = new Set(['service_started', 'service_healthy', 'se
 const VOLUME_LONG_KEYS = new Set(['type', 'source', 'target', 'read_only', 'consistency', 'volume', 'bind', 'tmpfs']);
 const VOLUME_MODE = /^(ro|rw|z|Z|cached|delegated|consistent|nocopy)(,(ro|rw|z|Z|cached|delegated|consistent|nocopy))*$/;
 const RESERVED_LABEL_PREFIXES = ['traefik.', 'com.docker.', 'dev.spawner.'];
-const SERVICE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const RESOURCE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const DNS_NAME = /^[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
+const DNS_NAME_HINT = 'use at most 63 lowercase letters, digits, - and _, without dots and not ending with -: it is a DNS name on the environment network';
+const HOSTNAME_HINT = `${DNS_NAME_HINT}; a domain goes in domainname`;
+const RESERVED_NAME_PREFIXES = ['spawner', 'spn-'];
+const RESERVED_NAME_HINT = 'names starting with spawner or spn- are reserved for Spawner';
 
 /**
  * A service once validated. spec only keeps the keys Spawner lets through,
@@ -307,6 +311,8 @@ class ComposeValidator {
         } else if (key === 'internal' || key === 'enable_ipv6') {
           if (typeof item !== 'boolean') {
             this.invalid(itemPath, `${key} must be true or false`);
+          } else if (key === 'enable_ipv6' && item) {
+            this.forbidden(itemPath, 'enable_ipv6: true', 'environment networks are IPv4 only');
           } else {
             result[name][key] = item;
           }
@@ -346,10 +352,7 @@ class ComposeValidator {
 
   private service(name: string, value: unknown): ServiceDraft | null {
     const path = keyPath('services', name);
-    if (!SERVICE_NAME.test(name)) {
-      this.invalid(path, `invalid service name "${name}"`);
-      return null;
-    }
+    this.dnsName(name, path, 'service name');
     if (!isPlainObject(value)) {
       this.invalid(path, 'a service must be a mapping');
       return null;
@@ -383,10 +386,14 @@ class ComposeValidator {
   private serviceKey(draft: ServiceDraft, key: string, value: unknown, path: string): void {
     const spec = draft.spec;
     switch (key) {
+      case 'hostname':
+        if (this.expectString(value, path) && this.dnsName(value, path, 'hostname', HOSTNAME_HINT)) {
+          spec.hostname = value;
+        }
+        return;
       case 'image':
       case 'working_dir':
       case 'user':
-      case 'hostname':
       case 'domainname':
       case 'platform':
       case 'stop_signal':
@@ -744,9 +751,13 @@ class ComposeValidator {
     } else if (isPlainObject(value)) {
       names = Object.keys(value);
       for (const [name, options] of Object.entries(value)) {
-        if (options !== null && options !== undefined && !this.subKeys(options, ['aliases'], keyPath(path, name))) {
+        if (options === null || options === undefined) {
+          continue;
+        }
+        if (!this.subKeys(options, ['aliases'], keyPath(path, name))) {
           return;
         }
+        this.aliases((options as Record<string, unknown>).aliases, keyPath(keyPath(path, name), 'aliases'));
       }
     } else {
       this.invalid(path, 'networks must be a list or a mapping');
@@ -759,6 +770,39 @@ class ComposeValidator {
     }
     draft.networks = names;
     draft.spec.networks = value;
+  }
+
+  private aliases(value: unknown, path: string): void {
+    if (value === undefined) {
+      return;
+    }
+    if (!this.isStringList(value)) {
+      this.invalid(path, 'aliases must be a list of names');
+      return;
+    }
+    value.forEach((alias, index) => this.dnsName(alias, keyPath(path, index), 'alias'));
+  }
+
+  /**
+   * Checks a name that Docker registers in the DNS of the environment's
+   * networks: a service name, a network alias or a hostname. Traefik joins
+   * those networks and reaches its upstreams by network-qualified names
+   * ("spawner.spawner-core"), so a name must be a single lowercase label,
+   * which can never pass for a qualified name, and never one of Spawner's.
+   *
+   * @returns Whether the name is accepted
+   */
+  private dnsName(name: string, path: string, kind: string, hint = DNS_NAME_HINT): boolean {
+    const lower = name.toLowerCase();
+    if (RESERVED_NAME_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
+      this.forbidden(path, `${kind} "${name}"`, RESERVED_NAME_HINT);
+      return false;
+    }
+    if (!DNS_NAME.test(name)) {
+      this.invalid(path, `invalid ${kind} "${name}"`, hint);
+      return false;
+    }
+    return true;
   }
 
   private dependsOn(draft: ServiceDraft, value: unknown, path: string): void {

@@ -20,6 +20,11 @@ export interface ContainerUsage {
   memoryLimitBytes: number;
 }
 
+/** Endpoint settings of a network connection, with a field dockerode's types lack. */
+interface EndpointSettings extends Docker.EndpointSettings {
+  GwPriority?: number;
+}
+
 const LABEL_ENV = "dev.spawner.env";
 const LABEL_COMPOSE_SERVICE = "com.docker.compose.service";
 
@@ -330,10 +335,16 @@ export class DockerService implements OnModuleInit {
 
   /**
    * Attaches a container to a network; does nothing if it already is.
+   *
+   * @param gatewayPriority - Priority of the network among those of the
+   *   container (Docker's GwPriority, 0 by default; API 1.48 and later,
+   *   older daemons ignore it). Docker's DNS asks the networks of higher
+   *   priority first, and the default route goes through the highest.
    */
-  async connectNetwork(network: string, container: string): Promise<void> {
+  async connectNetwork(network: string, container: string, gatewayPriority?: number): Promise<void> {
+    const endpoint: EndpointSettings | undefined = gatewayPriority === undefined ? undefined : { GwPriority: gatewayPriority };
     try {
-      await this.docker.getNetwork(network).connect({ Container: container });
+      await this.docker.getNetwork(network).connect({ Container: container, EndpointConfig: endpoint });
     } catch (error) {
       if (!/already exists|already attached/i.test(error.message)) {
         throw error;

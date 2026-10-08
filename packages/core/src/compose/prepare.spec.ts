@@ -184,6 +184,42 @@ describe('rendering', () => {
   });
 });
 
+describe('names on the environment network', () => {
+  const base = 'services:\n  api:\n    build: ..\n  front:\n    image: nginx\n';
+
+  function issues(extra: string) {
+    return prepareCompose(base + extra, vars, ctx).issues;
+  }
+
+  it('keeps plain hostnames and aliases in the rendered file', () => {
+    const { document } = render('dns-names.yaml');
+
+    expect(service(document, 'api')).toMatchObject({ hostname: 'api-1', networks: { default: { aliases: ['backend', 'api_v2'] }, jobs: null } });
+    expect(service(document, 'queue_worker2')).toMatchObject({ hostname: 'worker', domainname: 'preview.internal' });
+    expect((document.networks as any).default.enable_ipv6).toBe(false);
+  });
+
+  it('reports a reserved name once, whatever its case, and still checks the service', () => {
+    expect(issues('  SPAWNER:\n    image: nginx\n    ports: ["80:80"]\n')).toEqual([
+      expect.objectContaining({ code: 'compose.forbidden_key', path: 'services.SPAWNER', message: 'service name "SPAWNER" is not allowed' }),
+      expect.objectContaining({ code: 'compose.forbidden_key', path: 'services.SPAWNER.ports' }),
+    ]);
+  });
+
+  it('accepts a name of 63 characters, not 64', () => {
+    const name = 'a'.repeat(63);
+
+    expect(issues(`    hostname: ${name}\n`)).toEqual([]);
+    expect(issues(`    hostname: ${name}b\n`)).toEqual([expect.objectContaining({ code: 'compose.invalid', path: 'services.front.hostname' })]);
+  });
+
+  it('expects aliases as a list of names', () => {
+    expect(issues('    networks:\n      default:\n        aliases: backend\n')).toEqual([
+      expect.objectContaining({ code: 'compose.invalid', path: 'services.front.networks.default.aliases' }),
+    ]);
+  });
+});
+
 describe('symlinks', () => {
   it('rejects a build context that escapes the sources through a symlink', () => {
     const result = prepareCompose('services:\n  api:\n    build: ../escape\n  front:\n    image: nginx\n', vars, ctx);

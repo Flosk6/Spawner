@@ -1,0 +1,8 @@
+# expect: compose.invalid services.web-
+services:
+  api:
+    build: ..
+  front:
+    image: nginx:alpine
+  web-:
+    image: nginx:alpine
