@@ -89,7 +89,7 @@ See [coding agents](docs/agents.md) and [the CLI](docs/cli.md).
 - **Lifetime and quotas**: environments expire after 72 hours unless someone deploys them again; 5 per person. Spawner cleans up what deleted environments leave, and nothing else.
 - **Updates in one click**: when a new version is out, the dashboard offers it; Spawner backs its database up, restarts on it, and goes back by itself if it does not start.
 
-See [density](docs/density.md).
+See [making environments cheap](docs/manifest.md#making-environments-cheap).
 
 ## Supervision
 
@@ -99,19 +99,24 @@ Each environment has its logs (by service, errors only, live, downloadable), the
 
 Branches run unreviewed code, so Spawner treats them as such: compose files are checked against an allowlist (no host mounts, privileged containers, host network or Docker socket), each environment has its own network, Traefik has no Docker socket, and the server is meant for previews only. Accounts have no passwords (invitations and passkeys, GitHub optional); tokens have scopes and expiries; previews are protected by default, and Spawner's cookies never reach the applications. Everything is in an audit trail. See [security](docs/security.md).
 
+## What Spawner does not do
+
+- Host production, scale, or span several servers: one server per installation, dedicated to previews.
+- Create an environment when a pull request opens: planned; today, CI can call `spawner up` from the branch.
+- Pull from private image registries: images are public, or built from the sources. Repositories may live on any git host (SSH or HTTPS, with a deploy key).
+- Single sign-on (OIDC) and permissions per project: planned.
+- Isolate more than containers do: environments share the server's kernel. See [security](docs/security.md).
+
 ## Documentation
 
 - [Installing](docs/install.md): requirements, DNS providers, options, upgrades, removal
 - [Concepts](docs/concepts.md): projects, environments, jobs, lifecycle, accounts, protected previews
-- [The manifest](docs/manifest.md): `.spawner/spawner.yaml`, the compose file and its rules
+- [The manifest](docs/manifest.md): `.spawner/spawner.yaml`, the compose file, its rules, and what makes environments cheap
 - [The CLI and the MCP server](docs/cli.md)
 - [Coding agents](docs/agents.md): Claude Code, Codex, Cursor
 - [Security](docs/security.md)
 - [Operations](docs/operations.md): backups, restores, disk, monitoring
-- [Density](docs/density.md): Dockerfiles and databases that make environments cheap
-- [Spawner and the alternatives](docs/comparison.md): when Coolify, Dokploy, Preevy or hosted previews fit better
 - [Configuration](docs/configuration.md): every setting of the server
-- [API](docs/api.md): the routes the dashboard, the CLI and your scripts use
 - [Architecture](docs/architecture.md): how Spawner is built, for those who read its code
 - [Changelog](CHANGELOG.md)
 

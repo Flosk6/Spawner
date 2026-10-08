@@ -10,7 +10,7 @@ Spawner is a self-hosted preview environment manager: one copy of a project per 
 |---|---|
 | The engine, jobs, lifecycle, supervision, updates, the dashboard, the CLI | [Architecture](docs/architecture.md) |
 | Access, previews, routing, the compose policy, the terminal, the installer | [Security](docs/security.md), then the architecture |
-| A route of the API | [API](docs/api.md) |
+| A route of the API | Its controller ([where each route lives](docs/architecture.md#routes)), and `packages/types` for what it answers |
 | A setting of the server | [Configuration](docs/configuration.md) |
 | What `.spawner/` accepts | [The manifest](docs/manifest.md) |
 | A command or an output of the CLI, a tool of the MCP server | [The CLI](docs/cli.md) |
@@ -77,7 +77,7 @@ Dependencies go to the package that uses them (`pnpm --filter @spawner/api add <
 
 ## Common tasks
 
-**Changing the compose policy**: edit `packages/core/src/compose/validate.ts` (and `render.ts` if the rendered file changes), add a fixture to `forbidden/` or `allowed/`, run `pnpm --filter @spawner/core test`, then `scripts/e2e-engine.sh`. The rules are listed in [the manifest](docs/manifest.md#rules) and [security](docs/security.md#the-compose-policy).
+**Changing the compose policy**: edit `packages/core/src/compose/validate.ts` (and `render.ts` if the rendered file changes), add a fixture to `forbidden/` or `allowed/`, run `pnpm --filter @spawner/core test`, then `scripts/e2e-engine.sh`. The full rules are in [security](docs/security.md#the-compose-policy), summed up in [the manifest](docs/manifest.md#rules).
 
 **Changing the database**: edit `apps/api/prisma/schema.prisma` and add a migration directory to `apps/api/prisma/migrations/` (`prisma migrate diff --from-schema-datamodel <previous schema> --to-schema-datamodel prisma/schema.prisma --script`). The image applies migrations at startup, and they only go forward.
 

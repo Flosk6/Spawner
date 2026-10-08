@@ -120,9 +120,13 @@ The file is interpolated with Spawner's variables only; any other `${...}` is an
 
 ### Rules
 
-Allowed: `image`, `build` (context and Dockerfile inside a source, `args`, `target`), `command`, `entrypoint`, `environment`, `env_file` (inside a source), `depends_on`, `healthcheck`, `working_dir`, `user`, `expose`, `volumes` (named volumes, tmpfs, and files mounted from a source), `tmpfs`, `read_only`, `init`, `labels`, `hostname`, `extra_hosts`, `platform`, `pull_policy`, `tty`, `stdin_open`, `stop_signal`, `stop_grace_period`, `cap_drop`, `shm_size` (1 GiB at most), `mem_limit`, `cpus`, `deploy.resources.limits`, networks declared in the file, `x-*` extensions.
+Spawner runs compose files from branches nobody has reviewed, so it accepts only what cannot reach the host. [Security](security.md#the-compose-policy) lists everything that is allowed, refused or set; what you will meet most:
 
-Refused: `ports` (declare an exposure instead), host mounts outside the sources, `privileged`, `cap_add`, `devices`, `network_mode`, `pid`, `ipc`, host namespaces, `security_opt`, `sysctls`, `container_name`, external volumes and networks, `enable_ipv6: true` (environment networks are IPv4 only), `include`, `secrets`, `configs`, labels starting with `traefik.`, `com.docker.` or `dev.spawner.`.
+- no `ports`: declare an exposure in `spawner.yaml`, and Traefik routes it;
+- volumes are named volumes, `tmpfs`, or files mounted from a source, never host paths;
+- `build` contexts, Dockerfiles and `env_file` stay inside a source;
+- no `privileged`, `cap_add`, `devices`, `network_mode`, `pid`, `ipc`, `security_opt`, `sysctls` or `container_name`, no external volumes or networks, no `enable_ipv6: true`;
+- no labels starting with `traefik.`, `com.docker.` or `dev.spawner.`.
 
 Service names, network `aliases` and `hostname` become DNS names on the environment's network: lowercase letters, digits, `-` and `_`, without dots and not ending with `-`, 63 characters at most (`domainname` may hold a domain). Names starting with `spawner` or `spn-` are reserved for Spawner.
 
@@ -130,22 +134,61 @@ Spawner sets on every service: a memory limit (512 MiB unless given, within the 
 
 A refused file is reported with the path of the key and a hint, for example `services.api.ports: forbidden (declare an exposure in spawner.yaml)`. `spawner up` checks it before uploading anything (exit code 7).
 
-## Dockerfiles that share their layers
+## Making environments cheap
+
+Memory is what runs out first: a running environment holds its memory, a sleeping one only takes disk. Spawner puts to sleep what nobody uses; the project decides how much each environment costs. For an idea: [the Laravel, Next.js and MySQL example](../examples/laravel-next-mysql) runs in about 320 MiB, and each of its environments adds about 4 MiB of images of its own, the 830 MiB of base images and dependencies being shared.
+
+### Dockerfiles that share their layers
 
 Docker stores identical layers once. An environment then only costs its own layers, provided the Dockerfile installs the dependencies before copying the code:
 
 ```dockerfile
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY . .
-CMD ["npm", "start"]
+COPY package.json package-lock.json ./     # the lock file only
+RUN npm ci                                 # the same layer for every environment with this lock file
+COPY . .                                   # each environment's own code
+RUN npm run build
 ```
 
-Twenty environments of the same branch base then share one `node_modules` layer. Spawner warns, in the job log and in `spawner up`, about a Dockerfile that copies the whole code before installing its dependencies.
+The same goes for `composer.json` and `composer.lock` before `composer install`, `requirements.txt` before `pip install`, `Gemfile` and `Gemfile.lock` before `bundle install`. Copying the whole code first gives each environment its own copy of its dependencies, hundreds of MiB each: Spawner warns about it in the job log and in `spawner up`.
 
-The code of a source is only needed to build: once an environment is built, Spawner removes it, unless a service mounts files of it or an `env_file` lives in it. Every update checks out or receives the code again.
+Also:
+
+- a `.dockerignore` that leaves out `node_modules`, `vendor`, `.git` and build outputs;
+- the same base image tag across the services and projects of the server (`node:22-alpine` everywhere rather than three variants);
+- Next.js in `standalone` mode copies the dependencies it needs into the build output, so into each environment's own part: with many environments of a project, a shared `node_modules` layer and `next start` cost less in total, as in the example.
+
+The Disk tab of an environment shows its own part and the part it shares. The code of a source is only needed to build: once an environment is built, Spawner removes it, unless a service mounts files of it or an `env_file` lives in it.
+
+### Databases for previews
+
+A preview database holds test data that the seed recreates. It needs neither replication nor instrumentation, and production defaults waste hundreds of MiB per environment.
+
+```yaml
+  db:
+    image: mysql:8.4
+    command:
+      - --skip-log-bin                       # no binary log
+      - --performance-schema=OFF             # hundreds of MiB on its own
+      - --innodb-buffer-pool-size=64M
+      - --innodb-redo-log-capacity=16M
+      - --innodb-flush-log-at-trx-commit=2   # a faster seed
+```
+
+```yaml
+  db:
+    image: postgres:18-alpine
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_wal_size=256MB", "-c", "synchronous_commit=off"]
+```
+
+`synchronous_commit=off` may lose the last transactions in a crash, without corrupting the database, unlike `fsync=off`.
+
+### Memory limits
+
+Each service gets 512 MiB unless the compose file says otherwise (`mem_limit`, or `deploy.resources.limits.memory`), within the memory of the environment. A limit reserves nothing: it decides what happens when a service leaks (an out-of-memory kill of that service, on the timeline, rather than the server swapping). The capacity Spawner announces counts what environments really use, so generous limits waste no room.
+
+A build can take far more memory than the running application (`next build` may take a few GiB for a minute): builds run one at a time below 8 GiB of memory, and each waits until 2 GiB are free.
 
 ## Logs
 

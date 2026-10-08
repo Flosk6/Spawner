@@ -173,13 +173,7 @@ Errors, with `--json`: `{ "error": { "code": "not_found", "message": "...", "hin
 
 ## MCP server
 
-`spawner mcp` runs an MCP server on stdio, with the same code, the same credentials and the same rights as the CLI. For Claude Code, in `.mcp.json` at the root of the project:
-
-```json
-{ "mcpServers": { "spawner": { "command": "spawner", "args": ["mcp"] } } }
-```
-
-On Windows, an agent started in a worktree looks for `spawner` (and the `node` it runs) in that worktree before the `PATH`, where a branch could commit a `spawner.cmd`: give the MCP client absolute paths (`"command": "C:\\Program Files\\nodejs\\node.exe"`, `"args": ["<npm prefix>\\node_modules\\spawner-cli\\spawner.cjs", "mcp"]`), and set `NoDefaultCurrentDirectoryInExePath=1` in the user's environment. The CLI itself runs `git` and the browser by their absolute paths.
+`spawner mcp` runs an MCP server on stdio, with the same code, the same credentials and the same rights as the CLI. [Coding agents](agents.md) shows how to add it to Claude Code, Codex, Cursor and others, Windows included.
 
 | Tool | Parameters |
 |---|---|

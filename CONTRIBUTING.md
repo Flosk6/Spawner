@@ -21,7 +21,7 @@ When the problem comes from a project's `.spawner/` directory, its `spawner.yaml
 
 ## Proposing a feature
 
-Start from the problem: what you want to do, with which kind of project, and whether people or coding agents drive it. Check [the documentation](README.md#documentation) and [how Spawner compares](docs/comparison.md) first: some needs are covered differently, or left out on purpose.
+Start from the problem: what you want to do, with which kind of project, and whether people or coding agents drive it. Check [the documentation](README.md#documentation) and [what Spawner does not do](README.md#what-spawner-does-not-do) first: some needs are covered differently, or left out on purpose.
 
 ## Working on your own copy
 

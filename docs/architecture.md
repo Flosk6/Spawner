@@ -58,7 +58,7 @@ A pnpm workspace built with Turborepo. `build` depends on the build of the depen
 - **previews**: forwardAuth decisions for Traefik, the preview cookie, preview tokens for agents, share links; `wake.controller.ts` serves the waiting page of sleeping and stopped environments (`wake-page.ts`) and wakes them up.
 - **settings**: settings changed from the dashboard (GitHub login, its secret encrypted); `limits.service.ts` applies the limits an admin changed (lifetimes, sleep, quota, memory, build guards) over the [configuration](configuration.md).
 - **audit** (global): the audit trail, 90 days.
-- **projects**, **environments** (environments and jobs), **git** (deploy keys, repository access test): the routes of the [API](api.md).
+- **projects**, **environments** (environments and jobs), **git** (deploy keys, repository access test): routes only.
 - **terminal**: the WebSocket gateway, a TTY exec session in a service through the Docker API (bash when the image has it), closed after 15 minutes without input or 4 hours. The Socket.IO server takes the WebSocket transport only, messages of 64 KiB at most, and 10 seconds to join a namespace (`TERMINAL_SOCKET_OPTIONS`). Engine.IO's `allowRequest` redeems the ticket and checks the origin before the WebSocket opens; a refused namespace connection, the main namespace always, closes the connection. Clients split their input into pieces of 4096 UTF-16 code units (`chunkTerminalInput` in `packages/core/src/terminal.ts`, copied in `apps/web/src/utils/terminal.ts`). `terminal-sessions.service.ts` records what each session shows (2 MiB at most) for the admins.
 - **timeline** (global): the events of an environment (crash, oom, unhealthy, healthy, job started, succeeded or failed, extended) and crash loops (3 crashes or out-of-memory kills in 10 minutes).
 - **supervision**: the collectors and what they feed (below).
@@ -78,6 +78,25 @@ A pnpm workspace built with Turborepo. `build` depends on the build of the depen
 - Rate limits apply per user, per address without one, tighter on the login routes (`common/throttler.guard.ts`).
 - `common/secrets.service.ts` holds the master secret and the keys derived from it (signed tokens, encrypted settings, the session).
 - `common/docker.service.ts` wraps the Docker API (Dockerode): containers by environment label, exec with stdin, logs (structured, followed, by time range), usage and stats samples, networks. `common/docker-logs.ts` decodes the logs stream (multiplexed frames or TTY text) into lines with their stream and time.
+
+### Routes
+
+Everything is under `/api/v1`, in the modules of `apps/api/src/modules/`. The shapes the routes answer are in `packages/types`, shared by the dashboard and the CLI.
+
+| Prefix | Where |
+|---|---|
+| `/auth` | `auth/auth.controller.ts` (session, passkeys, GitHub, device flow, terminal tickets, whoami); `previews/previews.module.ts` (`verify`, `verify-public`, `preview`: what Traefik and the preview cookie use) |
+| `/envs` | `environments/environments.controller.ts`; `previews/previews.module.ts` (preview tokens, share links); `supervision/supervision.module.ts` (events, metrics, disk) |
+| `/jobs` | `environments/jobs.controller.ts` |
+| `/projects` | `projects/projects.controller.ts` (with branches, manifest, variables); `supervision/supervision.module.ts` (usage) |
+| `/invites`, `/users`, `/me` | `team/team.controller.ts` |
+| `/tokens` | `tokens/tokens.module.ts` |
+| `/settings` | `settings/settings.module.ts` (GitHub login, limits) |
+| `/system` | `supervision/supervision.module.ts` (overview, metrics, capacity); `lifecycle/lifecycle.module.ts` (`/system/cleanup`); `updates/updates.module.ts` (`/system/update`) |
+| `/audit`, `/terminals`, `/git` | `audit/audit.module.ts`, `terminal/terminal-sessions.service.ts`, `git/git.controller.ts` |
+| `/info`, `/cli/spawner`, `/healthz`, `/readyz`, `/wake` | `meta/meta.module.ts`, `health/health.module.ts`, `previews/wake.controller.ts` |
+
+The terminal is the Socket.IO namespace `/terminal` (`terminal/terminal.gateway.ts`): the client sends `start-terminal`, `terminal-input`, `terminal-resize` and `stop-terminal`, the server `terminal-output`, `terminal-error` and `terminal-exit`.
 
 ### Database
 

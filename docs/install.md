@@ -13,7 +13,7 @@ curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
 | | Minimum | Advised |
 |---|---|---|
 | System | Ubuntu 22.04 or 24.04, Debian 12; amd64 or arm64 | Ubuntu 24.04 |
-| Memory | 2 GiB | 8 GiB or more: memory decides how many environments run at once ([density](density.md)) |
+| Memory | 2 GiB | 8 GiB or more: memory decides how many environments run at once |
 | Disk | 20 GiB free | 80 GiB or more: images, volumes and build caches |
 | Network | ports 80 and 443 free, reachable from the internet | |
 
@@ -100,7 +100,7 @@ Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself
 
 ## Upgrading
 
-When a new version is out, admins see it on the System page of the dashboard, with an **Update** button: Spawner backs its database up, restarts on the new version, and goes back to the previous one if the new one does not start ([operations](operations.md#upgrading)). Nothing to run on the server.
+When a new version is out, admins see it on the System page of the dashboard, with an **Update** button: Spawner backs its database up, restarts on the new version, and goes back to the previous one if the new one does not start. Nothing to run on the server.
 
 The installer does the same from the server:
 
@@ -108,7 +108,7 @@ The installer does the same from the server:
 curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh | sudo bash -s -- --upgrade
 ```
 
-It backs the database up to `/opt/spawner/backups/` (the 5 most recent are kept), downloads the images of the new version and restarts Spawner, which applies its database migrations; if the new version does not start, it puts the previous one back. Environments keep running. `--version 2.1.0` picks a version; release notes are on the [releases page](https://github.com/Flosk6/Spawner/releases).
+`--version 2.1.0` picks a version. [Operations](operations.md#upgrading) describes what an upgrade does and how to go back.
 
 Running the installer again without `--upgrade` keeps everything as it is: the version, the domain, the secrets, the memory of the Spawner container. Give an option to change a value, such as `--dns-provider` to move from one certificate per URL to a wildcard, or `--memory-limit 2g`.
 

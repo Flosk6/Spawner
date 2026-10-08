@@ -91,8 +91,11 @@ The System page shows what takes the disk: images (what each environment shares 
 
 - the image an update replaces is removed at once, and the code of a source once the build no longer needs it;
 - Docker's build cache stays under 15 % of the disk (`builder.gc`, set by the installer);
+- repository mirrors are partial (`--filter=blob:none`) and shared by the environments of a repository; on a Docker it installed, the installer keeps the classic image store (overlay2), which stores each layer once rather than twice;
 - containers write compressed logs, 30 MB at most each;
 - every minute, Spawner removes what deleted environments left behind; the cleanup panel (System) lists the rest it owns and no longer uses (repository mirrors, files of unknown environments), to remove by hand.
+
+The Disk tab of an environment splits its images into its own part and the part it shares: dependencies in its own part mean a Dockerfile copies the code before installing them ([the manifest](manifest.md#making-environments-cheap)). The project page gives the cost of a typical environment: memory, own disk, build time.
 
 **Never run `docker system prune` or `docker container prune` on a Spawner server.** Sleeping and stopped environments are stopped containers: a prune deletes them, and their images and networks, and they cannot wake up any more. Use the cleanup panel, which only touches what Spawner owns.
 
