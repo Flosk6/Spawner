@@ -680,3 +680,44 @@ export interface RepoKeyInfo {
   /** Projects ("app") and manifest sources ("app/front") cloning this repository. */
   usedBy: string[];
 }
+
+/** A version of Spawner this server may update to (GET /api/v1/system/update). */
+export interface UpdateRelease {
+  version: string;
+  name: string;
+  /** Release notes. */
+  url: string | null;
+  publishedAt: string | null;
+  prerelease: boolean;
+}
+
+/** An update started from the dashboard, and how it went. */
+export interface UpdateRun {
+  from: string;
+  to: string;
+  /** Who started it. */
+  by: string;
+  startedAt: string;
+  finishedAt: string | null;
+  state: 'running' | 'succeeded' | 'failed';
+  /** While running: downloading the new image, then installing it (Spawner restarts). */
+  phase: 'downloading' | 'installing' | null;
+  error: string | null;
+  /** The end of the installer's output. */
+  log: string[];
+}
+
+/** Whether a newer Spawner exists, and whether this server can update itself (GET /api/v1/system/update). */
+export interface UpdateStatus {
+  current: string;
+  /** False when Spawner was not installed by install.sh from a release image: `reason` says how to update it. */
+  managed: boolean;
+  reason: string | null;
+  /** Whether Spawner checks for new versions by itself (SPAWNER_UPDATE_CHECK). */
+  automaticChecks: boolean;
+  checkedAt: string | null;
+  checkError: string | null;
+  /** The newest version this server may move to, when there is one. */
+  latest: UpdateRelease | null;
+  run: UpdateRun | null;
+}

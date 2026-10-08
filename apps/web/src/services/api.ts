@@ -46,6 +46,8 @@ import type {
   SystemMetrics,
   SystemOverview,
   TerminalSessionInfo,
+  UpdateRun,
+  UpdateStatus,
 } from '../types';
 
 const api = axios.create({
@@ -154,6 +156,11 @@ export const systemApi = {
   /** What Spawner owns and no longer needs (admins). */
   cleanup: () => api.get<CleanupScan>('/v1/system/cleanup').then((res) => res.data),
   runCleanup: () => api.post<CleanupResult>('/v1/system/cleanup').then((res) => res.data),
+  /** The version running, the newest one, and the last update started from here (admins). */
+  update: () => api.get<UpdateStatus>('/v1/system/update').then((res) => res.data),
+  checkUpdate: () => api.post<UpdateStatus>('/v1/system/update/check').then((res) => res.data),
+  /** Updates Spawner to the newest version: it restarts. */
+  startUpdate: () => api.post<UpdateRun>('/v1/system/update').then((res) => res.data),
 };
 
 export const terminalsApi = {

@@ -59,4 +59,7 @@ export type {
   SystemOverview,
   TerminalSessionInfo,
   TimelineEvent,
+  UpdateRelease,
+  UpdateRun,
+  UpdateStatus,
 } from '@spawner/types';

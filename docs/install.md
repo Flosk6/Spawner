@@ -99,11 +99,15 @@ Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself
 
 ## Upgrading
 
+When a new version is out, admins see it on the System page of the dashboard, with an **Update** button: Spawner backs its database up, restarts on the new version, and goes back to the previous one if the new one does not start ([operations](operations.md#upgrading)). Nothing to run on the server.
+
+The installer does the same from the server:
+
 ```bash
 curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh | sudo bash -s -- --upgrade
 ```
 
-The installer backs the database up to `/opt/spawner/backups/` (the 5 most recent are kept), downloads the images of the new version and restarts Spawner, which applies its database migrations. Environments keep running. `--version 2.1.0` picks a version; release notes are on the [releases page](https://github.com/Flosk6/Spawner/releases).
+It backs the database up to `/opt/spawner/backups/` (the 5 most recent are kept), downloads the images of the new version and restarts Spawner, which applies its database migrations; if the new version does not start, it puts the previous one back. Environments keep running. `--version 2.1.0` picks a version; release notes are on the [releases page](https://github.com/Flosk6/Spawner/releases).
 
 Running the installer again without `--upgrade` keeps everything as it is: the version, the domain, the secrets. Give an option to change a value, such as `--dns-provider` to move from one certificate per URL to a wildcard.
 

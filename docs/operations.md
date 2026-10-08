@@ -39,6 +39,7 @@ docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up 
 | `SPAWNER_START_TIMEOUT_SECONDS`, `SPAWNER_JOB_TIMEOUT_SECONDS` | 300, 1800 | How long services may take to start, and a whole job |
 | `SESSION_MAX_AGE` | 86400000 (24 hours) | Dashboard sessions, in milliseconds |
 | `ENABLE_MEMORY_CHECK` | `true` | The memory guard before builds |
+| `SPAWNER_UPDATE_CHECK` | `true` | `false`: Spawner no longer looks for new versions by itself (the System page can still check) |
 
 ## Backups
 
@@ -73,11 +74,21 @@ On a new server: copy the old `/opt/spawner/.env` and `dns.env` to `/opt/spawner
 
 ## Upgrading
 
+**From the dashboard.** Spawner looks for new versions every 6 hours. When one is out, admins see it in a banner and on the System page, with its release notes and an **Update** button. Spawner then:
+
+1. downloads the image of the new version;
+2. starts a short-lived container of it (`spawner-upgrade`) that runs that version's installer with `--upgrade`: the database is backed up to `/opt/spawner/backups/`, the files of the installation are written, and the stack restarts on the new version, which applies its migrations;
+3. if the new version does not start, puts the previous one back: its files, and its database as the backup holds it.
+
+The dashboard is away for about a minute, environments keep running, and the page reloads by itself on the new version. An update waits for running jobs to end, since Spawner restarts. A server on a release is offered releases only; a server on a prerelease (`2.1.0-rc.1`) is offered prereleases too.
+
+**With the installer**, the same steps by hand, for a server installed another way or to pick a version:
+
 ```bash
 curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh | sudo bash -s -- --upgrade
 ```
 
-The installer backs the database up, downloads the new images and restarts Spawner; environments keep running. Read the [release notes](https://github.com/Flosk6/Spawner/releases) first. To go back, install the previous version with `--upgrade --version <previous>` and restore the backup the upgrade took: migrations only go forward.
+`--version 2.1.0` picks a version. If the new version does not start, the installer goes back to the previous one by itself. To go back later, install the previous version with `--upgrade --version <previous>` and restore the backup the upgrade took: migrations only go forward.
 
 ## Disk
 

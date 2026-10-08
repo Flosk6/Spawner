@@ -5,6 +5,7 @@ import { Public } from "../../common/auth.guard";
 import { LimitReachedException } from "../../common/limit-reached";
 import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
+import { NoThrottle } from "../../common/throttler.guard";
 import { JobQueueService } from "../engine/job-queue.service";
 import { WAKE_HEADER } from "../engine/router.service";
 import { UsageService } from "../supervision/usage.service";
@@ -38,6 +39,7 @@ export class WakeController {
   ) {}
 
   @Public()
+  @NoThrottle()
   @All("wake")
   async wake(@Req() request: Request, @Res() response: Response) {
     const host = (header(request, "x-forwarded-host") ?? header(request, "host") ?? "").replace(/:\d+$/, "");

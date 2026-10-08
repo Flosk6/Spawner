@@ -318,6 +318,11 @@ page=$(preview "$agent_host")
 [[ "$page" == *"Hello from a project variable"* ]] || fail "the uncommitted change, with its project variable, is not deployed: $page"
 [[ "$page" == *"1 user(s)"* ]] || fail "the seed did not run: $page"
 [ "$(status "$agent_host" -H 'Accept: application/json')" = "401" ] || fail "the URL should need a token"
+# A page loads its scripts, styles and API calls at once: Traefik asks Spawner before each of them.
+burst=$(seq 1 40 | xargs -P 40 -I{} curl -s -o /dev/null -w '%{http_code}\n' --max-time 20 \
+  -H "Host: $agent_host" -H "X-Spawner-Preview: $PREVIEW_TOKEN" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/health" | sort | uniq -c | tr -s ' ' | tr '\n' ',')
+[ "$burst" = " 40 200," ] || fail "40 requests at once to a preview should all pass, not: $burst"
+pass "40 requests at once to the preview all pass: Spawner's checks are not rate limited"
 job_log=$(spawner logs "$agent_env" --job)
 [[ "$job_log" == *"token ********"* && "$job_log" != *"s3cr3t-token-value"* ]] || fail "the secret variable should be masked in the job log: $job_log"
 pass "the protected URL serves the uncommitted change and its project variable; the secret is masked in the job log"

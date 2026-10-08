@@ -98,6 +98,14 @@
       </div>
     </header>
 
+    <div
+      v-if="authStore.isAdmin && availableUpdate && route.path !== '/system/overview'"
+      class="px-6 py-2 text-sm bg-purple-50 dark:bg-purple-500/10 border-b border-purple-100 dark:border-purple-900/30 flex items-center justify-between gap-4"
+    >
+      <span>Spawner {{ availableUpdate }} is available.</span>
+      <router-link to="/system/overview" class="font-medium underline">Update from the System page</router-link>
+    </div>
+
     <main class="p-6">
       <router-view />
     </main>
@@ -105,16 +113,36 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed, ref } from 'vue';
+import { onMounted, computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
 import { useAuthStore } from './stores/auth';
+import { systemApi } from './services/api';
 import UserMenu from './components/UserMenu.vue';
 import Logo from './components/Logo.vue';
 
 const authStore = useAuthStore();
 const route = useRoute();
+const availableUpdate = ref<string | null>(null);
+
+// Admins learn that a newer Spawner can be installed from the System page.
+watch(
+  () => authStore.isAdmin,
+  async (admin) => {
+    if (!admin) {
+      availableUpdate.value = null;
+      return;
+    }
+    try {
+      const status = await systemApi.update();
+      availableUpdate.value = status.latest && status.managed ? status.latest.version : null;
+    } catch {
+      availableUpdate.value = null;
+    }
+  },
+  { immediate: true },
+);
 const isDark = ref(true);
 
 const menuItems = computed(() => [

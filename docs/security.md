@@ -70,6 +70,10 @@ Previews still share the preview domain with each other and with the dashboard: 
 - **DNS credentials** (`/opt/spawner/dns.env`, mode 600) go to Traefik alone.
 - **The Docker socket** is mounted into Spawner: whoever controls Spawner controls the host. That is why the API checks every request, compose files go through the policy, and the server must be dedicated to previews.
 
+## Updates
+
+Every 6 hours, Spawner reads the list of releases from GitHub (`api.github.com`, nothing sent but the request); `SPAWNER_UPDATE_CHECK=false` stops it. An update from the dashboard needs an admin, and installs only the newest release of that list, from the repository of the image Spawner already runs. Spawner uses the Docker socket it already holds to start the installer of the new version in a short-lived container, as root, with the installation directory and the data directory: the same power the installer has when you run it. Each update is in the audit trail, with how it ended.
+
 ## What Spawner does not do (yet)
 
 - **Outbound traffic** from environments is not filtered: a branch can call any address on the internet. Do not put previews on a network that reaches private services.

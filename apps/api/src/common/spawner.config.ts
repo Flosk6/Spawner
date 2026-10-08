@@ -43,6 +43,10 @@ export class SpawnerConfig {
    * route, instead of one per host: Let's Encrypt allows about 50 a week.
    */
   readonly tlsWildcard = process.env.SPAWNER_TLS_WILDCARD === "true";
+  /** Spawner looks for new versions every few hours (the dashboard offers to update); "false" stops it. */
+  readonly updateCheck = process.env.SPAWNER_UPDATE_CHECK !== "false";
+  /** Where the releases are listed: GitHub's API, or a file:// list in tests. */
+  readonly releasesUrl = process.env.SPAWNER_RELEASES_URL || "https://api.github.com/repos/Flosk6/Spawner/releases?per_page=30";
   readonly entrypoint = process.env.SPAWNER_TRAEFIK_ENTRYPOINT || (this.tls === "off" ? "web" : "websecure");
   readonly dashboardHost = process.env.SPAWNER_DASHBOARD_HOST || `spawner.${this.previewDomain}`;
   readonly dashboardUpstream = process.env.SPAWNER_DASHBOARD_UPSTREAM || "http://spawner:3000";
