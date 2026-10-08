@@ -121,7 +121,7 @@ export const SpawnerPreset = definePreset(Aura, {
   components: {
     dialog: {
       header: { padding: '1.125rem 1.25rem 0.75rem' },
-      title: { fontSize: '1rem', fontWeight: '600' },
+      title: { fontSize: 'var(--fs-md)', fontWeight: '600' },
       content: { padding: '0 1.25rem 1.25rem' },
       footer: { padding: '0 1.25rem 1.25rem' },
     },

@@ -80,7 +80,7 @@
         </p>
         <dl class="grid gap-y-1.5 md:grid-cols-[11rem_minmax(0,1fr)] md:gap-x-6 md:gap-y-3">
           <template v-for="block in cliBlocks" :key="block.label">
-            <dt class="mt-2.5 text-[13px] font-medium text-fg-2 first:mt-0 md:mt-0 md:pt-2">{{ block.label }}</dt>
+            <dt class="mt-2.5 text-sm font-medium text-fg-2 first:mt-0 md:mt-0 md:pt-2">{{ block.label }}</dt>
             <dd class="cmd">
               <span class="cmd-text">{{ block.code }}</span>
               <button
@@ -191,7 +191,7 @@
             <Checkbox v-model="form.scopes" :value="scope" :input-id="`scope-${scope}`" />
             <span class="flex min-w-0 flex-col">
               <code class="font-medium text-fg">{{ scope }}</code>
-              <span class="text-[12.5px] leading-[18px] text-fg-3">{{ SCOPE_LABELS[scope] }}</span>
+              <span class="text-sm leading-[18px] text-fg-3">{{ SCOPE_LABELS[scope] }}</span>
             </span>
           </label>
         </div>

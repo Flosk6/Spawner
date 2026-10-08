@@ -2,7 +2,7 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">System</h1>
-      <p class="page-lead">The server, who uses it, and room for more environments.</p>
+      <p class="page-lead">The server, who uses it, and how many more environments fit.</p>
     </div>
     <span v-if="overview?.at" class="field-hint">Sampled {{ timeAgo(overview.at) }}</span>
   </div>
@@ -47,7 +47,7 @@
                 :title="`${part.label}: ${formatPercent(part.percent)}`"
               ></span>
             </div>
-            <ul class="flex flex-col gap-1.5 text-[13px]">
+            <ul class="flex flex-col gap-1.5 text-sm">
               <li v-for="part in cpuParts" :key="part.label" class="flex items-center justify-between gap-3">
                 <span class="flex min-w-0 items-center gap-2 text-fg-2">
                   <span class="swatch" :style="{ background: part.color }"></span><span class="truncate">{{ part.label }}</span>
@@ -101,11 +101,11 @@
       <div v-if="history.length === 0" class="empty">Nothing recorded over this period yet.</div>
       <div v-else class="card-body grid gap-6 xl:grid-cols-2">
         <div class="min-w-0">
-          <h3 class="mb-2 text-[13px] font-medium text-fg-2">Memory</h3>
+          <h3 class="mb-2 text-sm font-medium text-fg-2">Memory</h3>
           <UsageChart :times="historyTimes" :series="memoryHistory" :format="formatSize" stacked :days="range !== '24h'" bytes />
         </div>
         <div class="min-w-0">
-          <h3 class="mb-2 text-[13px] font-medium text-fg-2">CPU of the server</h3>
+          <h3 class="mb-2 text-sm font-medium text-fg-2">CPU of the server</h3>
           <UsageChart :times="historyTimes" :series="cpuHistory" :format="formatPercent" :days="range !== '24h'" />
         </div>
       </div>
@@ -124,7 +124,7 @@
               <th class="hidden md:table-cell">Memory now</th>
               <th class="hidden md:table-cell">Disk</th>
               <th class="hidden lg:table-cell">One environment</th>
-              <th>Room for</th>
+              <th>Capacity</th>
             </tr>
           </thead>
           <tbody>
@@ -164,8 +164,8 @@
       </div>
       <div class="card-foot">
         <p>
-          Room for: (available memory - 1 GiB) and (free disk - 10 GiB), divided by what one environment of the project uses; the last one must
-          still find the memory a build waits for.
+          Capacity: how many more environments of the project fit, from (available memory - 1 GiB) and (free disk - 10 GiB) divided by what one
+          of them uses; the last one must still find the memory a build waits for.
         </p>
       </div>
     </section>
@@ -190,7 +190,7 @@
             <tbody>
               <tr v-for="container in group.containers" :key="container.name">
                 <td class="w-full max-w-0">
-                  <div class="truncate font-mono text-[12.5px] font-medium" :title="container.name">{{ container.name }}</div>
+                  <div class="truncate font-mono text-sm font-medium" :title="container.name">{{ container.name }}</div>
                   <div class="truncate text-xs text-fg-3" :title="container.image">{{ container.image }}</div>
                 </td>
                 <td class="whitespace-nowrap text-right tabular-nums" title="Share of the whole server">

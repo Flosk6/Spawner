@@ -18,7 +18,7 @@
       <div class="flex flex-wrap items-center gap-2">
         <div class="input-wrap w-full sm:w-52">
           <Search />
-          <input v-model="search" class="input h-10 sm:h-7" type="search" placeholder="Search the lines" aria-label="Search the lines" />
+          <input v-model="search" class="input input-sm" type="search" placeholder="Search the lines" aria-label="Search the lines" />
         </div>
         <button type="button" class="btn btn-secondary btn-sm" :class="{ 'is-on': errorsOnly }" :aria-pressed="errorsOnly" @click="errorsOnly = !errorsOnly">
           <TriangleAlert />Errors only

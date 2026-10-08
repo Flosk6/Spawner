@@ -13,7 +13,7 @@
         <span class="project-icon" aria-hidden="true">{{ initial }}</span>
         <div class="min-w-0">
           <h1 class="page-title break-words">{{ project.name }}</h1>
-          <p class="page-lead break-all font-mono text-[12.5px]">{{ project.repoUrl }}</p>
+          <p class="page-lead break-all font-mono text-sm">{{ project.repoUrl }}</p>
         </div>
       </div>
       <div class="page-actions">
@@ -65,10 +65,10 @@
       </section>
 
       <section class="card stat">
-        <span class="stat-label"><Server />Room for</span>
+        <span class="stat-label"><Server />Capacity</span>
         <span class="stat-value" :class="{ 'text-danger-text': places === 0 }">{{ places ?? '-' }}<small v-if="places !== null">more</small></span>
         <span v-if="limitNote" class="stat-meta text-fg-2">{{ limitNote }}</span>
-        <p class="stat-meta">What the server can still build and hold, keeping 1 GiB of memory and 10 GiB of disk free.</p>
+        <p class="stat-meta">Environments of the project the server can still build and hold, keeping 1 GiB of memory and 10 GiB of disk free.</p>
       </section>
     </div>
 
@@ -89,10 +89,10 @@
           </thead>
           <tbody>
             <tr v-for="variable in variables" :key="variable.name">
-              <td class="font-mono text-[12.5px] font-medium text-fg">{{ variable.name }}</td>
+              <td class="font-mono text-sm font-medium text-fg">{{ variable.name }}</td>
               <td class="max-w-[28rem]">
                 <span v-if="variable.secret" class="badge badge-sm"><Lock />secret</span>
-                <span v-else class="line-clamp-2 break-all font-mono text-[12.5px] text-fg-2" :title="variable.value ?? undefined">{{ variable.value }}</span>
+                <span v-else class="line-clamp-2 break-all font-mono text-sm text-fg-2" :title="variable.value ?? undefined">{{ variable.value }}</span>
               </td>
               <td class="hidden whitespace-nowrap text-fg-3 md:table-cell">{{ timeAgo(variable.updatedAt) }}</td>
               <td class="cell-actions">

@@ -13,7 +13,7 @@
         another installation.
       </p>
       <div v-if="!scan" class="flex justify-center py-10"><LoaderCircle class="spinner size-6 text-fg-3" /></div>
-      <p v-else-if="scan.items.length === 0" class="text-[13px] text-fg-2">Nothing to clean up.</p>
+      <p v-else-if="scan.items.length === 0" class="text-sm text-fg-2">Nothing to clean up.</p>
     </div>
     <div v-if="scan && scan.items.length > 0" class="table-wrap border-t">
       <table class="table is-compact">
@@ -29,7 +29,7 @@
             <td>
               <div class="flex items-center gap-2">
                 <span class="badge badge-sm flex-none">{{ item.kind }}</span>
-                <span class="min-w-0 break-all font-mono text-[12.5px]">{{ item.name }}</span>
+                <span class="min-w-0 break-all font-mono text-sm">{{ item.name }}</span>
               </div>
               <div class="mt-1 text-fg-2 md:hidden">
                 {{ item.reason }}

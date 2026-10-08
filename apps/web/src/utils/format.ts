@@ -36,7 +36,8 @@ export function timeLeft(date: string | null | undefined): string {
   if (hours >= 1) {
     return `in ${hours} hour${hours > 1 ? 's' : ''}`;
   }
-  return `in ${Math.max(1, Math.floor(seconds / 60))} minutes`;
+  const minutes = Math.max(1, Math.floor(seconds / 60));
+  return `in ${minutes} minute${minutes > 1 ? 's' : ''}`;
 }
 
 export function formatBytes(bytes: number | null | undefined): string {

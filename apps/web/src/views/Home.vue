@@ -2,7 +2,7 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">Overview</h1>
-      <p class="page-lead">What runs on {{ info?.previewDomain ?? 'this server' }}, and the room left for more.</p>
+      <p class="page-lead">What runs on {{ info?.previewDomain ?? 'this server' }}, and how many more environments fit.</p>
     </div>
     <div class="page-actions">
       <RouterLink to="/environments" class="btn btn-secondary">All environments</RouterLink>
@@ -16,14 +16,14 @@
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <section class="card stat">
         <div class="stat-label"><Layers />Live environments</div>
-        <div class="stat-value">{{ environments.length }}<small>{{ count('ready') }} ready</small></div>
+        <div class="stat-value">{{ environments.length }}</div>
         <div class="bar">
-          <span v-for="part in statusParts" :key="part.tone" class="bar-fill" :class="part.fill" :style="{ width: `${part.share}%` }"></span>
+          <span v-for="part in statusParts" :key="part.label" class="bar-fill" :class="part.fill" :style="{ width: `${part.share}%` }"></span>
         </div>
-        <div v-if="problems.length" class="legend">
-          <span v-for="part in problems" :key="part.label" class="legend-item"><span class="swatch" :class="part.fill"></span>{{ part.count }} {{ part.label }}</span>
+        <div v-if="statusParts.length" class="legend">
+          <span v-for="part in statusParts" :key="part.label" class="legend-item"><span class="swatch" :class="part.fill"></span>{{ part.count }} {{ part.label }}</span>
         </div>
-        <div v-else class="stat-meta">{{ environments.length ? 'Nothing needs a look.' : 'None yet.' }}</div>
+        <div v-else class="stat-meta">None yet.</div>
       </section>
 
       <section class="card stat">
@@ -32,7 +32,7 @@
           <div class="stat-value">{{ capacity.quota.used }}<small>of {{ capacity.quota.limit }}</small></div>
           <div class="bar"><span class="bar-fill bg-accent" :style="{ width: `${Math.min(100, (capacity.quota.used / capacity.quota.limit) * 100)}%` }"></span></div>
           <div class="stat-meta">
-            {{ capacity.quota.remaining > 0 ? `Your quota leaves room for ${capacity.quota.remaining} more.` : 'Your quota is full: delete one to create another.' }}
+            {{ capacity.quota.remaining > 0 ? `You can create ${capacity.quota.remaining} more.` : 'Your quota is full: delete one to create another.' }}
           </div>
         </template>
         <template v-else>
@@ -52,9 +52,9 @@
       </section>
 
       <section class="card stat">
-        <div class="stat-label"><Gauge />Room for</div>
-        <div class="stat-value">{{ room.places }}<small v-if="room.places !== '-'">more</small></div>
-        <div class="stat-meta">{{ room.detail }}</div>
+        <div class="stat-label"><Gauge />Capacity</div>
+        <div class="stat-value">{{ fit.places }}<small v-if="fit.places !== '-'">more</small></div>
+        <div class="stat-meta">{{ fit.detail }}</div>
       </section>
     </div>
 
@@ -116,7 +116,7 @@
           <div class="list">
             <div v-if="projects.length === 0" class="list-row text-fg-3">{{ authStore.isAdmin ? 'Add a project from the projects page.' : 'An admin adds the projects.' }}</div>
             <RouterLink v-for="project in projects" :key="project.id" :to="`/projects/${project.slug}`" class="list-row hover:bg-surface-hover">
-              <span class="project-icon size-8 text-[13px]">{{ project.name.charAt(0).toUpperCase() }}</span>
+              <span class="project-icon size-8 text-sm">{{ project.name.charAt(0).toUpperCase() }}</span>
               <span class="list-main">
                 <span class="list-title">{{ project.name }}</span>
                 <span class="list-sub">{{ project.environmentCount }} environment{{ project.environmentCount === 1 ? '' : 's' }}</span>
@@ -131,7 +131,7 @@
         <section class="card">
           <div class="card-head"><div class="card-title"><SquareTerminal />From your terminal</div></div>
           <div class="card-body flex flex-col gap-3">
-            <p class="text-[13px] text-fg-2">
+            <p class="text-sm text-fg-2">
               The CLI sends your worktree, uncommitted changes included, and waits until its URL answers. Coding agents use the same commands through
               <code>spawner mcp</code>.
             </p>
@@ -139,7 +139,7 @@
               <span class="cmd-text"><span class="text-fg-3">$ </span>spawner up --wait</span>
               <button type="button" class="btn btn-ghost btn-sm btn-icon" aria-label="Copy the command" @click="copy('spawner up --wait')"><Copy /></button>
             </div>
-            <RouterLink to="/account" class="link text-[13px]">Install the CLI</RouterLink>
+            <RouterLink to="/account" class="link text-sm">Install the CLI</RouterLink>
           </div>
         </section>
       </div>
@@ -158,20 +158,21 @@ import { useServerInfo } from '../composables/useServerInfo';
 import { environmentsApi, errorMessage, projectsApi, systemApi } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import type { Capacity, Environment, ProjectSummary } from '../types';
-import { STATUS_TONES, statusTone, type StatusTone } from '../utils/environment';
+import { statusTone, type StatusTone } from '../utils/environment';
 import { timeAgo } from '../utils/format';
 import { formatSize } from '../utils/palette';
 
 const RECENT = 6;
-const FILLS: Record<StatusTone, string> = {
-  ready: 'bg-ok',
-  degraded: 'bg-warn',
-  failed: 'bg-danger',
-  busy: 'bg-info',
-  sleeping: 'bg-sleep',
-  stopped: 'bg-muted',
-};
-const PROBLEM_LABELS: Partial<Record<StatusTone, string>> = { degraded: 'degraded', failed: 'failed', busy: 'in progress', sleeping: 'asleep' };
+
+/** Each group of statuses, in the order of the environment list's filters, with its bar color. */
+const STATUS_PARTS: { tone: StatusTone; label: string; fill: string }[] = [
+  { tone: 'ready', label: 'ready', fill: 'bg-ok' },
+  { tone: 'degraded', label: 'degraded', fill: 'bg-warn' },
+  { tone: 'sleeping', label: 'sleeping', fill: 'bg-sleep' },
+  { tone: 'busy', label: 'in progress', fill: 'bg-info' },
+  { tone: 'stopped', label: 'stopped', fill: 'bg-muted' },
+  { tone: 'failed', label: 'failed', fill: 'bg-danger' },
+];
 
 const authStore = useAuthStore();
 const info = useServerInfo();
@@ -189,13 +190,7 @@ function count(tone: StatusTone): number {
 }
 
 const statusParts = computed(() =>
-  (Object.keys(FILLS) as StatusTone[])
-    .map((tone) => ({ tone: STATUS_TONES[tone], fill: FILLS[tone], share: environments.value.length ? (count(tone) / environments.value.length) * 100 : 0 }))
-    .filter((part) => part.share > 0),
-);
-
-const problems = computed(() =>
-  (Object.keys(PROBLEM_LABELS) as StatusTone[]).map((tone) => ({ label: PROBLEM_LABELS[tone]!, fill: FILLS[tone], count: count(tone) })).filter((part) => part.count > 0),
+  STATUS_PARTS.map((part) => ({ ...part, count: count(part.tone), share: (count(part.tone) / environments.value.length) * 100 })).filter((part) => part.count > 0),
 );
 
 function primarySource(environment: Environment) {
@@ -207,10 +202,10 @@ function placesOf(project: string): number | null {
 }
 
 /**
- * More environments the server can hold: those of the only project, or the
- * range from the heaviest project to the lightest.
+ * How many more environments fit: those of the only project, or the range
+ * from the heaviest project to the lightest.
  */
-const room = computed(() => {
+const fit = computed(() => {
   const entries = (capacity.value?.projects ?? []).filter((project) => project.places !== null);
   if (entries.length === 0) {
     return { places: '-', detail: 'Known once the server is sampled and a project exists.' };
@@ -218,12 +213,13 @@ const room = computed(() => {
   const counts = entries.map((project) => project.places ?? 0);
   const [least, most] = [Math.min(...counts), Math.max(...counts)];
   if (entries.every((entry) => entry.limitedBy === 'quota')) {
-    return { places: String(least), detail: 'Environments: your quota is what limits them.' };
+    return { places: String(least), detail: 'Environments you can still create: your quota is the limit.' };
   }
   if (entries.length === 1) {
-    return { places: String(least), detail: `${entries[0].name} environments${entries[0].limitedBy ? `, limited by the ${entries[0].limitedBy}` : ''}.` };
+    const limit = entries[0].limitedBy ? `, limited by its ${entries[0].limitedBy}` : '';
+    return { places: String(least), detail: `${entries[0].name} environments the server can still hold${limit}.` };
   }
-  return { places: least === most ? String(least) : `${least} to ${most}`, detail: 'Environments, depending on the project.' };
+  return { places: least === most ? String(least) : `${least} to ${most}`, detail: 'Environments the server can still hold, depending on the project.' };
 });
 
 async function copy(value: string) {

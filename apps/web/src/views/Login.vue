@@ -26,7 +26,7 @@
         <a :href="authApi.githubUrl({ next: next ?? undefined })" class="btn btn-secondary btn-block"><Github />Log in with GitHub</a>
       </template>
 
-      <p class="text-balance text-center text-[13px] text-fg-3">No account yet? Ask an admin of your team for an invitation link.</p>
+      <p class="text-balance text-center text-sm text-fg-3">No account yet? Ask an admin of your team for an invitation link.</p>
     </div>
   </div>
 </template>

@@ -84,7 +84,7 @@
               <td class="hidden md:table-cell">
                 <div class="flex items-center gap-2">
                   <UserAvatar v-if="environment.owner" :user="environment.owner" small />
-                  <div class="flex min-w-0 flex-col leading-4">
+                  <div class="flex min-w-0 flex-col leading-5">
                     <span class="truncate font-medium text-fg">{{ environment.owner?.name ?? 'Installation token' }}</span>
                     <span class="truncate text-xs text-fg-3">{{ origin(environment) }}</span>
                   </div>
@@ -97,7 +97,7 @@
                 </template>
                 <span v-else class="text-fg-3">-</span>
               </td>
-              <td class="hidden text-[12.5px] leading-4 lg:table-cell">
+              <td class="hidden whitespace-nowrap text-sm lg:table-cell">
                 <div class="text-fg-2">{{ lifecycle(environment)[0] }}</div>
                 <div class="text-xs text-fg-3">{{ lifecycle(environment)[1] }}</div>
               </td>

@@ -1,7 +1,7 @@
 /**
  * Colors are the tokens of src/styles/tokens.css: one class (bg-surface,
  * text-fg-3, border-line...) holds for both themes, so templates need no dark:
- * variant.
+ * variant. Text sizes are the steps of its scale, and replace Tailwind's.
  *
  * @type {import('tailwindcss').Config}
  */
@@ -9,6 +9,15 @@ export default {
   content: ['./index.html', './src/**/*.{vue,js,ts}'],
   darkMode: 'class',
   theme: {
+    fontSize: {
+      '2xs': ['var(--fs-2xs)', '16px'],
+      xs: ['var(--fs-xs)', '18px'],
+      sm: ['var(--fs-sm)', '20px'],
+      base: ['var(--fs-base)', '22px'],
+      md: ['var(--fs-md)', '24px'],
+      xl: ['var(--fs-xl)', '30px'],
+      '2xl': ['var(--fs-2xl)', '32px'],
+    },
     extend: {
       colors: {
         canvas: 'var(--bg)',

@@ -66,7 +66,7 @@
         </div>
       </div>
 
-      <RouterLink to="/home" class="link text-[13px]">Back to the dashboard</RouterLink>
+      <RouterLink to="/home" class="link text-sm">Back to the dashboard</RouterLink>
     </div>
   </div>
 </template>

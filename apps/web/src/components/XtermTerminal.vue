@@ -32,7 +32,7 @@ onMounted(() => {
   // Create terminal instance
   terminal = new Terminal({
     cursorBlink: true,
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: "'Geist Mono Variable', ui-monospace, Menlo, monospace",
     lineHeight: 1.2,
     theme: {

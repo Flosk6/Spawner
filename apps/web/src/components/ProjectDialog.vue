@@ -7,7 +7,7 @@
     @update:visible="$emit('update:visible', $event)"
   >
     <form id="project-form" class="flex flex-col gap-4" @submit.prevent="submit">
-      <p v-if="!project" class="-mt-1 text-[13px] text-fg-3">A repository holding a <code>.spawner/</code> directory: a manifest and a compose file.</p>
+      <p v-if="!project" class="-mt-1 text-sm text-fg-3">A repository holding a <code>.spawner/</code> directory: a manifest and a compose file.</p>
 
       <div class="field">
         <label class="field-label" for="project-name">Name</label>

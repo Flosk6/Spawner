@@ -2,7 +2,7 @@
   <section class="card">
     <div class="card-head">
       <div class="card-title"><HardDrive />Disk</div>
-      <span v-if="disk" class="text-[13px] font-semibold tabular-nums">{{ formatSize(disk.totalBytes) }}</span>
+      <span v-if="disk" class="text-sm font-semibold tabular-nums">{{ formatSize(disk.totalBytes) }}</span>
     </div>
     <div class="card-body flex flex-col gap-3">
       <p v-if="!disk" class="field-hint">Not measured yet: the disk is measured every 15 minutes and after each build.</p>
@@ -16,7 +16,7 @@
             :title="`${part.label}: ${formatSize(part.bytes)}`"
           ></span>
         </div>
-        <ul class="flex flex-col gap-1.5 text-[13px]">
+        <ul class="flex flex-col gap-1.5 text-sm">
           <li v-for="part in parts" :key="part.label" class="flex items-center justify-between gap-3">
             <span class="flex items-center gap-2 text-fg-2"><span class="swatch" :style="{ background: part.color }"></span>{{ part.label }}</span>
             <span class="tabular-nums">{{ formatSize(part.bytes) }}</span>

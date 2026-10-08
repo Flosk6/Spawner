@@ -1,7 +1,7 @@
 <template>
   <Dialog :visible="visible" header="New environment" modal :style="{ width: 'min(36rem, calc(100vw - 2rem))' }" @update:visible="$emit('update:visible', $event)">
     <form id="new-environment" class="flex flex-col gap-4" @submit.prevent="submit">
-      <p class="-mt-1 text-[13px] text-fg-3">A copy of a project at a branch, with its own URL.</p>
+      <p class="-mt-1 text-sm text-fg-3">A copy of a project at a branch, with its own URL.</p>
 
       <div class="field">
         <label class="field-label" for="env-project">Project</label>
@@ -73,7 +73,7 @@
     </form>
 
     <template #footer>
-      <p class="mr-auto hidden text-[12.5px] text-fg-3 sm:block">From a worktree, uncommitted changes included: <code>spawner up</code></p>
+      <p class="mr-auto hidden text-sm text-fg-3 sm:block">From a worktree, uncommitted changes included: <code>spawner up</code></p>
       <button type="button" class="btn btn-ghost" @click="$emit('update:visible', false)">Cancel</button>
       <button type="submit" form="new-environment" class="btn btn-primary" :disabled="!form.project || !nameValid || saving">
         <LoaderCircle v-if="saving" class="spinner" /><Plus v-else />Create environment

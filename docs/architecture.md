@@ -210,8 +210,8 @@ Vue 3 with the Composition API (`<script setup>` everywhere), Vue Router, Pinia,
 
 The look comes from one set of tokens, so the light and dark themes cannot drift apart:
 
-- `styles/tokens.css` defines the colors as CSS variables, light by default and dark under `html.dark`; every text color keeps 4.5:1 on its surface. The accent is the brand violet `#574b89` in light and the logo's `#6e54ff` in dark.
-- `style.css` holds the component classes (`btn`, `card`, `badge` and its `tone-*`, `table`, `alert`, `chip`, `tabs`, `console`...) on top of Tailwind, whose colors (`bg-surface`, `text-fg-3`, `border-line`...) are the same tokens (`tailwind.config.js`). Templates use them, never Tailwind's palette or `dark:` variants.
+- `styles/tokens.css` defines the colors as CSS variables, light by default and dark under `html.dark`; every text color keeps 4.5:1 on its surface. The accent is the brand violet `#574b89` in light and the logo's `#6e54ff` in dark. It also holds the sizes: a type scale (`--fs-2xs` to `--fs-2xl`) and the heights of controls (`--control-sm`, `--control`, `--control-lg`), so the whole interface grows or shrinks from there.
+- `style.css` holds the component classes (`btn`, `card`, `badge` and its `tone-*`, `table`, `alert`, `chip`, `tabs`, `console`...) on top of Tailwind, whose colors (`bg-surface`, `text-fg-3`, `border-line`...) and text sizes (`text-xs` to `text-2xl`, replacing Tailwind's) are the same tokens (`tailwind.config.js`). Templates use them, never Tailwind's palette, an arbitrary size (`text-[13px]`) or `dark:` variants.
 - `theme/preset.ts` is PrimeVue's Aura in these colors, both surface scales running from light to dark as Aura expects. PrimeVue's styles sit in a CSS layer between Tailwind's base and utilities, so a utility class wins over them, and the unlayered rules at the end of `style.css` size them.
 - `composables/useTheme.ts` keeps the user's choice (light, dark or the system's) and sets `html.dark`; an inline script in `index.html` applies the same rule before the first paint. Charts read the token values of the theme in effect (`resolveColor` in `utils/palette.ts`).
 - Icons come from `lucide-vue-next`; Geist, Geist Mono and the wordmark's Black Ops One are bundled (Fontsource), so the dashboard loads nothing from another site.
@@ -220,8 +220,8 @@ The shell: `AppSidebar.vue` (navigation, the server's domain and version, the th
 
 | View | |
 |---|---|
-| `Home.vue` | Live environments by status, the reader's quota, free memory, room left, recent environments, projects, the CLI |
-| `ProjectList.vue`, `ProjectDetail.vue` | Projects (created and edited by admins in `ProjectDialog.vue`); what a project uses, what one environment costs, the room left, its variables |
+| `Home.vue` | Live environments by status, the reader's quota, free memory, how many more environments fit, recent environments, projects, the CLI |
+| `ProjectList.vue`, `ProjectDetail.vue` | Projects (created and edited by admins in `ProjectDialog.vue`); what a project uses, what one environment costs, how many more fit, its variables |
 | `EnvironmentList.vue` | A table of the environments, filtered by name, branch or owner, by owner, project and status, and those deleted in the last 7 days; created in `EnvironmentDialog.vue` (also from the palette, through `?new=1`), which reads `spawner.yaml` to offer a branch per source and shows the URL to come |
 | `EnvironmentDetail.vue` | Banners for crash loops, sleep, failures and running jobs above the tabs: overview (services with their memory, URLs, sources, lifecycle, share links, disk), logs (`LogViewer.vue`), resources (`ResourcePanel.vue`, `UsageChart.vue`), timeline (`TimelinePanel.vue`), jobs (`JobsPanel.vue`, `JobLog.vue`, with the phase a deploy is at or failed in), terminal; a deleted environment opens read-only, with its archived logs |
 | `Login.vue`, `InviteAccept.vue` | Passkey login, GitHub when configured; an invitation link: a name, then a passkey |

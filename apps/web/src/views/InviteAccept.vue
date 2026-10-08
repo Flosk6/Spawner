@@ -53,7 +53,7 @@
           <LoaderCircle v-if="saving" class="spinner" /><KeyRound v-else-if="passkeysSupported" /><LogIn v-else />
           {{ passkeysSupported ? 'Create my passkey' : 'Continue without a passkey' }}
         </button>
-        <p class="text-balance text-center text-[13px] text-fg-3">This link works once, until {{ new Date(invite.expiresAt).toLocaleString() }}.</p>
+        <p class="text-balance text-center text-sm text-fg-3">This link works once, until {{ new Date(invite.expiresAt).toLocaleString() }}.</p>
       </form>
     </div>
   </div>

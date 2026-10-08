@@ -20,7 +20,7 @@
         </p>
 
         <div v-for="group in GROUPS" :key="group.title" class="flex flex-col gap-3">
-          <h3 class="text-[13px] font-semibold text-fg">{{ group.title }}</h3>
+          <h3 class="text-sm font-semibold text-fg">{{ group.title }}</h3>
           <div class="grid gap-x-6 gap-y-5 sm:grid-cols-2 2xl:grid-cols-4">
             <div v-for="field in group.fields" :key="field.key" class="field">
               <label class="field-label" :for="`limit-${field.key}`">{{ field.label }}</label>

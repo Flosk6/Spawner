@@ -2,7 +2,7 @@
   <span class="flex min-w-0 items-center gap-1.5 text-fg-2" :title="title">
     <Upload v-if="source.origin === 'upload'" class="size-3.5 text-fg-3" />
     <GitBranch v-else class="size-3.5 text-fg-3" />
-    <span class="truncate font-mono text-[12.5px]">{{ source.origin === 'upload' ? 'worktree' : source.ref }}</span>
+    <span class="truncate font-mono text-sm">{{ source.origin === 'upload' ? 'worktree' : source.ref }}</span>
     <span v-if="hash" class="commit">{{ hash }}</span>
   </span>
 </template>

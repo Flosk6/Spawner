@@ -7,7 +7,7 @@
       </RouterLink>
       <div v-if="info" class="side-server" :title="`Spawner ${info.version} on ${info.previewDomain}`">
         <span class="dot tone-ok"></span>
-        <span class="min-w-0 truncate font-mono text-[11.5px] text-fg-2">{{ info.previewDomain }}</span>
+        <span class="min-w-0 truncate font-mono text-xs text-fg-2">{{ info.previewDomain }}</span>
         <span>v{{ info.version }}</span>
       </div>
       <button type="button" class="side-search" @click="palette.show()">

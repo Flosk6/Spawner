@@ -9,7 +9,7 @@
         :title="`${part.label}: ${formatSize(part.bytes)}`"
       ></span>
     </div>
-    <ul class="flex flex-col gap-1.5 text-[13px]">
+    <ul class="flex flex-col gap-1.5 text-sm">
       <li v-for="part in parts" :key="part.label" class="flex items-center justify-between gap-3">
         <span class="flex min-w-0 items-center gap-2 text-fg-2">
           <span class="swatch" :class="{ 'border border-line-strong': part.color === 'transparent' }" :style="{ background: part.color }"></span>

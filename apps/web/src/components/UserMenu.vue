@@ -3,7 +3,7 @@
     <button type="button" class="side-user" aria-haspopup="menu" @click="menu?.toggle($event)">
       <UserAvatar :user="user" />
       <span class="flex min-w-0 flex-1 flex-col leading-4">
-        <span class="truncate text-[13px] font-medium text-fg">{{ user.name }}</span>
+        <span class="truncate text-sm font-medium text-fg">{{ user.name }}</span>
         <span class="text-xs text-fg-3">{{ user.role === 'admin' ? 'Admin' : 'Member' }}</span>
       </span>
       <ChevronsUpDown class="size-3.5 text-fg-3" />

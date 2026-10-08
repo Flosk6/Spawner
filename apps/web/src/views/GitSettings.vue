@@ -39,7 +39,7 @@
         <tbody>
           <tr v-for="repo in repos" :key="repo.gitRepo">
             <td class="max-w-[28rem]">
-              <span class="block break-all font-mono text-[12.5px] font-medium text-fg">{{ repo.gitRepo }}</span>
+              <span class="block break-all font-mono text-sm font-medium text-fg">{{ repo.gitRepo }}</span>
               <span class="mt-0.5 block break-all font-mono text-xs text-fg-3 md:hidden">{{ repo.usedBy.join(', ') }}</span>
               <span class="badge badge-sm mt-1.5 sm:hidden" :class="{ 'tone-ok': repo.keyExists }"><span class="dot"></span>{{ repo.keyExists ? 'Key exists' : 'No key' }}</span>
             </td>
@@ -72,8 +72,8 @@
   <Dialog v-model:visible="keyVisible" header="Deploy key" modal :style="{ width: 'min(36rem, calc(100vw - 2rem))' }">
     <div v-if="selectedRepo" class="flex flex-col gap-5">
       <div class="flex min-w-0 flex-col gap-1">
-        <span class="break-all font-mono text-[12.5px] font-medium text-fg">{{ selectedRepo.gitRepo }}</span>
-        <span class="text-[12.5px] text-fg-3">Used by <span class="font-mono text-fg-2">{{ selectedRepo.usedBy.join(', ') }}</span></span>
+        <span class="break-all font-mono text-sm font-medium text-fg">{{ selectedRepo.gitRepo }}</span>
+        <span class="text-sm text-fg-3">Used by <span class="font-mono text-fg-2">{{ selectedRepo.usedBy.join(', ') }}</span></span>
       </div>
 
       <div class="field">
@@ -94,7 +94,7 @@
 
       <div class="flex flex-col gap-2">
         <span class="field-label">Add it to the repository</span>
-        <ol class="flex list-decimal flex-col gap-1 pl-5 text-[13px] text-fg-2">
+        <ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-fg-2">
           <li>Copy the public key above.</li>
           <li>Open the repository on GitHub (Settings → Deploy keys → Add deploy key) or on GitLab (Settings → Repository → Deploy keys).</li>
           <li>Paste the key, give it a title such as Spawner, and save: read-only access is enough.</li>

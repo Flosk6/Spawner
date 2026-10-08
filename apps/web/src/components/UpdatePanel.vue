@@ -24,7 +24,7 @@
         <div class="alert-body">
           <span class="alert-title">{{ status.run.error }}</span>
           <details v-if="status.run.log.length > 0" class="mt-1">
-            <summary class="cursor-pointer text-[12.5px] font-medium text-fg-2">The installer's output</summary>
+            <summary class="cursor-pointer text-sm font-medium text-fg-2">The installer's output</summary>
             <pre class="pre max-h-96 overflow-auto">{{ status.run.log.join('\n') }}</pre>
           </details>
         </div>

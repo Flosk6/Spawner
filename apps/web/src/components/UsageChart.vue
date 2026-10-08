@@ -101,7 +101,7 @@ const data = computed(() => ({
 
 const options = computed(() => {
   const colors = palette.value;
-  const font = { family: "'Geist Mono Variable', ui-monospace, monospace", size: 11 };
+  const font = { family: "'Geist Mono Variable', ui-monospace, monospace", size: 12 };
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -111,7 +111,7 @@ const options = computed(() => {
       legend: {
         display: props.series.length > 1,
         position: 'bottom' as const,
-        labels: { color: colors.text, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'rectRounded' as const, font: { ...font, size: 11.5 } },
+        labels: { color: colors.text, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'rectRounded' as const, font: { ...font, size: 12.5 } },
       },
       tooltip: {
         backgroundColor: colors.overlay,

@@ -11,7 +11,7 @@
     <div class="env-head">
       <div class="flex min-w-0 flex-1 basis-[30rem] flex-col gap-2">
         <div class="flex flex-wrap items-center gap-2.5">
-          <h1 class="page-title break-all text-[22px]">{{ environment.slug }}</h1>
+          <h1 class="page-title break-all">{{ environment.slug }}</h1>
           <EnvironmentStatus :status="environment.status" />
         </div>
         <div class="env-meta">
@@ -139,7 +139,7 @@
                 <div class="svc-icon"><component :is="serviceIcon(service.name)" /></div>
                 <div class="min-w-0 flex-1">
                   <div class="svc-name truncate">{{ service.name }}</div>
-                  <div class="svc-detail" :title="service.status">{{ service.status }}</div>
+                  <div class="svc-detail" :title="service.status">{{ uptime(service) }}</div>
                 </div>
                 <span class="badge badge-sm" :class="`tone-${serviceTone(service)}`"><span class="dot"></span>{{ serviceState(service) }}</span>
               </div>
@@ -188,7 +188,7 @@
                   <span v-if="exposure.auth === 'none'" class="badge badge-sm tone-warn">public</span>
                   <span class="commit">{{ exposure.service }}:{{ exposure.port }}</span>
                 </div>
-                <a :href="environment.urls[exposure.name]" target="_blank" rel="noopener" class="truncate font-mono text-[12.5px] text-fg-2 hover:text-accent-text">{{
+                <a :href="environment.urls[exposure.name]" target="_blank" rel="noopener" class="truncate font-mono text-sm text-fg-2 hover:text-accent-text">{{
                   environment.urls[exposure.name]
                 }}</a>
               </div>
@@ -274,7 +274,7 @@
             <ul v-if="shares.length > 0" class="flex flex-col">
               <li v-for="link in shares" :key="link.id" class="flex items-center justify-between gap-3 border-t py-2 first:border-t-0">
                 <div class="flex min-w-0 flex-col leading-5">
-                  <span class="truncate text-[13px] font-medium">Link by {{ link.createdBy ?? 'the installation token' }}</span>
+                  <span class="truncate text-sm font-medium">Link by {{ link.createdBy ?? 'the installation token' }}</span>
                   <span class="text-xs text-fg-3">{{ timeAgo(link.createdAt) }}, expires {{ timeLeft(link.expiresAt) }}</span>
                 </div>
                 <button type="button" class="btn btn-ghost btn-sm" @click="revokeShare(link.id)">Revoke</button>
@@ -333,7 +333,7 @@
     <ActionMenu ref="redeployMenu" :items="redeployItems" />
     <Popover ref="cliPopover">
       <div class="flex w-80 max-w-[calc(100vw-3rem)] flex-col gap-2 p-1">
-        <span class="text-[13.5px] font-semibold">Redeploy from its worktree</span>
+        <span class="text-base font-semibold">Redeploy from its worktree</span>
         <span class="field-hint">It runs code that <code>spawner up</code> sent, uncommitted changes included. Send it again from the same worktree:</span>
         <div class="cmd">
           <span class="cmd-text">spawner up {{ environment.slug }} --wait</span>
@@ -419,6 +419,9 @@ const EXTEND_OPTIONS = [
   { label: '3 days', ttl: '72h' },
   { label: '1 week', ttl: '168h' },
 ];
+
+/** The badge of a running service that has a healthcheck. */
+const HEALTH_LABELS: Record<string, string> = { healthy: 'Healthy', unhealthy: 'Unhealthy', starting: 'Starting' };
 
 const route = useRoute();
 const router = useRouter();
@@ -572,12 +575,17 @@ function serviceTone(service: ServiceState): Tone {
 
 function serviceState(service: ServiceState): string {
   if (service.state === 'running') {
-    return service.health === 'unhealthy' ? 'Unhealthy' : service.health === 'starting' ? 'Starting' : 'Running';
+    return (service.health && HEALTH_LABELS[service.health]) || 'Running';
   }
   if (service.state === 'exited' && service.exitCode !== null) {
     return `Exited ${service.exitCode}`;
   }
   return statusLabel(service.state);
+}
+
+/** Docker's status without the health it ends with, which the badge shows: "Up 3 hours". */
+function uptime(service: ServiceState): string {
+  return service.status.replace(/\s*\((healthy|unhealthy|health: starting)\)$/, '');
 }
 
 function memoryShare(name: string): number {

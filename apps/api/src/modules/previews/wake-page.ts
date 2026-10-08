@@ -20,7 +20,7 @@ const TITLES: Record<WakeState, string> = {
   ready: "Ready",
   asleep: "Asleep",
   stopped: "Stopped",
-  no_room: "Not enough room",
+  no_room: "Not enough memory",
   failed: "It could not start",
   busy: "Busy",
 };

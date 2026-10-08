@@ -154,3 +154,22 @@
   --shadow-lg: 0 32px 72px -16px rgba(0, 0, 0, 0.75);
   color-scheme: dark;
 }
+
+/*
+ * Sizes, the same in both themes: every text of the dashboard takes one step
+ * of this scale (Tailwind's text-* classes included, see tailwind.config.js),
+ * and controls one of these heights, so the whole interface grows or shrinks
+ * from here.
+ */
+:root {
+  --fs-2xs: 11.5px;
+  --fs-xs: 12.5px;
+  --fs-sm: 13.5px;
+  --fs-base: 14.5px;
+  --fs-md: 16px;
+  --fs-xl: 22px;
+  --fs-2xl: 26px;
+  --control-sm: 30px;
+  --control: 34px;
+  --control-lg: 42px;
+}

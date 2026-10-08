@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-[13px] text-fg-3">
+      <p class="text-sm text-fg-3">
         <template v-if="metrics?.now">
           Now: <span class="font-medium text-fg-2">{{ formatPercent(metrics.now.cpuPercent) }}</span> CPU,
           <span class="font-medium text-fg-2">{{ formatSize(metrics.now.memoryBytes) }}</span> of {{ formatSize(metrics.now.memoryLimitBytes) }} memory
