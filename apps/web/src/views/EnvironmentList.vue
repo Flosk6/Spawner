@@ -67,16 +67,22 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="environment in visible" :key="environment.id">
+            <tr v-for="environment in visible" :key="environment.id" class="is-link" @click="openRow($event, environment)">
               <td class="max-w-[16rem]">
                 <RouterLink :to="`/environments/${environment.id}`" class="row-title block">{{ environment.slug }}</RouterLink>
-                <div class="row-sub">
+                <div class="row-sub flex-wrap">
                   <span class="font-medium text-fg-2">{{ environment.project }}</span><span aria-hidden="true">·</span><span>{{ timeAgo(environment.createdAt) }}</span>
+                  <span class="contents md:hidden"><span aria-hidden="true">·</span><span>{{ environment.owner?.name ?? 'Installation token' }}</span></span>
                 </div>
+                <div class="row-sub flex-wrap xl:hidden">
+                  <SourceLabel v-if="primarySource(environment)" :source="primarySource(environment)!" />
+                  <span v-if="environment.usage" class="tabular-nums" :title="memoryTitle(environment)">{{ formatSize(environment.usage.memoryBytes) }}</span>
+                </div>
+                <div v-if="lifecycleLine(environment)" class="row-sub flex-wrap whitespace-normal lg:hidden">{{ lifecycleLine(environment) }}</div>
               </td>
               <td class="max-w-[15rem]">
                 <EnvironmentStatus :status="environment.status" />
-                <p v-if="note(environment)" class="note line-clamp-1" :class="`tone-${noteTone(environment)}`" :title="note(environment)">{{ note(environment) }}</p>
+                <p v-if="note(environment)" class="note line-clamp-2" :class="`tone-${noteTone(environment)}`" :title="note(environment)">{{ note(environment) }}</p>
               </td>
               <td class="hidden max-w-[14rem] xl:table-cell">
                 <SourceLabel v-if="primarySource(environment)" :source="primarySource(environment)!" />
@@ -92,7 +98,7 @@
               </td>
               <td class="hidden w-32 xl:table-cell">
                 <template v-if="environment.usage">
-                  <div class="tabular-nums text-fg-2">{{ formatSize(environment.usage.memoryBytes) }}</div>
+                  <div class="tabular-nums text-fg-2" :title="memoryTitle(environment)">{{ formatSize(environment.usage.memoryBytes) }}</div>
                   <div class="bar mt-1.5"><span class="bar-fill bg-accent" :style="{ width: `${memoryShare(environment)}%` }"></span></div>
                 </template>
                 <span v-else class="text-fg-3">-</span>
@@ -141,12 +147,19 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="environment in visibleDeleted" :key="environment.id">
+            <tr v-for="environment in visibleDeleted" :key="environment.id" class="is-link" @click="openRow($event, environment)">
               <td>
                 <RouterLink :to="`/environments/${environment.id}`" class="row-title block">{{ environment.slug }}</RouterLink>
-                <div class="row-sub"><span class="font-medium text-fg-2">{{ environment.project }}</span><span aria-hidden="true">·</span><span>{{ environment.owner?.name ?? 'Installation token' }}</span></div>
+                <div class="row-sub flex-wrap">
+                  <span class="font-medium text-fg-2">{{ environment.project }}</span><span aria-hidden="true">·</span><span>{{ ownerLabel(environment) }}</span>
+                  <span aria-hidden="true">·</span><span>created {{ timeAgo(environment.createdAt) }}</span>
+                </div>
+                <div v-if="primarySource(environment)" class="row-sub"><SourceLabel :source="primarySource(environment)!" /></div>
               </td>
-              <td class="text-fg-2">{{ timeAgo(environment.deletedAt) }}</td>
+              <td class="text-fg-2">
+                {{ timeAgo(environment.deletedAt) }}
+                <div class="text-xs text-fg-3 md:hidden">kept until {{ keptUntil(environment) }}</div>
+              </td>
               <td class="hidden text-fg-3 md:table-cell">Its timeline and the last logs of its services, until {{ keptUntil(environment) }}</td>
               <td class="cell-actions">
                 <RouterLink :to="`/environments/${environment.id}`" class="btn btn-ghost btn-sm">View</RouterLink>
@@ -182,8 +195,8 @@ import { useNotification } from '../composables/useNotification';
 import { useAuthStore } from '../stores/auth';
 import { environmentsApi, errorMessage, projectsApi } from '../services/api';
 import type { Environment, JobAccepted, ProjectSummary } from '../types';
-import { STATUS_TONES, canManage, isBusy, originLabel, redeployRequest, statusTone, type StatusTone, type Tone } from '../utils/environment';
-import { timeAgo, timeLeft } from '../utils/format';
+import { STATUS_TONES, canManage, isBusy, originLabel, ownerLabel, redeployRequest, statusTone, type StatusTone, type Tone } from '../utils/environment';
+import { timeAgo, whenDue } from '../utils/format';
 import { formatSize } from '../utils/palette';
 
 const REFRESH_MS = 5000;
@@ -274,19 +287,39 @@ function noteTone(environment: Environment): Tone {
 
 /** When it sleeps and when it expires, the nearest first. */
 function lifecycle(environment: Environment): [string, string] {
-  const expires = environment.expiresAt ? `Expires ${timeLeft(environment.expiresAt)}` : '';
+  const expires = environment.expiresAt ? `Expires ${whenDue(environment.expiresAt)}` : '';
   if (environment.status === 'sleeping') {
     return ['Asleep', expires];
   }
   if (environment.sleepsAt && ['ready', 'degraded'].includes(environment.status)) {
-    return [`Sleeps ${timeLeft(environment.sleepsAt)}`, expires];
+    return [`Sleeps ${whenDue(environment.sleepsAt)}`, expires];
   }
   return [expires || '-', ''];
+}
+
+/** The lifecycle column in one line, for the screens where it is hidden. */
+function lifecycleLine(environment: Environment): string {
+  return lifecycle(environment)
+    .filter((part) => part && part !== '-')
+    .join(' · ');
 }
 
 function memoryShare(environment: Environment): number {
   const usage = environment.usage;
   return usage?.memoryLimitBytes ? Math.min(100, (usage.memoryBytes / usage.memoryLimitBytes) * 100) : 0;
+}
+
+function memoryTitle(environment: Environment): string {
+  const usage = environment.usage;
+  return usage ? `${formatSize(usage.memoryBytes)} of ${formatSize(usage.memoryLimitBytes)} memory` : '';
+}
+
+/** A click anywhere on a row opens the environment, as its name does; links, buttons and a text selection keep theirs. */
+function openRow(event: MouseEvent, environment: Environment) {
+  if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) {
+    return;
+  }
+  router.push(`/environments/${environment.id}`);
 }
 
 function openable(environment: Environment): boolean {
@@ -320,7 +353,7 @@ const menuItems = computed<MenuAction[]>(() => {
     actions.push({ label: 'Wake up', icon: Sun, command: () => act(environment, 'wake') });
   }
   if (['ready', 'degraded'].includes(environment.status)) {
-    actions.push({ label: 'Sleep now', icon: Moon, hint: 'frees its memory', command: () => act(environment, 'sleep') });
+    actions.push({ label: 'Sleep now', icon: Moon, hint: 'until the next visit', command: () => act(environment, 'sleep') });
   }
   if (environment.status === 'ready') {
     actions.push({ label: 'Stop', icon: Square, command: () => act(environment, 'stop') });
@@ -364,17 +397,19 @@ watch(
   (project) => (projectFilter.value = (project as string) ?? ''),
 );
 
-/** The command palette asks for a new environment with ?new=1. */
-watch(
-  () => route.query.new,
-  (value) => {
-    if (value === '1') {
-      creating.value = true;
-      router.replace({ query: { ...route.query, new: undefined } });
-    }
-  },
-  { immediate: true },
-);
+/**
+ * The overview and the command palette ask for a new environment with ?new=1.
+ * The dialog opens once the projects are loaded, so that it can preselect one.
+ */
+function openRequested() {
+  if (route.query.new !== '1') {
+    return;
+  }
+  router.replace({ query: { ...route.query, new: undefined } });
+  creating.value = projects.value.length > 0;
+}
+
+watch(() => route.query.new, openRequested);
 
 function created(result: JobAccepted) {
   showSuccess(`${result.environment.slug} is being created`);
@@ -422,7 +457,7 @@ function confirmRemove(environment: Environment) {
 }
 
 onMounted(() => {
-  load();
+  load().then(openRequested);
   timer = setInterval(() => {
     Promise.all([environmentsApi.list(), environmentsApi.list({ deleted: true })])
       .then(([live, gone]) => {

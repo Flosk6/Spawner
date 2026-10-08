@@ -51,7 +51,12 @@
                 <span class="flex items-center gap-2 font-medium"><span class="swatch" :style="{ background: colorFor(name, serviceNames) }"></span>{{ name }}</span>
               </td>
               <td class="tabular-nums">{{ formatPercent(metrics?.now?.services[name]?.cpuPercent) }}</td>
-              <td class="tabular-nums">{{ formatSize(metrics?.now?.services[name]?.memoryBytes) }}</td>
+              <td class="tabular-nums">
+                {{ formatSize(metrics?.now?.services[name]?.memoryBytes) }}
+                <div class="text-xs text-fg-3 sm:hidden">
+                  of {{ formatSize(metrics?.now?.services[name]?.memoryLimitBytes) }}, peak {{ formatSize(metrics?.peaks[name]) }}
+                </div>
+              </td>
               <td class="hidden tabular-nums text-fg-3 sm:table-cell">{{ formatSize(metrics?.now?.services[name]?.memoryLimitBytes) }}</td>
               <td class="hidden tabular-nums sm:table-cell">{{ formatSize(metrics?.peaks[name]) }}</td>
             </tr>

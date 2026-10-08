@@ -16,10 +16,8 @@
       </div>
     </div>
     <div ref="output" class="console no-service h-80 rounded-b-[9px] lg:h-[26rem]" role="log">
-      <div v-for="(line, index) in lines" :key="index" class="log-line" :class="{ 'is-plain': !line.time }">
-        <span v-if="line.time" class="log-time">{{ line.time }}</span>
-        <span class="log-msg">{{ line.text }}</span>
-      </div>
+      <!-- One line of markup: the spaces between the parts are what a copy of the text keeps. -->
+      <div v-for="(line, index) in lines" :key="index" class="log-line" :class="{ 'is-plain': !line.time }"><span v-if="line.time" class="log-time" :title="line.stamp">{{ line.time }}</span> <span class="log-msg">{{ line.text }}</span></div>
       <p v-if="lines.length === 0" class="console-empty">{{ following ? 'Waiting for output...' : 'No output.' }}</p>
     </div>
   </section>
@@ -40,7 +38,7 @@ const STATE_LABELS: Record<StepState, string> = { done: 'Done', run: 'In progres
 const props = defineProps<{ job: Job; environmentStatus: EnvironmentStatus }>();
 const emit = defineEmits<{ finished: [] }>();
 
-const lines = ref<{ time: string; text: string }[]>([]);
+const lines = ref<{ time: string; stamp: string; text: string }[]>([]);
 const following = ref(false);
 const output = ref<HTMLElement | null>(null);
 let stop: (() => void) | null = null;
@@ -78,10 +76,13 @@ const steps = computed<{ phase: JobPhase; state: StepState }[]>(() => {
   });
 });
 
-/** A line of the job log: "2026-10-08T14:00:21.123Z Building and starting ...". */
-function parse(line: string): { time: string; text: string } {
+/**
+ * A line of the job log: "2026-10-08T14:00:21.123Z Building and starting ...".
+ * The time stays in UTC, as in the logs of the services; the full date is its title.
+ */
+function parse(line: string): { time: string; stamp: string; text: string } {
   const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$/.exec(line);
-  return match ? { time: new Date(match[1]).toLocaleTimeString(undefined, { hour12: false }), text: match[2] } : { time: '', text: line };
+  return match ? { time: match[1].slice(11, 19), stamp: match[1], text: match[2] } : { time: '', stamp: '', text: line };
 }
 
 async function append(line: string) {

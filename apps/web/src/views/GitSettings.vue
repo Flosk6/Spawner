@@ -69,7 +69,7 @@
     </div>
   </section>
 
-  <Dialog v-model:visible="keyVisible" header="Deploy key" modal :style="{ width: 'min(36rem, calc(100vw - 2rem))' }">
+  <Dialog v-model:visible="keyVisible" header="Deploy key" modal dismissable-mask :style="{ width: 'min(36rem, calc(100vw - 2rem))' }">
     <div v-if="selectedRepo" class="flex flex-col gap-5">
       <div class="flex min-w-0 flex-col gap-1">
         <span class="break-all font-mono text-sm font-medium text-fg">{{ selectedRepo.gitRepo }}</span>
@@ -79,7 +79,7 @@
       <div class="field">
         <span class="field-label">Public key</span>
         <div class="cmd">
-          <span class="cmd-text whitespace-pre-wrap break-all">{{ selectedRepo.publicKey }}</span>
+          <span class="cmd-text select-all whitespace-pre-wrap break-all">{{ selectedRepo.publicKey }}</span>
           <button
             type="button"
             class="btn btn-ghost btn-sm btn-icon"

@@ -122,6 +122,7 @@ watch(
       error.value = '';
     }
   },
+  { immediate: true },
 );
 
 /**

@@ -42,7 +42,10 @@
       </section>
 
       <section class="card stat">
-        <div class="stat-label"><MemoryStick />Memory available</div>
+        <div class="stat-label">
+          <MemoryStick />Memory available
+          <RouterLink v-if="authStore.isAdmin" to="/system/overview" class="link ml-auto text-xs">Details</RouterLink>
+        </div>
         <div class="stat-value">{{ capacity?.host ? formatSize(capacity.host.availableMemoryBytes) : '-' }}</div>
         <div class="stat-meta">
           <template v-if="capacity?.host?.buildGuards?.memoryBytes">Builds wait until {{ formatSize(capacity.host.buildGuards.memoryBytes) }} are free.</template>
@@ -52,7 +55,10 @@
       </section>
 
       <section class="card stat">
-        <div class="stat-label"><Gauge />Capacity</div>
+        <div class="stat-label">
+          <Gauge />Capacity
+          <RouterLink v-if="authStore.isAdmin" to="/system/overview" class="link ml-auto text-xs">Details</RouterLink>
+        </div>
         <div class="stat-value">{{ fit.places }}<small v-if="fit.places !== '-'">more</small></div>
         <div class="stat-meta">{{ fit.detail }}</div>
       </section>
@@ -71,7 +77,7 @@
         <div v-else class="table-wrap">
           <table class="table">
             <tbody>
-              <tr v-for="environment in recent" :key="environment.id">
+              <tr v-for="environment in recent" :key="environment.id" class="is-link" @click="openRow($event, environment)">
                 <td class="max-w-[14rem]">
                   <RouterLink :to="`/environments/${environment.id}`" class="row-title block">{{ environment.slug }}</RouterLink>
                   <div class="row-sub">
@@ -149,6 +155,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { ChevronRight, Copy, ExternalLink, Gauge, Layers, LoaderCircle, MemoryStick, Plus, SquareTerminal, UserRound } from 'lucide-vue-next';
 import EnvironmentStatus from '../components/EnvironmentStatus.vue';
 import SourceLabel from '../components/SourceLabel.vue';
@@ -174,6 +181,7 @@ const STATUS_PARTS: { tone: StatusTone; label: string; fill: string }[] = [
   { tone: 'failed', label: 'failed', fill: 'bg-danger' },
 ];
 
+const router = useRouter();
 const authStore = useAuthStore();
 const info = useServerInfo();
 const { showError, showSuccess } = useNotification();
@@ -227,17 +235,24 @@ async function copy(value: string) {
   showSuccess('Copied');
 }
 
-onMounted(async () => {
-  try {
-    [environments.value, projects.value, capacity.value] = await Promise.all([
-      environmentsApi.list(),
-      projectsApi.list(),
-      systemApi.capacity().catch(() => null),
-    ]);
-  } catch (err) {
-    showError(errorMessage(err, 'The overview could not be loaded'));
-  } finally {
-    loading.value = false;
+/** A click anywhere on a row opens the environment, as its name does; links, buttons and a text selection keep theirs. */
+function openRow(event: MouseEvent, environment: Environment) {
+  if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) {
+    return;
   }
+  router.push(`/environments/${environment.id}`);
+}
+
+/** Each part loads on its own: a list that fails leaves the others, and one message says so. */
+onMounted(async () => {
+  const [live, all, places] = await Promise.allSettled([environmentsApi.list(), projectsApi.list(), systemApi.capacity()]);
+  environments.value = live.status === 'fulfilled' ? live.value : [];
+  projects.value = all.status === 'fulfilled' ? all.value : [];
+  capacity.value = places.status === 'fulfilled' ? places.value : null;
+  const failed = [live, all].find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failed) {
+    showError(errorMessage(failed.reason, 'The overview could not be loaded'));
+  }
+  loading.value = false;
 });
 </script>

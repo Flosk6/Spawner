@@ -89,7 +89,10 @@
           </thead>
           <tbody>
             <tr v-for="variable in variables" :key="variable.name">
-              <td class="font-mono text-sm font-medium text-fg">{{ variable.name }}</td>
+              <td class="font-mono text-sm font-medium text-fg">
+                {{ variable.name }}
+                <div class="font-sans text-xs font-normal text-fg-3 md:hidden">updated {{ timeAgo(variable.updatedAt) }}</div>
+              </td>
               <td class="max-w-[28rem]">
                 <span v-if="variable.secret" class="badge badge-sm"><Lock />secret</span>
                 <span v-else class="line-clamp-2 break-all font-mono text-sm text-fg-2" :title="variable.value ?? undefined">{{ variable.value }}</span>

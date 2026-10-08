@@ -449,6 +449,10 @@
     border-bottom-left-radius: 0;
   }
 
+  .btn-group > .btn-primary + .btn-primary {
+    box-shadow: inset 1px 0 0 color-mix(in srgb, var(--accent-fg) 30%, transparent);
+  }
+
   .kbd {
     display: inline-flex;
     align-items: center;
@@ -734,6 +738,8 @@
 
   .seg {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     gap: 2px;
     padding: 2px;
     border-radius: 8px;
@@ -1020,6 +1026,10 @@
 
   .table tbody tr:hover td {
     background: var(--surface-hover);
+  }
+
+  .table tbody tr.is-link {
+    cursor: pointer;
   }
 
   .table.is-compact :where(td) {
@@ -1492,15 +1502,21 @@
     line-height: 22px;
   }
 
+  /*
+   * A log line is text, so that copying it gives "14:00:21 db message": the
+   * time and the service are fixed-width inline blocks, and the hanging indent
+   * keeps a wrapped message in its column. Widths count characters of the
+   * monospace font: 9ch of time, the service's width plus 1ch, a space after each.
+   */
   .log-line {
-    display: grid;
-    grid-template-columns: 64px var(--log-service, 8ch) minmax(0, 1fr);
-    gap: 12px;
-    padding: 0 16px;
+    --log-indent: calc(12ch + var(--log-service, 8ch));
+    min-height: 22px;
+    padding: 0 16px 0 calc(16px + var(--log-indent));
+    text-indent: calc(-1 * var(--log-indent));
   }
 
   .console.no-service .log-line {
-    grid-template-columns: 64px minmax(0, 1fr);
+    --log-indent: 10ch;
   }
 
   .log-line:hover {
@@ -1508,7 +1524,8 @@
   }
 
   .console .log-line.is-plain {
-    grid-template-columns: minmax(0, 1fr);
+    padding-left: 16px;
+    text-indent: 0;
   }
 
   .log-line.is-err {
@@ -1520,12 +1537,19 @@
   }
 
   .log-time {
+    display: inline-block;
+    width: 9ch;
+    text-indent: 0;
     color: var(--console-dim);
     font-variant-numeric: tabular-nums;
   }
 
   .log-svc {
+    display: inline-block;
+    width: calc(var(--log-service, 8ch) + 1ch);
     overflow: hidden;
+    vertical-align: top;
+    text-indent: 0;
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2071,11 +2095,7 @@
     }
 
     .log-line {
-      grid-template-columns: 58px minmax(0, 1fr);
-    }
-
-    .log-line .log-svc {
-      display: none;
+      padding-right: 12px;
     }
   }
 }

@@ -145,10 +145,14 @@
             <tr v-for="token in tokens" :key="token.id">
               <td class="max-w-[16rem]">
                 <div class="row-title">{{ token.name }}</div>
-                <div class="row-sub">
+                <div class="row-sub flex-wrap whitespace-normal">
                   <span class="commit">{{ token.hint }}</span>
                   <span class="sm:hidden" aria-hidden="true">·</span>
                   <span class="sm:hidden">{{ expiry(token) }}</span>
+                  <span class="md:hidden" aria-hidden="true">·</span>
+                  <span class="md:hidden">{{ token.project ? `project ${token.project}` : 'all projects' }}</span>
+                  <span class="lg:hidden" aria-hidden="true">·</span>
+                  <span class="lg:hidden">{{ token.lastUsedAt ? `used ${timeAgo(token.lastUsedAt)}` : 'never used' }}</span>
                 </div>
                 <div class="mt-1.5 flex flex-wrap gap-1 sm:hidden">
                   <span v-for="scope in token.scopes" :key="scope" class="badge badge-sm font-mono">{{ scope }}</span>

@@ -36,7 +36,8 @@
         <template v-else-if="request && !done">
           <div class="flex flex-col gap-3">
             <p class="text-fg-2">
-              <span class="font-semibold text-fg">{{ request.clientName }}</span> asks to act as you on Spawner, with these scopes:
+              <span class="font-semibold text-fg">{{ request.clientName }}</span> asks to act as
+              <span class="font-semibold text-fg">{{ authStore.user?.name ?? 'you' }}</span> on Spawner, with these scopes:
             </p>
             <div class="flex flex-wrap gap-1.5">
               <span v-for="scope in request.scopes" :key="scope" class="badge font-mono">{{ scope }}</span>
@@ -66,7 +67,14 @@
         </div>
       </div>
 
-      <RouterLink to="/home" class="link text-sm">Back to the dashboard</RouterLink>
+      <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-fg-3">
+        <span v-if="authStore.user" class="inline-flex items-center gap-2">
+          <UserAvatar :user="authStore.user" small />
+          <span>Logged in as <span class="font-medium text-fg-2">{{ authStore.user.name }}</span></span>
+        </span>
+        <button v-if="authStore.user" type="button" class="link" @click="authStore.logout()">Not you? Log out</button>
+        <RouterLink to="/home" class="link">Back to the dashboard</RouterLink>
+      </div>
     </div>
   </div>
 </template>
@@ -75,8 +83,13 @@
 import { ref } from 'vue';
 import { Check, CircleCheck, CircleX, Info, LoaderCircle, X } from 'lucide-vue-next';
 import Logo from '../components/Logo.vue';
+import UserAvatar from '../components/UserAvatar.vue';
 import { deviceApi, errorMessage } from '../services/api';
+import { useAuthStore } from '../stores/auth';
 import type { DeviceRequest } from '../types';
+
+/** The page stands alone, without the menu that names the account: it says which one the CLI acts as. */
+const authStore = useAuthStore();
 
 /**
  * Typed by the user, never taken from the URL: a link from someone else, or a

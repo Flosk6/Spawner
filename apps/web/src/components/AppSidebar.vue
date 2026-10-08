@@ -58,15 +58,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { CircleArrowUp, FolderGit2, KeyRound, Layers, LayoutDashboard, ScrollText, Search, Server, SlidersHorizontal, Users } from 'lucide-vue-next';
 import Logo from './Logo.vue';
 import ThemeSwitch from './ThemeSwitch.vue';
 import UserMenu from './UserMenu.vue';
+import { useAvailableUpdate } from '../composables/useAvailableUpdate';
 import { usePalette } from '../composables/usePalette';
 import { useServerInfo } from '../composables/useServerInfo';
-import { systemApi } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 
 defineProps<{ open: boolean }>();
@@ -90,7 +89,7 @@ const route = useRoute();
 const authStore = useAuthStore();
 const palette = usePalette();
 const info = useServerInfo();
-const availableUpdate = ref<string | null>(null);
+const availableUpdate = useAvailableUpdate();
 const shortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K';
 
 /** The settings page is under /system too: the longest matching entry wins. */
@@ -98,18 +97,4 @@ function isActive(path: string): boolean {
   const matches = [...MAIN, ...ADMIN].filter((item) => route.path === item.to || route.path.startsWith(`${item.to}/`));
   return matches.sort((a, b) => b.to.length - a.to.length)[0]?.to === path;
 }
-
-// Admins learn here that a newer Spawner can be installed from the System page.
-watch(
-  () => authStore.isAdmin,
-  async (admin) => {
-    availableUpdate.value = null;
-    if (!admin) {
-      return;
-    }
-    const status = await systemApi.update().catch(() => null);
-    availableUpdate.value = status?.latest && status.managed ? status.latest.version : null;
-  },
-  { immediate: true },
-);
 </script>

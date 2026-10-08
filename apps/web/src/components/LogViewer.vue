@@ -52,11 +52,8 @@
       <p v-else-if="lines.length === 0" class="console-empty">
         {{ errorsOnly || search ? `No matching line${follow ? ' yet' : ''}.` : archived ? 'Nothing was kept.' : 'No output yet.' }}
       </p>
-      <div v-for="(line, index) in lines" :key="index" class="log-line" :class="{ 'is-err': line.stream === 'stderr' }">
-        <span class="log-time">{{ line.time.slice(11, 19) }}</span>
-        <span v-if="showService" class="log-svc" :style="{ color: colorFor(line.service, services) }">{{ line.service }}</span>
-        <span class="log-msg">{{ line.text }}</span>
-      </div>
+      <!-- One line of markup: the spaces between the parts are what a copy of the text keeps. -->
+      <div v-for="(line, index) in lines" :key="index" class="log-line" :class="{ 'is-err': line.stream === 'stderr' }"><span class="log-time" :title="line.time">{{ line.time.slice(11, 19) }}</span> <span v-if="showService" class="log-svc" :style="{ color: colorFor(line.service, services) }">{{ line.service }}</span> <span class="log-msg">{{ line.text }}</span></div>
     </div>
   </section>
 </template>

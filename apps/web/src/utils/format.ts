@@ -40,6 +40,16 @@ export function timeLeft(date: string | null | undefined): string {
   return `in ${minutes} minute${minutes > 1 ? 's' : ''}`;
 }
 
+/**
+ * When something Spawner does on a schedule happens (an environment's sleep
+ * or expiry): "in 2 days", or "soon" once the moment has passed, since
+ * Spawner acts on it within a minute.
+ */
+export function whenDue(date: string): string {
+  const left = timeLeft(date);
+  return left === 'expired' ? 'soon' : left;
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) {
     return '';

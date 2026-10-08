@@ -131,6 +131,14 @@
             <tr v-for="project in projectRows" :key="project.slug">
               <td class="max-w-[16rem]">
                 <RouterLink :to="`/projects/${project.slug}`" class="row-title block">{{ project.name }}</RouterLink>
+                <div class="row-sub flex-wrap whitespace-normal lg:hidden">
+                  <span class="md:hidden">{{ formatSize(project.memoryBytes) }} memory, {{ formatSize(project.diskBytes) }} disk now</span>
+                  <span v-if="project.capacity">
+                    One environment: {{ formatSize(project.capacity.memoryBytes) }} memory, {{ formatSize(project.capacity.diskBytes) }} disk{{
+                      project.capacity.basedOn.memory === 'limits' ? ' (its limits)' : ''
+                    }}
+                  </span>
+                </div>
               </td>
               <td class="tabular-nums text-fg-2">{{ project.running }} running / {{ project.environments }}</td>
               <td class="hidden tabular-nums md:table-cell">{{ formatSize(project.memoryBytes) }}</td>

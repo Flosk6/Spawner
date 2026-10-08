@@ -40,7 +40,7 @@
               <th>Member</th>
               <th>Role</th>
               <th class="hidden sm:table-cell">Status</th>
-              <th class="hidden xl:table-cell">Logins</th>
+              <th class="hidden lg:table-cell">Logins</th>
               <th class="hidden md:table-cell">Environments</th>
               <th class="hidden md:table-cell">Last login</th>
               <th><span class="sr-only">Actions</span></th>
@@ -57,6 +57,11 @@
                       <span v-if="member.id === authStore.user?.id" class="badge badge-sm">You</span>
                     </div>
                     <div v-if="!member.isActive" class="row-sub text-danger-text sm:hidden">Deactivated</div>
+                    <p class="mt-0.5 text-xs text-fg-3 lg:hidden">
+                      {{ member.passkeys }} passkey{{ member.passkeys === 1 ? '' : 's' }}{{ member.github ? `, GitHub ${member.github}` : '' }}<span class="md:hidden">,
+                        {{ member.environments }} environment{{ member.environments === 1 ? '' : 's' }}, last login
+                        {{ member.lastLoginAt ? timeAgo(member.lastLoginAt) : 'never' }}</span>
+                    </p>
                   </div>
                 </div>
               </td>
@@ -68,7 +73,7 @@
                   <span class="dot" :class="member.isActive ? 'tone-ok' : 'tone-danger'"></span>{{ member.isActive ? 'Active' : 'Deactivated' }}
                 </span>
               </td>
-              <td class="hidden whitespace-nowrap text-fg-2 xl:table-cell">
+              <td class="hidden whitespace-nowrap text-fg-2 lg:table-cell">
                 {{ member.passkeys }} passkey{{ member.passkeys === 1 ? '' : 's' }}<span v-if="member.github" class="text-fg-3"> · GitHub {{ member.github }}</span>
               </td>
               <td class="hidden tabular-nums text-fg-2 md:table-cell">{{ member.environments }}</td>
@@ -99,12 +104,10 @@
           <div class="svc-icon"><KeyRound v-if="invite.user" /><Mail v-else /></div>
           <div class="list-main">
             <div class="list-title"><span class="truncate">{{ inviteTitle(invite) }}</span></div>
-            <div class="list-sub">
+            <div class="list-sub flex-wrap whitespace-normal">
               <span>{{ ROLE_LABELS[invite.role] }}</span>
-              <span class="hidden sm:contents">
-                <span aria-hidden="true">·</span>
-                <span class="truncate">by {{ invite.createdBy ?? 'Spawner' }}</span>
-              </span>
+              <span aria-hidden="true">·</span>
+              <span>by {{ invite.createdBy ?? 'Spawner' }}</span>
               <span aria-hidden="true">·</span>
               <span class="whitespace-nowrap">expires {{ timeLeft(invite.expiresAt) }}</span>
             </div>

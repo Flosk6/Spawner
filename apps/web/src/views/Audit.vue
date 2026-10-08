@@ -87,6 +87,7 @@
             <td class="font-medium">{{ session.actor }}</td>
             <td class="font-mono text-xs leading-5">
               <span>{{ session.environment }}</span> <span class="text-fg-3">{{ session.service }}</span>
+              <div class="font-sans text-fg-3 md:hidden">{{ duration(session) }}, {{ endLabel(session) }}</div>
             </td>
             <td class="hidden whitespace-nowrap tabular-nums text-fg-2 md:table-cell">{{ duration(session) }}</td>
             <td class="hidden text-fg-3 md:table-cell">{{ endLabel(session) }}</td>
