@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, Module, NotFoundException, Param, Post, Query, Req, Res } from "@nestjs/common";
-import { SkipThrottle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { assertInProject, type Actor } from "../../common/actor";
 import { CurrentActor, Public, Scopes } from "../../common/auth.guard";
+import { NoThrottle } from "../../common/throttler.guard";
 import { PrismaService } from "../../common/prisma.service";
 import { EngineModule } from "../engine/engine.module";
 import { ActivityService } from "../lifecycle/activity.service";
@@ -29,7 +29,7 @@ export class PreviewAuthController {
    * 401).
    */
   @Public()
-  @SkipThrottle()
+  @NoThrottle()
   @Get("verify")
   async verify(@Req() request: Request, @Res() response: Response) {
     const decision = await this.previews.decide({
@@ -64,7 +64,7 @@ export class PreviewAuthController {
    * application does not see what opens the other previews either.
    */
   @Public()
-  @SkipThrottle()
+  @NoThrottle()
   @Get("verify-public")
   verifyPublic(@Req() request: Request, @Res() response: Response) {
     const cookies = applicationCookies(header(request, "cookie"));
