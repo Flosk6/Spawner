@@ -230,6 +230,10 @@ for path in / /api/v1/healthz; do
   grep -qi "^content-security-policy:.*frame-ancestors 'none'" <<<"$headers" || fail "the dashboard ($path) should answer frame-ancestors 'none': $headers"
 done
 pass "the dashboard and its API cannot be framed (X-Frame-Options, frame-ancestors)"
+headers=$(curl -sS -D - -o /dev/null --max-time 10 -H "Host: spawner.localtest.me" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/" | tr -d '\r')
+grep -qi "^content-security-policy: default-src 'self'; script-src 'self' 'sha256-" <<<"$headers" || fail "the dashboard's page should have its own policy: $headers"
+grep -qi '^referrer-policy: same-origin$' <<<"$headers" || fail "the dashboard should keep its URLs from other sites: $headers"
+pass "the dashboard's page runs its own scripts only, and keeps its URLs from other sites"
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: spawner.localtest.me" "http://127.0.0.1:${SPAWNER_HTTP_PORT}/socket.io/?EIO=4&transport=polling")
 [ "$code" = "400" ] || fail "the Socket.IO server of the terminal should refuse the polling transport with a 400, not $code"
 pass "Socket.IO refuses the polling transport (the terminal runs over WebSocket: spawner shell, below)"
@@ -255,6 +259,10 @@ echo "$page"
 [[ "$page" == *"Hello from Spawner (e2e-demo)"* ]] || fail "unexpected page"
 [[ "$page" == *"1 user(s)"* ]] || fail "the seed did not run"
 pass "the app answers with the seeded data"
+docker inspect -f '{{json .HostConfig.CapDrop}}' "$(docker ps -q --filter "label=dev.spawner.env=$env_id" --filter label=dev.spawner.service=app)" | grep -q NET_RAW \
+  || fail "the services should run without raw sockets"
+[ -n "$(api GET '/audit?action=env.create' | json 'v[0].ip || ""')" ] || fail "the audit trail should record the address of the request that created the environment"
+pass "the services run without raw sockets; the audit trail records the address of each request"
 
 step "Routing past an impostor"
 # Traefik sits on spawner-core and on every published environment network,
