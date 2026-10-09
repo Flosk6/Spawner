@@ -90,6 +90,7 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
     allowPublic: project.allowPublic ?? true,
     allowAlwaysOn: project.allowAlwaysOn ?? true,
     variables: (project.variables ?? []).map((variable) => variable.name),
+    sourceRepos: project.sourceRepos ? [project.repoUrl, ...project.sourceRepos] : null,
   });
   if (check.issues.length > 0) {
     throw refused(check.issues);

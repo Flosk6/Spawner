@@ -4,6 +4,7 @@ export type IssueCode =
   | 'manifest.invalid'
   | 'manifest.public_exposure'
   | 'manifest.always_on'
+  | 'manifest.source_repo'
   | 'slug.invalid'
   | 'variables.invalid'
   | 'interpolation.invalid'

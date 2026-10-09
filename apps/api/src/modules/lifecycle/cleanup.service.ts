@@ -7,6 +7,7 @@ import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { GitMirrorService } from "../engine/git-mirror.service";
+import { payloadArchives, type DeployPayload } from "../engine/pipeline.service";
 import { StorageService } from "../engine/storage.service";
 
 /** Uploads waiting this long without a job are left over. */
@@ -229,12 +230,7 @@ export class CleanupService {
   /** Archives that queued or running jobs will still extract. */
   private async waitingUploads(): Promise<Set<string>> {
     const jobs = await this.prisma.job.findMany({ where: { status: { in: ["queued", "running"] }, type: { in: ["create", "update"] } }, select: { payload: true } });
-    const archives = new Set<string>();
-    for (const job of jobs) {
-      const payload = job.payload as { primary?: { archive?: string }; sources?: Record<string, { archive?: string }> } | null;
-      [payload?.primary, ...Object.values(payload?.sources ?? {})].forEach((request) => request?.archive && archives.add(request.archive));
-    }
-    return archives;
+    return new Set(jobs.flatMap((job) => payloadArchives(job.payload as Partial<DeployPayload> | null)));
   }
 
   /** Mirrors of the repositories of the projects and of the live environments' sources. */

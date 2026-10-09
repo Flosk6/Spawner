@@ -6,6 +6,7 @@ import type { DockerService } from "../../common/docker.service";
 import type { PrismaService } from "../../common/prisma.service";
 import type { SpawnerConfig } from "../../common/spawner.config";
 import type { AuditService } from "../audit/audit.service";
+import { LimitReachedException } from "../../common/limit-reached";
 import type { JobQueueService } from "../engine/job-queue.service";
 import type { LogArchiveService } from "../engine/log-archive.service";
 import type { MetricsCollector } from "../supervision/metrics-collector.service";
@@ -29,6 +30,7 @@ describe("EnvironmentsService", () => {
   let updates: { expiresAt?: Date }[];
   let archived: { service: string; line: RawLogLine }[];
   let deletedAt: Date | null;
+  let queued: { triggeredById: number | null; payload: object }[];
 
   beforeEach(() => {
     output = {
@@ -40,6 +42,7 @@ describe("EnvironmentsService", () => {
     updates = [];
     archived = [];
     deletedAt = null;
+    queued = [];
     const environment = {
       id: "env-1",
       slug: "feat-login",
@@ -61,6 +64,10 @@ describe("EnvironmentsService", () => {
         findFirst: async ({ where }: { where: { deletedAt?: null } }) => (where.deletedAt === null && deletedAt ? null : environment),
         update: async ({ data }: { data: { expiresAt?: Date } }) => updates.push(data),
       },
+      job: {
+        findMany: async ({ where }: { where: { status: string; triggeredById: number | null } }) =>
+          queued.filter((job) => where.status === "queued" && job.triggeredById === where.triggeredById),
+      },
     };
     const docker = {
       listEnvironmentContainers: async () => Object.keys(output).map((service) => ({ Id: `c-${service}`, Labels: { "com.docker.compose.service": service } })),
@@ -77,7 +84,11 @@ describe("EnvironmentsService", () => {
     const timeline = { record: async () => undefined };
     service = new EnvironmentsService(
       prisma as unknown as PrismaService,
-      {} as JobQueueService,
+      {
+        enqueue: async () => {
+          throw new Error("queued");
+        },
+      } as unknown as JobQueueService,
       config,
       docker as unknown as DockerService,
       { environment: () => null } as unknown as MetricsCollector,
@@ -192,6 +203,24 @@ describe("EnvironmentsService", () => {
       await service.extend(owner, "env-1", "24h");
       expect(updates).toHaveLength(1);
       expect(updates[0].expiresAt!.getTime()).toBeGreaterThanOrEqual(before + 86400_000);
+    });
+  });
+
+  describe("update", () => {
+    const upload = { primary: { origin: "upload" as const, archive: "/data/uploads/new.tar.gz" }, sources: {} };
+    const git = { primary: { origin: "git" as const, ref: "main" }, sources: {} };
+
+    it("refuses a sixth deploy of uploaded code waiting to start, from the same person only", async () => {
+      queued = Array.from({ length: 4 }, () => ({ triggeredById: 1, payload: { primary: { origin: "upload", archive: "/data/uploads/a.tar.gz" }, sources: {} } }));
+      queued.push({ triggeredById: 1, payload: { primary: { origin: "git" }, sources: { front: { origin: "upload", archive: "/data/uploads/b.tar.gz" } } } });
+      queued.push({ triggeredById: 1, payload: git }, { triggeredById: 2, payload: upload });
+
+      await expect(service.update(owner, "env-1", upload)).rejects.toBeInstanceOf(LimitReachedException);
+      await expect(service.update(owner, "env-1", upload)).rejects.toThrow("You have 5 deploys of uploaded code waiting to start");
+      await expect(service.update(owner, "env-1", git)).rejects.toThrow("queued");
+      queued.pop();
+      queued.shift();
+      await expect(service.update(owner, "env-1", upload)).rejects.toThrow("queued");
     });
   });
 });

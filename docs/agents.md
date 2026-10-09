@@ -75,7 +75,7 @@ Any agent that runs shell commands can use the CLI; any MCP client can use `spaw
 
 ## Several agents at once
 
-Give each agent its own git worktree and branch: each gets its own environment, named after the branch, with its own database. Two agents that deploy at the same time never share a working copy on the server, and their builds queue when the server is busy. When the front lives in another repository, `spawner up --source front=../front-feat-login` sends that worktree too.
+Give each agent its own git worktree and branch: each gets its own environment, named after the branch, with its own database. Two agents that deploy at the same time never share a working copy on the server, and their builds queue when the server is busy. When the front lives in another repository, `spawner up --source front=../front-feat-login` sends that worktree too; an admin lists that repository among the project's source repositories first.
 
 The quota (5 environments per person by default) counts the environments of all the agents of a person: `spawner ls --mine` lists them, and the instructions ask agents to delete their environment once the work is validated. Environments nobody uses go to sleep, then expire.
 

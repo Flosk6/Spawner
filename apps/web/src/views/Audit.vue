@@ -145,6 +145,7 @@ const END_LABELS: Record<string, string> = {
   closed: 'closed',
   error: 'connection lost',
   interrupted: 'Spawner restarted',
+  revoked: 'access revoked',
 };
 
 const { showError } = useNotification();

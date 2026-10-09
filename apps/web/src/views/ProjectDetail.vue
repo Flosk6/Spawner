@@ -31,6 +31,9 @@
       <span v-else class="badge" v-tooltip.top="'auth: none is refused'"><Lock />URLs need a login</span>
       <span v-if="project.allowAlwaysOn" class="badge" v-tooltip.top="'Environments with idle: never stay awake'"><Sun />Environments may never sleep</span>
       <span v-else class="badge" v-tooltip.top="'idle: never is refused'"><Moon />Environments sleep when idle</span>
+      <span v-if="project.sourceRepos?.length" class="badge" v-tooltip.top="project.sourceRepos.join(', ')">
+        <FolderGit2 />{{ project.sourceRepos.length }} source {{ project.sourceRepos.length === 1 ? 'repository' : 'repositories' }}
+      </span>
     </div>
 
     <div class="grid gap-4 md:grid-cols-3">
@@ -189,7 +192,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Checkbox from 'primevue/checkbox';
 import Dialog from 'primevue/dialog';
-import { Calculator, CircleX, Folder, GitBranch, Globe, Info, KeyRound, Layers, LoaderCircle, Lock, Moon, Pencil, Plus, Server, Sun, Trash2 } from 'lucide-vue-next';
+import { Calculator, CircleX, Folder, FolderGit2, GitBranch, Globe, Info, KeyRound, Layers, LoaderCircle, Lock, Moon, Pencil, Plus, Server, Sun, Trash2 } from 'lucide-vue-next';
 import ProjectDialog from '../components/ProjectDialog.vue';
 import { setBreadcrumbs } from '../composables/useBreadcrumbs';
 import { useNotification } from '../composables/useNotification';

@@ -1,6 +1,7 @@
 import { Controller, Get, Header, MessageEvent, NotFoundException, Param, Sse } from "@nestjs/common";
 import { Observable, endWith, ignoreElements, interval, map, merge, share, takeUntil } from "rxjs";
-import { assertInProject, type Actor } from "../../common/actor";
+import { AccessService } from "../../common/access.service";
+import { assertInProject, assertScope, type Actor } from "../../common/actor";
 import { CurrentActor, Scopes } from "../../common/auth.guard";
 import { PrismaService } from "../../common/prisma.service";
 import { JobLogsService } from "../engine/job-logs.service";
@@ -17,6 +18,7 @@ export class JobsController {
     private readonly prisma: PrismaService,
     private readonly logs: JobLogsService,
     private readonly environments: EnvironmentsService,
+    private readonly access: AccessService,
   ) {}
 
   @Get(":id")
@@ -34,8 +36,8 @@ export class JobsController {
 
   /**
    * Streams the job log (server-sent events): what was written so far, then
-   * each new line, until the job ends. A "ping" event comes every 15
-   * seconds while the job is quiet.
+   * each new line, until the job ends or the actor loses access. A "ping"
+   * event comes every 15 seconds while the job is quiet.
    */
   @Sse(":id/logs/stream")
   async logsStream(@CurrentActor() actor: Actor, @Param("id") id: string): Promise<Observable<MessageEvent>> {
@@ -53,7 +55,8 @@ export class JobsController {
       map((): MessageEvent => ({ type: "ping", data: "" })),
       takeUntil(done),
     );
-    return merge(lines, pings);
+    const lost = new Observable<void>((subscriber) => this.access.watch(actor, (current) => assertScope(current, "envs:read"), () => subscriber.next()));
+    return merge(lines, pings).pipe(takeUntil(lost));
   }
 
   private async find(actor: Actor, id: string) {

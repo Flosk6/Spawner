@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { ApiToken, Project, User } from "@prisma/client";
 import { randomBytes, timingSafeEqual } from "crypto";
-import { ROLE_SCOPES, SCOPES, hasScope, isRole, type Actor, type Scope } from "../../common/actor";
+import { AccessService } from "../../common/access.service";
+import { SCOPES, hasScope, tokenActor, type Actor, type Scope } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
 import { randomToken, sha256 } from "../../common/secrets.service";
 import { AuditService } from "../audit/audit.service";
@@ -33,6 +34,7 @@ export class TokensService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
   ) {}
 
   /**
@@ -108,21 +110,11 @@ export class TokensService {
     if (!record || !sameHash(record.hash, sha256(raw))) {
       return null;
     }
-    if (record.revokedAt || (record.expiresAt && record.expiresAt <= new Date()) || !record.user.isActive || !isRole(record.user.role)) {
-      return null;
-    }
-    if (!record.lastUsedAt || Date.now() - record.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
+    const actor = tokenActor(record);
+    if (actor && (!record.lastUsedAt || Date.now() - record.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS)) {
       void this.prisma.apiToken.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
     }
-    const allowed: readonly string[] = record.projectId ? ROLE_SCOPES[record.user.role].filter((scope) => scope !== "admin") : ROLE_SCOPES[record.user.role];
-    return {
-      user: { id: record.user.id, name: record.user.name, role: record.user.role },
-      via: "token",
-      scopes: record.scopes.filter((scope): scope is Scope => allowed.includes(scope)),
-      tokenId: record.id,
-      tokenName: record.name,
-      projectId: record.projectId,
-    };
+    return actor;
   }
 
   /**
@@ -139,7 +131,8 @@ export class TokensService {
   }
 
   /**
-   * Revokes a token, and the tokens created with it, at any depth.
+   * Revokes a token, and the tokens created with it, at any depth; the
+   * terminals and log streams they opened close.
    */
   async revoke(actor: Actor, id: string): Promise<void> {
     const record = await this.prisma.apiToken.findUnique({ where: { id } });
@@ -159,6 +152,7 @@ export class TokensService {
       }
     }
     await this.audit.record(actor, "token.revoke", { target: record.name, details: { tokenId: id, userId: record.userId, children } });
+    await this.access.changed(record.userId);
   }
 
   present(record: ApiToken & { project?: Project | null; user?: User }) {

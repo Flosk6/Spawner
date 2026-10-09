@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { config } from "dotenv";
 import { join } from "path";
+import { AccessModule } from "./common/access.module";
 import { isRole } from "./common/actor";
 import { PrismaModule } from "./common/prisma.module";
 import { SpawnerConfigModule } from "./common/spawner-config.module";
@@ -17,7 +18,7 @@ Prints a one-time invitation link (default: member, ${INVITE_DEFAULT_HOURS} hour
 In the container: docker exec -u node spawner node dist/admin.js invite --role admin`;
 
 @Module({
-  imports: [SpawnerConfigModule, PrismaModule, AuditModule, AuthModule],
+  imports: [SpawnerConfigModule, PrismaModule, AccessModule, AuditModule, AuthModule],
   providers: [InvitesService],
 })
 class AdminModule {}

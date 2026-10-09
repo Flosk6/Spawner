@@ -1,6 +1,7 @@
 import { ForbiddenException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
-import { sessionActor, type Actor } from "../../common/actor";
+import { AccessService } from "../../common/access.service";
+import { assertScope, sessionActor, type Actor } from "../../common/actor";
 import type { PrismaService } from "../../common/prisma.service";
 import type { AuditService } from "../audit/audit.service";
 import type { PasskeysService } from "../auth/passkeys.service";
@@ -18,12 +19,38 @@ describe("UsersService", () => {
         },
       },
     };
-    const users = new UsersService(prisma as unknown as PrismaService, {} as PasskeysService, {} as SettingsService, {} as AuditService);
+    const users = new UsersService(prisma as unknown as PrismaService, {} as PasskeysService, {} as SettingsService, {} as AuditService, {} as AccessService);
     const session = sessionActor({ id: 2, name: "Bob", role: "member" });
     const token: Actor = { ...session, via: "token", tokenId: "t1", tokenName: "agent" };
 
     await expect(users.rename(token, "Ada")).rejects.toBeInstanceOf(ForbiddenException);
     await users.rename(session, "Robert");
     expect(names).toEqual(["Robert"]);
+  });
+
+  it("closes the terminals and streams of a user deactivated, and what a demoted admin may no longer do", async () => {
+    const rows: Record<number, { id: number; name: string; role: string; isActive: boolean; createdAt: Date }> = {
+      1: { id: 1, name: "Ada", role: "admin", isActive: true, createdAt: new Date() },
+      2: { id: 2, name: "Bob", role: "admin", isActive: true, createdAt: new Date() },
+    };
+    const prisma = {
+      user: {
+        findUnique: async ({ where }: { where: { id: number } }) => rows[where.id] ?? null,
+        count: async () => Object.values(rows).filter((row) => row.role === "admin" && row.isActive).length,
+        update: async ({ where, data }: { where: { id: number }; data: object }) => Object.assign(rows[where.id], data),
+      },
+    };
+    const access = new AccessService(prisma as unknown as PrismaService);
+    const users = new UsersService(prisma as unknown as PrismaService, {} as PasskeysService, {} as SettingsService, { record: async () => undefined } as unknown as AuditService, access);
+    const admin = sessionActor({ id: 1, name: "Ada", role: "admin" });
+    const lost: string[] = [];
+    access.watch(sessionActor({ id: 2, name: "Bob", role: "admin" }), (actor) => assertScope(actor, "admin"), (reason) => lost.push(`audit: ${reason}`));
+    access.watch(sessionActor({ id: 2, name: "Bob", role: "admin" }), (actor) => assertScope(actor, "envs:exec"), (reason) => lost.push(`terminal: ${reason}`));
+
+    await users.update(admin, 2, { role: "member" });
+    expect(lost).toEqual(["audit: this needs the admin scope"]);
+    await users.update(admin, 2, { isActive: false });
+    expect(lost).toEqual(["audit: this needs the admin scope", "terminal: access revoked or expired"]);
+    access.onModuleDestroy();
   });
 });

@@ -107,6 +107,17 @@ describe("up", () => {
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
+  it("refuses a source from a repository the project does not list, before anything is sent", async () => {
+    fs.writeFileSync(path.join(root, ".spawner/spawner.yaml"), `${MANIFEST}sources:\n  front:\n    repo: git@github.com:acme/front.git\n`);
+    const listing = (sourceRepos: string[]) => routes({ "GET /projects/example": () => ({ ...PROJECT, sourceRepos }) });
+    await expect(up(fakeContext(root, listing([])), { refs: { front: "main" } })).rejects.toMatchObject({
+      exit: EXIT.refused,
+      details: { issues: [expect.objectContaining({ code: "manifest.source_repo", path: "spawner.yaml: sources.front.repo" })] },
+    });
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+    await expect(up(fakeContext(root, listing(["git@github.com:acme/front.git"])), { refs: { front: "main" } })).resolves.toMatchObject({ action: "created" });
+  });
+
   it("knows the variables of the project, not their values", async () => {
     fs.writeFileSync(path.join(root, ".spawner/compose.yaml"), COMPOSE.replace("      PUBLIC_URL: ${SPAWNER_URL}\n", "      PUBLIC_URL: ${SPAWNER_URL}\n      STRIPE_KEY: ${STRIPE_KEY}\n"));
     await expect(up(fakeContext(root, routes()), {})).rejects.toMatchObject({ exit: EXIT.refused });

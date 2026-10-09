@@ -19,7 +19,8 @@ import {
 import { AnyFilesInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import * as fs from "fs";
-import type { Actor } from "../../common/actor";
+import { AccessService } from "../../common/access.service";
+import { assertScope, type Actor } from "../../common/actor";
 import { CurrentActor, Scopes } from "../../common/auth.guard";
 import type { SourceRequest } from "../engine/pipeline.service";
 import { EnvironmentsService, type DeployRequest } from "./environments.service";
@@ -45,7 +46,10 @@ const SSE_HEARTBEAT_MS = 15_000;
 @Controller("v1/envs")
 @Scopes("envs:read")
 export class EnvironmentsController {
-  constructor(private readonly environments: EnvironmentsService) {}
+  constructor(
+    private readonly environments: EnvironmentsService,
+    private readonly access: AccessService,
+  ) {}
 
   /**
    * Live environments, newest first. mine=true keeps the actor's own;
@@ -166,7 +170,7 @@ export class EnvironmentsController {
    * grep a text to find and errors=true the lines reporting errors.
    * format=text downloads them as a text file. With follow=true, the answer
    * is a stream of server-sent events, one line per event, until the
-   * services stop.
+   * services stop or the actor loses access.
    */
   @Get(":id/logs")
   async logLines(
@@ -208,7 +212,16 @@ export class EnvironmentsController {
       }
     };
     let stop: (() => void) | null = null;
+    const unwatch = this.access.watch(
+      actor,
+      (current) => assertScope(current, "envs:read"),
+      () => {
+        stop?.();
+        end();
+      },
+    );
     request.on("close", () => {
+      unwatch();
       stop?.();
       end();
     });

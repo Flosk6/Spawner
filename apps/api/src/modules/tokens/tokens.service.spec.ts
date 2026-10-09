@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AccessService } from "../../common/access.service";
 import { sessionActor, type Actor } from "../../common/actor";
 import type { PrismaService } from "../../common/prisma.service";
 import { sha256 } from "../../common/secrets.service";
@@ -25,6 +26,7 @@ describe("TokensService", () => {
   let rows: Map<string, Row>;
   let users: Record<number, { id: number; name: string; role: string; isActive: boolean }>;
   let service: TokensService;
+  let access: AccessService;
   const admin = sessionActor({ id: 1, name: "Ada", role: "admin" });
   const member = sessionActor({ id: 2, name: "Bob", role: "member" });
 
@@ -55,8 +57,11 @@ describe("TokensService", () => {
       },
       project: { findUnique: async ({ where }: { where: { slug: string } }) => projects.find((project) => project.slug === where.slug) ?? null },
     };
-    service = new TokensService(prisma as unknown as PrismaService, { record: async () => undefined } as unknown as AuditService);
+    access = new AccessService(prisma as unknown as PrismaService);
+    service = new TokensService(prisma as unknown as PrismaService, { record: async () => undefined } as unknown as AuditService, access);
   });
+
+  afterEach(() => access.onModuleDestroy());
 
   it("creates spn_<prefix>_<secret> tokens and stores only their hash", async () => {
     const { token, info } = await service.create(member, { name: "claude-laptop" });
@@ -134,6 +139,19 @@ describe("TokensService", () => {
     expect(await service.authenticate(ci.token)).toBeNull();
     expect(await service.authenticate(nested.token)).toBeNull();
     expect(await service.authenticate(dashboard.token)).not.toBeNull();
+  });
+
+  it("closes the terminals and streams a revoked token opened, and those of the tokens created with it", async () => {
+    const laptop = await service.create(member, { name: "laptop" });
+    const ci = await service.create((await service.authenticate(laptop.token)) as Actor, { name: "ci" });
+    const dashboard = await service.create(member, { name: "dashboard" });
+    const lost: string[] = [];
+    for (const { token, info } of [laptop, ci, dashboard]) {
+      access.watch((await service.authenticate(token)) as Actor, () => undefined, () => lost.push(info.name));
+    }
+
+    await service.revoke(member, laptop.info.id);
+    expect(lost.sort()).toEqual(["ci", "laptop"]);
   });
 
   it("lets users revoke their own tokens, and admins anyone's", async () => {

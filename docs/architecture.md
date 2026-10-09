@@ -76,6 +76,7 @@ A pnpm workspace built with Turborepo. `build` depends on the build of the depen
 - `common/auth.guard.ts` is global: a route needs an actor unless it is marked `@Public()`, and the scopes listed by `@Scopes()`.
 - Changes made without a bearer token must carry the `X-Spawner-Client` header (CSRF).
 - Rate limits apply per user, per address without one, tighter on the login routes (`common/throttler.guard.ts`).
+- `common/access.service.ts` (global) holds the terminals and log streams to what their actor may still do: it reads the actor again when the team or tokens services report a change, and every 30 seconds, and closes what it no longer allows.
 - `common/secrets.service.ts` holds the master secret and the keys derived from it (signed tokens, encrypted settings, the session).
 - `common/docker.service.ts` wraps the Docker API (Dockerode): containers by environment label, exec with stdin, logs (structured, followed, by time range), usage and stats samples, networks. `common/docker-logs.ts` decodes the logs stream (multiplexed frames or TTY text) into lines with their stream and time.
 
@@ -113,7 +114,7 @@ PostgreSQL through Prisma (`apps/api/prisma/schema.prisma`, migrations in `apps/
 | `share_links` | Guest links to an environment's previews, by SHA-256 |
 | `audit_events` | The audit trail |
 | `sessions` | Dashboard sessions (connect-pg-simple) |
-| `projects` | Slug, name, repository, default branch, `rootDir` (where `.spawner/` is, in a monorepo), `allowPublic` (exposures with `auth: none`), `allowAlwaysOn` (`idle: never`) |
+| `projects` | Slug, name, repository, default branch, `rootDir` (where `.spawner/` is, in a monorepo), `allowPublic` (exposures with `auth: none`), `allowAlwaysOn` (`idle: never`), `sourceRepos` (the repositories other sources may come from) |
 | `project_variables` | Variables of the project's compose files; secret values encrypted with the master secret |
 | `environments` | Slug, status, phase and error of the last failure, owner and token name, manifest, expiry, last activity. A deleted environment keeps its row (`deleted_at`); its slug is unique among live environments through a partial index |
 | `environment_sources` | What each source runs (git ref and commit, or upload digest and size), and whether its code is still on disk |
@@ -132,8 +133,8 @@ PostgreSQL through Prisma (`apps/api/prisma/schema.prisma`, migrations in `apps/
 
 Every change is a job, run in order per environment, one at a time per environment. Builds (create, update) are limited by `SPAWNER_BUILD_CONCURRENCY`; stop, start, sleep, wake and delete run alongside. A create or an update goes through:
 
-1. **preparing**: the memory and disk guards (a build waits up to two minutes for them, then fails with the code `capacity`), then the sources: a git worktree at the ref, or an upload checked entry by entry (no absolute paths, `..`, links leaving the archive, devices or hard links).
-2. **validating**: the manifest, public exposures and `idle: never` (refused unless the project allows them), the compose policy, the interpolation with the project's variables, the limits. Each issue is logged with its path and a hint, and the Dockerfiles are checked for layers that would copy the code before the dependencies.
+1. **preparing**: the memory and disk guards (a build waits up to two minutes for them, then fails with the code `capacity`), then the sources: a git worktree at the ref, or an upload checked entry by entry (no absolute paths, `..`, links leaving the archive, devices or hard links). The project's own source comes first, and its manifest is read before the others: public exposures, `idle: never` and other repositories are refused unless the project allows them, so that nothing else is cloned for a branch that names a repository the project does not list.
+2. **validating**: the compose policy, the interpolation with the project's variables, the limits. Each issue is logged with its path and a hint, and the Dockerfiles are checked for layers that would copy the code before the dependencies.
 3. **building**: `docker compose up -d --build --wait` (with `fresh`, `down --volumes` first). On an update, the services that mount files of a source are recreated afterwards, since Compose would keep them on the replaced directory.
 4. **seeding**: on a create, or with `fresh` or `reseed`.
 5. **routing**: Traefik joins the environment's network, and the routes file is written.

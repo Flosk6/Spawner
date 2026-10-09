@@ -6,6 +6,7 @@ import type { IncomingMessage } from "http";
 import type { Namespace, Socket } from "socket.io";
 import { StringDecoder } from "string_decoder";
 import type { Duplex } from "stream";
+import { AccessService } from "../../common/access.service";
 import { ROLE_SCOPES, assertCanAct, isRole, type Actor } from "../../common/actor";
 import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
@@ -52,6 +53,7 @@ interface TerminalSession {
   client: Socket;
   startedAt: number;
   lastInputAt: number;
+  unwatch: () => void;
 }
 
 /**
@@ -69,9 +71,12 @@ function dimension(value: unknown, fallback: number): number {
  * opens: a refused client never gets a connection. A terminal
  * opens only in an environment the user may run commands in (their own, or
  * any for an admin), within the project of the token that asked for the
- * ticket, and is recorded in the audit trail. A person has 3 terminals at
- * most; a terminal closes after 15 minutes without input and after 4 hours;
- * what it shows is recorded (2 MiB) for the admins.
+ * ticket, and is recorded in the audit trail. Each start reads the user and
+ * the token again, and an open terminal closes as soon as they would no
+ * longer open it (a user deactivated or demoted, a token revoked or
+ * expired). A person has 3 terminals at most; a terminal closes after 15
+ * minutes without input and after 4 hours; what it shows is recorded
+ * (2 MiB) for the admins.
  */
 @WebSocketGateway(TERMINAL_SOCKET_OPTIONS)
 export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
@@ -87,6 +92,7 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
     private readonly audit: AuditService,
     private readonly recordings: TerminalSessionsService,
     private readonly activity: ActivityService,
+    private readonly access: AccessService,
   ) {
     this.limits = setInterval(() => this.enforceLimits(), LIMITS_CHECK_MS);
     this.limits.unref();
@@ -198,8 +204,14 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { environmentId?: string; resourceName?: string; cols?: number; rows?: number },
   ): Promise<void> {
-    const actor = client.data.actor as Actor | undefined;
-    if (!actor?.user || typeof data?.environmentId !== "string" || typeof data.resourceName !== "string") {
+    const actor = client.data.actor ? await this.access.refresh(client.data.actor as Actor) : null;
+    if (!actor?.user) {
+      client.emit("terminal-error", "Unauthorized: access revoked or expired");
+      client.disconnect(true);
+      return;
+    }
+    client.data.actor = actor;
+    if (typeof data?.environmentId !== "string" || typeof data.resourceName !== "string") {
       client.emit("terminal-error", "Unauthorized");
       return;
     }
@@ -247,6 +259,14 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
         client,
         startedAt: now,
         lastInputAt: now,
+        unwatch: this.access.watch(
+          actor,
+          (current) => assertCanAct(current, "envs:exec", environment),
+          (reason) => {
+            client.emit("terminal-error", `Closed: ${reason}`);
+            this.close(sessionId, "revoked");
+          },
+        ),
       });
       await this.audit.record(actor, "terminal.open", { target: label, details: { service: data.resourceName, sessionId: recorder.sessionId } });
 
@@ -319,6 +339,7 @@ export class TerminalGateway implements OnGatewayInit, OnGatewayDisconnect, OnMo
       return;
     }
     this.sessions.delete(sessionId);
+    session.unwatch();
     void session.recorder.close(reason, exitCode);
     try {
       session.stream.end();

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Request } from "express";
+import { AccessService } from "../../common/access.service";
 import { isRole, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
 import { randomToken } from "../../common/secrets.service";
@@ -19,6 +20,7 @@ export class UsersService {
     private readonly passkeys: PasskeysService,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
   ) {}
 
   async list() {
@@ -39,8 +41,9 @@ export class UsersService {
 
   /**
    * Changes a user's role or deactivates them. A deactivated user loses
-   * their sessions, tokens and preview access at once. The last active admin
-   * cannot be demoted or deactivated.
+   * their sessions, tokens, preview access, terminals and log streams at
+   * once, and a demoted one what the new role does not allow. The last
+   * active admin cannot be demoted or deactivated.
    */
   async update(actor: Actor, id: number, body: { role?: unknown; isActive?: unknown }) {
     const user = await this.prisma.user.findUnique({ where: { id } });
@@ -66,6 +69,7 @@ export class UsersService {
     }
     const updated = await this.prisma.user.update({ where: { id }, data });
     await this.audit.record(actor, "user.update", { target: user.name, details: { userId: id, ...data } });
+    await this.access.changed(id);
     return { ...presentUser(updated), isActive: updated.isActive };
   }
 

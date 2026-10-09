@@ -59,7 +59,8 @@ spawner down demo
 ## Two repositories instead of one
 
 When the front lives in its own repository, keep `.spawner/` in the API
-repository and declare the front as a source:
+repository, add the front's repository to the project's source repositories
+(Projects, Edit), and declare the front as a source:
 
 ```yaml
 # .spawner/spawner.yaml of the API repository

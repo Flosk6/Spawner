@@ -12,6 +12,7 @@ import {
   parseManifest,
   prepareCompose,
   publicExposureIssues,
+  sourceRepoIssues,
   type Issue,
   type Manifest,
 } from "@spawner/core";
@@ -53,6 +54,13 @@ export interface DeployPayload {
   reseed?: boolean;
   /** Lifetime asked for with the deploy, instead of the manifest's ttl. */
   ttlSeconds?: number;
+}
+
+/**
+ * The uploaded archives a deploy waits for, on disk until its job runs.
+ */
+export function payloadArchives(payload: Partial<DeployPayload> | null): string[] {
+  return [payload?.primary, ...Object.values(payload?.sources ?? {})].flatMap((request) => (request?.archive ? [request.archive] : []));
 }
 
 export type JobPhase = "preparing" | "validating" | "building" | "seeding" | "routing" | "deleting" | "stopping" | "starting" | "sleeping" | "waking";
@@ -196,7 +204,15 @@ export class PipelineService {
       );
       const projectRoot = this.projectRoot(primaryDir, env.project.rootDir);
       const manifest = this.readManifest(projectRoot, env.project.slug, log);
-      this.rejectIfIssues([...publicExposureIssues(manifest, env.project.allowPublic), ...alwaysOnIssues(manifest, env.project.allowAlwaysOn)], "spawner.yaml", log);
+      this.rejectIfIssues(
+        [
+          ...publicExposureIssues(manifest, env.project.allowPublic),
+          ...alwaysOnIssues(manifest, env.project.allowAlwaysOn),
+          ...sourceRepoIssues(manifest, [env.project.repoUrl, ...env.project.sourceRepos]),
+        ],
+        "spawner.yaml",
+        log,
+      );
 
       const undeclared = Object.keys(payload.sources ?? {}).filter((name) => !(name in manifest.sources));
       if (undeclared.length > 0) {
@@ -707,12 +723,7 @@ export class PipelineService {
   }
 
   private removeArchives(payload: DeployPayload | null): void {
-    const requests = [payload?.primary, ...Object.values(payload?.sources ?? {})];
-    for (const request of requests) {
-      if (request?.archive) {
-        fs.rmSync(request.archive, { force: true });
-      }
-    }
+    payloadArchives(payload).forEach((archive) => fs.rmSync(archive, { force: true }));
   }
 
   private environment(id: string) {

@@ -166,7 +166,7 @@ Errors, with `--json`: `{ "error": { "code": "not_found", "message": "...", "hin
 | 3 | Authentication: not logged in, token expired or revoked, or not allowed (a member acting on someone else's environment) |
 | 4 | The environment failed: the end of the job log is on stderr |
 | 5 | Timeout: the job goes on on the server |
-| 6 | Quota or capacity: you have as many environments as a person may, or the server lacks the memory or disk (the hint says what to free) |
+| 6 | Quota or capacity: you have as many environments as a person may, or 5 deploys of uploaded code waiting to start, or the server lacks the memory or disk (the hint says what to free) |
 | 7 | `spawner.yaml` or the compose file was refused |
 
 `exec` exits with the exit code of the command it ran, once it ran.

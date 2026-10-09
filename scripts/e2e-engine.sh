@@ -22,7 +22,9 @@
 #      network, images, routing file, sources)
 #
 # Then an agent's turn, with the spawner CLI downloaded from the server and
-# logged in by the device flow (the teammate approves it): from a git
+# logged in by the device flow (the teammate approves it): a source from a
+# repository the project does not list is refused by the server before
+# anything is cloned, and by the CLI before anything is sent; from a git
 # worktree with an uncommitted change, up --wait --json, the protected URL
 # with a preview token, exec (with stdin and exit codes), logs, status,
 # stats, shell (in a pseudo-terminal), a share link, a compose file refused
@@ -38,7 +40,8 @@
 # the environment degraded until it runs again; spawner sleep stops it and a
 # visit gets the waiting page and wakes it up, data kept; a minute without
 # activity puts it to sleep by itself and spawner exec wakes it up first; the
-# quota of a person refuses a second environment (exit 6).
+# quota of a person refuses a second environment (exit 6); revoking a token
+# closes the stream of logs it had open.
 #
 # Then, with scripts/e2e-fixtures/bind-mount, a service that mounts files of
 # its source and writes into it as root: the capacity announced must match
@@ -107,7 +110,7 @@ remove_impostor() {
 # Compose projects of the environments the test creates, with names of their
 # own: the cleanup removes them, and the README's quick start creates
 # example/demo on a developer's stack.
-TEST_PROJECTS=(spn-example--e2e-demo spn-bindmount--bind spn-agent--feat-cli-demo)
+TEST_PROJECTS=(spn-example--e2e-demo spn-bindmount--bind spn-agent--feat-cli-demo spn-foreign--e2e-foreign)
 
 # The CLI, as downloaded from the server, with its own configuration.
 export SPAWNER_CONFIG_DIR="$WORK/cli-config"
@@ -373,6 +376,33 @@ sed -i.bak "s/  console.log('seeded 1 user');/  console.log('seeded 1 user, toke
 node -e "const fs = require('fs'); const f = process.argv[1]; fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(\"    if (request.url === '/users') {\", \"    if (request.url === '/cookies') {\\n      response.writeHead(200, { 'content-type': 'text/plain' }).end(request.headers.cookie ?? '');\\n      return;\\n    }\\n    if (request.url === '/users') {\"))" "$WORKTREE/server.js"
 api PUT /projects/agent/variables/GREETING -H 'Content-Type: application/json' -d '{"value":"Hello from a project variable"}' >/dev/null
 api PUT /projects/agent/variables/SECRET_TOKEN -H 'Content-Type: application/json' -d '{"value":"s3cr3t-token-value","secret":true}' >/dev/null
+
+# A project of its own, so that the refused environment leaves the agent's untouched.
+api POST /projects -H 'Content-Type: application/json' \
+  -d '{"slug":"foreign","name":"Foreign","repoUrl":"https://github.com/Flosk6/Spawner.git"}' | json 'v.slug'
+FOREIGN="$WORK/agent-foreign"
+git -C "$AGENT_REPO" worktree add -q -b feat/foreign "$FOREIGN"
+sed -i.bak 's/^project: agent$/project: foreign/' "$FOREIGN/.spawner/spawner.yaml" && rm "$FOREIGN/.spawner/spawner.yaml.bak"
+printf 'sources:\n  other:\n    repo: https://github.com/acme/other.git\n' >>"$FOREIGN/.spawner/spawner.yaml"
+tar -C "$FOREIGN" --exclude .git -czf "$WORK/foreign.tar.gz" .
+created=$(api POST /envs -F project=foreign -F env=e2e-foreign -F "primary=@$WORK/foreign.tar.gz")
+foreign_id=$(echo "$created" | json 'v.environment.id')
+foreign_job=$(echo "$created" | json 'v.job.id')
+for _ in $(seq 1 60); do
+  [ "$(api GET "/jobs/$foreign_job" | json 'v.status')" = "failed" ] && break
+  sleep 1
+done
+[ "$(api GET "/jobs/$foreign_job" | json 'v.status + " " + v.errorCode')" = "failed invalid" ] || fail "a source from an unlisted repository should be refused: $(api GET "/jobs/$foreign_job")"
+api GET "/jobs/$foreign_job/logs" | grep -q 'sources.other.repo: source "other" comes from https://github.com/acme/other.git, which is not among the source repositories' \
+  || fail "the job log should name the refused repository: $(api GET "/jobs/$foreign_job/logs")"
+[ ! -e "$SPAWNER_DATA_DIR/envs/$foreign_id/src/other" ] || fail "nothing should be cloned for a refused source"
+wait_job "$(api DELETE "/envs/$foreign_id" | json 'v.job.id')"
+set +e
+foreign=$(cd "$FOREIGN" && spawner up --json 2>/dev/null)
+code=$?
+set -e
+[ "$code" = "7" ] && [ "$(echo "$foreign" | json 'v.error.issues[0].code')" = "manifest.source_repo" ] || fail "spawner up should refuse an unlisted source repository with exit 7, not $code: $foreign"
+pass "a source from a repository the project does not list: refused before any clone, and by the CLI before any upload"
 cd "$WORKTREE"
 
 up_json=$(spawner up --wait --json) || fail "spawner up failed: $up_json"
@@ -553,6 +583,23 @@ set -e
 limits '{"envsPerUser":null}'
 [ "$code" = "6" ] && [ "$(echo "$quota" | json 'v.error.code')" = "quota" ] || fail "an environment beyond the quota of a person should be refused with exit 6, not $code: $quota"
 pass "beyond the quota of a person, spawner up is refused with exit code 6"
+
+stream_token=$(spawner token create --name e2e-stream --json | json 'v.token')
+curl -sN --max-time 120 -H "Authorization: Bearer $stream_token" "$API/envs/$agent_id/logs?follow=true" >"$WORK/stream.out" &
+stream_pid=$!
+sleep 3
+kill -0 "$stream_pid" 2>/dev/null || fail "a stream of logs should stay open while the environment runs: $(head -c 300 "$WORK/stream.out")"
+spawner token revoke "${stream_token:0:12}" >/dev/null
+for _ in $(seq 1 20); do
+  kill -0 "$stream_pid" 2>/dev/null || break
+  sleep 0.5
+done
+if kill -0 "$stream_pid" 2>/dev/null; then
+  kill "$stream_pid"
+  fail "revoking a token should close the stream of logs it had open"
+fi
+wait "$stream_pid" || true
+pass "revoking a token closes the stream of logs it had open"
 
 step "An agent drives the environment through MCP"
 node "$ROOT/scripts/e2e/mcp.mjs" "$WORK/spawner" "$WORKTREE" "$agent_env"
