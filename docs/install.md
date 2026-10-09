@@ -79,6 +79,7 @@ curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
 | `--tls off` | Plain HTTP, for a local install (below) [`SPAWNER_TLS`] |
 | `--image <image>` | An image of your own instead of `ghcr.io/flosk6/spawner` [`SPAWNER_IMAGE`] |
 | `--yes` | Ask nothing; fail when an answer is missing |
+| `--allow-downgrade` | Install a version older than the installed one, after restoring a backup of its database ([operations](operations.md#upgrading)) |
 
 ### DNS providers
 
@@ -93,7 +94,7 @@ curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
 | Gandi | `GANDIV5_PERSONAL_ACCESS_TOKEN` | A personal access token allowed to manage the domain's technical configuration |
 | Others | as listed for the provider on [the lego documentation](https://go-acme.github.io/lego/dns/) | `--dns-provider <code> --dns-env KEY=VALUE ...` |
 
-The credentials go to `/opt/spawner/dns.env`, readable by root only, and only Traefik receives them.
+The credentials go to `/opt/spawner/dns.env`, readable by root only, and only Traefik receives them. Typed answers to the questions for credentials are not shown.
 
 ## What the installer changes on the server
 
@@ -107,7 +108,7 @@ The credentials go to `/opt/spawner/dns.env`, readable by root only, and only Tr
 - **zram**, if you accept it: `zram-tools`, half of the memory, zstd.
 - **nftables** (`nft`), if it is missing, and **`/etc/systemd/system/docker.service.d/spawner-firewall.conf`**: Docker loads the rules of `/opt/spawner/firewall.nft` before it starts any container, so that after a reboot no environment runs a moment without them ([security](security.md#isolation)). The rules sit in a table of their own (`inet spawner`), which Docker, ufw and firewalld leave alone.
 - **`/opt/spawner`**: `compose.yaml`, `.env` (settings and secrets), `dns.env`, `firewall.nft`, `backups/`; mode 700.
-- **`/var/lib/spawner`**: the data directory (repository mirrors, environment sources, routes, job logs, deploy keys).
+- **`/var/lib/spawner`**: the data directory (repository mirrors, environment sources, routes, job logs, deploy keys), mode 700.
 
 Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself, Postgres and Traefik run as containers named `spawner`, `spawner-postgres` and `spawner-traefik`; `spawner-firewall` loads the rules of the environments again every minute.
 

@@ -7,7 +7,7 @@ Running a Spawner server day to day: where things are, backups, restores, upgrad
 | Path | What it holds |
 |---|---|
 | `/opt/spawner/compose.yaml` | The stack: `spawner`, `spawner-postgres`, `spawner-traefik`, `spawner-firewall`. Written by the installer; rerun it rather than editing this file |
-| `/opt/spawner/.env` | Version, domain, memory of the Spawner container (`SPAWNER_MEMORY_LIMIT`), and the secrets: `SPAWNER_SECRET`, `POSTGRES_PASSWORD`, `SPAWNER_BOOTSTRAP_TOKEN` |
+| `/opt/spawner/.env` | Version, domain, memory of the Spawner container (`SPAWNER_MEMORY_LIMIT`), and the secrets: `SPAWNER_SECRET`, `POSTGRES_PASSWORD`, and `SPAWNER_BOOTSTRAP_TOKEN` when the installer was given one |
 | `/opt/spawner/dns.env` | Credentials of the DNS provider, for Traefik |
 | `/opt/spawner/spawner.env` | Settings of your own (below); the installer never overwrites it |
 | `/opt/spawner/firewall.nft` | The rules for the containers of Docker's bridge networks, which Docker loads before it starts ([security](security.md#isolation)); copied from the image by each run of the installer |
@@ -84,7 +84,7 @@ The dashboard is away for about a minute, environments keep running, and the pag
 curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh | sudo bash -s -- --upgrade
 ```
 
-`--version 2.1.0` picks a version. If the new version does not start, the installer goes back to the previous one by itself. To go back later, install the previous version with `--upgrade --version <previous>` and restore the backup the upgrade took: migrations only go forward.
+`--version 2.1.0` picks a version. If the new version does not start, the installer goes back to the previous one by itself. To go back later, restore the backup the upgrade took (it holds the database of the previous version), then install that version with `--upgrade --version <previous> --allow-downgrade`: migrations only go forward, so the installer refuses an older version without that option.
 
 ## Disk
 
@@ -116,6 +116,6 @@ When the disk fills up anyway: delete the environments nobody uses any more, sho
 
 ## Secrets
 
-- **The bootstrap token** (`SPAWNER_BOOTSTRAP_TOKEN` in `.env`) has every scope, for scripts of the installation: change it in `.env`, then `docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up -d`.
+- **The bootstrap token** (`SPAWNER_BOOTSTRAP_TOKEN` in `.env`) has every scope and no user, for scripts of the installation. The installer makes one only when given (`sudo env SPAWNER_BOOTSTRAP_TOKEN=... bash install.sh`); installations from 2.1 and before have one: empty the line in `.env` to turn it off, or change it, then `docker compose --project-directory /opt/spawner --env-file /opt/spawner/.env up -d`. Personal tokens, with an expiry and a user, are better for scripts.
 - **The master secret** (`SPAWNER_SECRET`) signs sessions and tokens and encrypts settings and secret variables. Changing it logs everyone out, invalidates every personal token and makes the encrypted settings and secret variables unreadable: do it only if it leaked, then set the GitHub login and the secret variables again.
 - **The database password** (`POSTGRES_PASSWORD`) never leaves the server; the database is not reachable from outside the stack.

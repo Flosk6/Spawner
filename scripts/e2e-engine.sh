@@ -60,6 +60,8 @@ ROOT="$PWD"
 
 export SPAWNER_DATA_DIR="${SPAWNER_DATA_DIR:-$PWD/local-data/e2e}"
 export SPAWNER_HTTP_PORT="${SPAWNER_HTTP_PORT:-80}"
+# Environments call the previews through the host, as on a server.
+export SPAWNER_HTTP_BIND=0.0.0.0
 export SPAWNER_BOOTSTRAP_TOKEN="${SPAWNER_BOOTSTRAP_TOKEN:-$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")}"
 # The dashboard must be under the preview domain to hand out preview cookies,
 # whatever a local .env says.
@@ -123,14 +125,20 @@ export SPAWNER_CONFIG_DIR="$WORK/cli-config"
 CLI_SERVER="http://spawner.localtest.me:${SPAWNER_HTTP_PORT}"
 spawner() { node "$WORK/spawner" "$@"; }
 
+# in_data PATH: whether PATH exists in the data directory, which is
+# Spawner's alone (0700): read through a container, as root.
+in_data() {
+  docker run --rm -v "$SPAWNER_DATA_DIR:/data:ro" alpine:3.20 test -e "/data/$1"
+}
+
 # leftovers ENV_ID: what a deleted environment left behind, if anything.
 leftovers() {
   local found=""
   [ -z "$(docker ps -aq --filter "label=dev.spawner.env=$1")" ] || found+=" containers"
   [ -z "$(docker volume ls -q --filter "label=dev.spawner.env=$1")" ] || found+=" volumes"
   [ -z "$(docker network ls -q --filter "label=dev.spawner.env=$1")" ] || found+=" networks"
-  [ ! -e "$SPAWNER_DATA_DIR/traefik/$1.yaml" ] || found+=" routing"
-  [ ! -e "$SPAWNER_DATA_DIR/envs/$1" ] || found+=" sources"
+  ! in_data "traefik/$1.yaml" || found+=" routing"
+  ! in_data "envs/$1" || found+=" sources"
   echo "$found"
 }
 
@@ -175,7 +183,7 @@ cleanup() {
     docker run --rm --network host --cap-add NET_ADMIN --entrypoint nft spawner-e2e-firewall delete table inet spawner >/dev/null 2>&1 || true
     # Each run builds Spawner's image again: removing it keeps old builds from piling up (the build cache stays).
     "${COMPOSE[@]}" down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
-    docker run --rm -v "$SPAWNER_DATA_DIR:/data" alpine:3.20 sh -c 'rm -rf /data/*' >/dev/null 2>&1 || true
+    docker run --rm -v "$SPAWNER_DATA_DIR:/data" alpine:3.20 sh -c 'rm -rf /data/* && chmod 777 /data' >/dev/null 2>&1 || true
     rm -rf "$SPAWNER_DATA_DIR"
     rm -rf "$WORK"
   else
@@ -438,7 +446,7 @@ done
 [ "$(api GET "/jobs/$foreign_job" | json 'v.status + " " + v.errorCode')" = "failed invalid" ] || fail "a source from an unlisted repository should be refused: $(api GET "/jobs/$foreign_job")"
 api GET "/jobs/$foreign_job/logs" | grep -q 'sources.other.repo: source "other" comes from https://github.com/acme/other.git, which is not among the source repositories' \
   || fail "the job log should name the refused repository: $(api GET "/jobs/$foreign_job/logs")"
-[ ! -e "$SPAWNER_DATA_DIR/envs/$foreign_id/src/other" ] || fail "nothing should be cloned for a refused source"
+! in_data "envs/$foreign_id/src/other" || fail "nothing should be cloned for a refused source"
 wait_job "$(api DELETE "/envs/$foreign_id" | json 'v.job.id')"
 set +e
 foreign=$(cd "$FOREIGN" && spawner up --json 2>/dev/null)
@@ -701,7 +709,7 @@ wait_status "$bind_id" deleted 150 || fail "an expired environment should be del
 [[ "$(api GET "/envs/$bind_id/events" | json 'v.events.map((e) => e.message).join("|")')" == *"Deletion started by Spawner (expired)"* ]] || fail "the timeline should say it expired"
 left=$(leftovers "$bind_id")
 [ -z "$left" ] || fail "the expired environment left behind:$left"
-[ ! -e "$SPAWNER_DATA_DIR/envs/$bind_id" ] || fail "the files written by the container are left behind"
+! in_data "envs/$bind_id" || fail "the files written by the container are left behind"
 pass "once expired, the environment disappeared with everything it held, files written as root included"
 
 foreign="e2e-foreign-$$"

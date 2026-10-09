@@ -17,9 +17,10 @@
 #   4. updates from the dashboard (the API of its Update button) to a newer
 #      version, then to a version that does not start: Spawner goes back to
 #      the version before by itself, with its database
-#   5. upgrades with the installer: the database is backed up, the
-#      environment keeps running
-#   6. runs it again without options: the secrets stay
+#   5. upgrades with the installer: a version older than the one installed
+#      is refused; the database is backed up, the environment keeps running
+#   6. runs it again without options: the secrets stay, and another data
+#      directory is refused
 #   7. removes everything with --uninstall --purge: nothing may be left, the
 #      rules and Docker's drop-in included
 #
@@ -80,7 +81,8 @@ INSTALLED="spawner-e2e:$VERSION"
 sudo docker tag "$IMAGE" "$INSTALLED"
 sudo mkdir -p /opt/spawner
 echo "SPAWNER_RELEASES_URL=file:///var/lib/spawner/e2e-releases.json" | sudo tee /opt/spawner/spawner.env >/dev/null
-sudo bash install.sh --tls off --domain localtest.me --image "$INSTALLED" --yes --min-disk 5 | tee "$WORK/install.log"
+# A token of the installation for the API calls of this test: the installer makes none by itself.
+sudo env SPAWNER_BOOTSTRAP_TOKEN="$(openssl rand -hex 24)" bash install.sh --tls off --domain localtest.me --image "$INSTALLED" --yes --min-disk 5 2>&1 | tee "$WORK/install.log"
 grep -q "Spawner $VERSION is running" "$WORK/install.log" || fail "the installer should end with its summary, for Spawner $VERSION"
 [ "$(secret SPAWNER_VERSION)" = "$VERSION" ] || fail "the installation should be of Spawner $VERSION, not $(secret SPAWNER_VERSION)"
 grep -q "First admin   http://spawner.localtest.me/invite/" "$WORK/install.log" || fail "the installer should print the first admin link"
@@ -89,6 +91,11 @@ for file in .env dns.env spawner.env; do
   [ "$(sudo stat -c %a "/opt/spawner/$file")" = "600" ] || fail "$file should be readable by root only, not $(sudo stat -c %a "/opt/spawner/$file")"
 done
 sudo grep -q '"log-driver": "local"' /etc/docker/daemon.json || fail "Docker should keep compressed, capped logs"
+grep -q "plain HTTP on port 80 of every interface" "$WORK/install.log" || fail "a local install should warn that it serves plain HTTP on every interface"
+[ "$(sudo stat -c %a /var/lib/spawner)" = "700" ] || fail "the data directory should be Spawner's alone, not $(sudo stat -c %a /var/lib/spawner)"
+[ "$(sudo docker inspect -f '{{json .HostConfig.CapDrop}} {{json .HostConfig.CapAdd}}' spawner-traefik)" = '["ALL"] ["NET_BIND_SERVICE"]' ] \
+  || fail "Traefik should run without capabilities but binding ports: $(sudo docker inspect -f '{{json .HostConfig.CapDrop}} {{json .HostConfig.CapAdd}}' spawner-traefik)"
+[ "$(sudo docker exec spawner stat -c %U /app/dist/main.js)" = "root" ] || fail "Spawner's code should belong to root, not to the user it runs as"
 SPAWNER_TOKEN=$(secret SPAWNER_BOOTSTRAP_TOKEN)
 export SPAWNER_URL="$DASHBOARD" SPAWNER_TOKEN SPAWNER_CONFIG_DIR="$WORK/cli-config"
 pass "install.sh set Spawner up: the dashboard answers on $DASHBOARD, the first admin link is printed"
@@ -104,6 +111,8 @@ cd "$WORK/app"
 up=$(spawner up e2e-demo --wait --json) || fail "spawner up failed: $up"
 env_id=$(echo "$up" | json 'v.environment.id')
 [ "$(echo "$up" | json 'v.environment.status')" = "ready" ] || fail "the environment should be ready: $up"
+[ "$(sudo stat -c %a "/var/lib/spawner/envs/$env_id/compose.rendered.yaml")" = "600" ] || fail "the rendered compose file, with the secrets, should be Spawner's alone"
+[ "$(sudo stat -c %a "/var/lib/spawner/traefik/$env_id.yaml")" = "644" ] || fail "the routes should stay readable by Traefik"
 url=$(spawner url e2e-demo --with-token --json)
 page=$(curl -fsS -H "Host: $(echo "$url" | json 'new URL(v.url).host')" -H "X-Spawner-Preview: $(echo "$url" | json 'v.header.value')" http://127.0.0.1/)
 [[ "$page" == *"Hello from Spawner (e2e-demo)"* ]] || fail "the environment should answer through Traefik: $page"
@@ -239,19 +248,28 @@ pass "an update to a version that does not start went back to $NEXT by itself, d
 step "Upgrading"
 secret_before=$(secret SPAWNER_SECRET)
 echo "SPAWNER_BUILD_CONCURRENCY=3" | sudo tee -a /opt/spawner/spawner.env >/dev/null
-sudo bash install.sh --upgrade --image "$IMAGE" --yes | tee "$WORK/upgrade.log"
+if sudo bash install.sh --upgrade --image "$IMAGE" --version "$VERSION" --yes >"$WORK/downgrade.log" 2>&1; then
+  fail "an upgrade to $VERSION, older than the installed $NEXT, should be refused"
+fi
+grep -q "$VERSION is older than the installed $NEXT" "$WORK/downgrade.log" || fail "the refusal should say why: $(tail -3 "$WORK/downgrade.log")"
+[ "$(api GET /info | json 'v.version')" = "$NEXT" ] || fail "a refused downgrade should leave Spawner as it was"
+sudo bash install.sh --upgrade --image "spawner-e2e:$NEXT" --version "$NEXT" --yes | tee "$WORK/upgrade.log"
 [ -n "$(sudo find /opt/spawner/backups -name 'spawner-*.sql.gz' -size +1k)" ] || fail "the upgrade should back the database up"
 [ "$(secret SPAWNER_SECRET)" = "$secret_before" ] || fail "the upgrade should keep the secrets"
 [ "$(api GET "/envs/$env_id" | json 'v.status')" = "ready" ] || fail "the environment should survive the upgrade"
 [ "$(sudo docker exec spawner printenv SPAWNER_BUILD_CONCURRENCY)" = "3" ] || fail "the settings of spawner.env should survive the upgrade and apply"
-pass "the upgrade backed the database up and kept the secrets, spawner.env and the environment"
+pass "a downgrade is refused; the upgrade backed the database up and kept the secrets, spawner.env and the environment"
 
 step "Running it again"
+if sudo env SPAWNER_DATA_DIR=/srv/elsewhere bash install.sh --yes >"$WORK/elsewhere.log" 2>&1; then
+  fail "another data directory than the installation's should be refused"
+fi
+grep -q "the data of this installation is in /var/lib/spawner" "$WORK/elsewhere.log" || fail "the refusal should name the data directory: $(tail -3 "$WORK/elsewhere.log")"
 sudo bash install.sh --yes | tee "$WORK/again.log"
 [ "$(secret SPAWNER_SECRET)" = "$secret_before" ] || fail "running it again should keep the secrets"
 [ "$(secret SPAWNER_PREVIEW_DOMAIN)" = "localtest.me" ] || fail "running it again should keep the domain"
 [ "$(curl -fsS "$DASHBOARD/api/v1/healthz" | json 'v.status')" = "ok" ] || fail "the dashboard should answer after a second run"
-pass "a second run keeps the domain, the secrets and the environment"
+pass "a second run keeps the domain, the secrets and the environment, and refuses another data directory"
 
 step "Removing everything"
 sudo bash install.sh --uninstall --purge --yes
