@@ -72,7 +72,7 @@ A pnpm workspace built with Turborepo. `build` depends on the build of the depen
 ### Requests
 
 - `main.ts` bootstraps the application: CORS for the dashboard's origins, the session (stored in Postgres by connect-pg-simple), Passport, the frame headers, the dashboard (`web-app.ts`).
-- `common/frame-headers.ts` sets `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'` on every response. A page that sets its own policy must keep `frame-ancestors 'none'`, as the waiting page does.
+- `common/frame-headers.ts` sets `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `Referrer-Policy`, `nosniff` and, over HTTPS, `Strict-Transport-Security` on every response. A page that sets its own policy must keep `frame-ancestors 'none'`, as the dashboard's page (`dashboardPolicy` in `web-app.ts`, which allows the inline scripts of `index.html` by their hashes) and the waiting page do.
 - `ActorMiddleware` finds the actor of each request: a bearer token (a personal token, or the installation's bootstrap token) or the dashboard session. `common/actor.ts` defines actors, roles, scopes, and who may act on an environment.
 - `common/auth.guard.ts` is global: a route needs an actor unless it is marked `@Public()`, and the scopes listed by `@Scopes()`.
 - Changes made without a bearer token must carry the `X-Spawner-Client` header (CSRF).

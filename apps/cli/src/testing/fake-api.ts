@@ -110,6 +110,8 @@ export const INFO = {
   limits: {
     compose: {
       envMemoryBytes: 2 * 1024 ** 3,
+      envCpus: 4,
+      envPids: 4096,
       serviceMemoryDefaultBytes: 512 * 1024 ** 2,
       minServiceMemoryBytes: 32 * 1024 ** 2,
       cpusDefault: 1,

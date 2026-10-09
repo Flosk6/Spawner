@@ -6,7 +6,7 @@ import type { PrismaService } from "../../common/prisma.service";
 import { SecretsService, sha256 } from "../../common/secrets.service";
 import type { SpawnerConfig } from "../../common/spawner.config";
 import { ActivityService } from "../lifecycle/activity.service";
-import { PreviewsService, applicationCookies, parseCookies, type PreviewRequest } from "./previews.service";
+import { PreviewsService, applicationCookies, clearedPreviewCookie, parseCookies, type PreviewRequest } from "./previews.service";
 
 const config = {
   scheme: "https",
@@ -80,10 +80,34 @@ describe("PreviewsService", () => {
 
   it("lets the team in with the preview cookie, while its user is active", async () => {
     const cookie = secrets.sign("preview-cookie", { exp: inAnHour(), sub: 7 });
-    expect(await service.decide(request({ cookies: { spawner_preview: cookie } }))).toEqual({ status: 200, environmentId: "env-a" });
+    expect(await service.decide(request({ cookies: { spawner_preview: [cookie] } }))).toEqual({ status: 200, environmentId: "env-a" });
 
     const other = secrets.sign("preview-cookie", { exp: inAnHour(), sub: 8 });
-    expect(await service.decide(request({ cookies: { spawner_preview: other } }))).toMatchObject({ status: 302 });
+    expect(await service.decide(request({ cookies: { spawner_preview: [other] } }))).toMatchObject({ status: 302 });
+  });
+
+  it("still lets the team in when a preview set a cookie of the same name for the whole domain", async () => {
+    const cookie = secrets.sign("preview-cookie", { exp: inAnHour(), sub: 7 });
+    expect(await service.decide(request({ cookies: parseCookies(`spawner_preview=planted; spawner_preview=${cookie}`) }))).toMatchObject({ status: 200 });
+    expect(await service.decide(request({ cookies: parseCookies(`spawner_preview=${cookie}; spawner_preview=planted`) }))).toMatchObject({ status: 200 });
+  });
+
+  it("finds a preview whatever the case of its host, and keeps a bounded cache of hosts", async () => {
+    const header = secrets.sign("preview-header", { exp: inAnHour(), sub: 7, env: "env-a" });
+    expect(await service.decide(request({ header, host: "Feat-Login--Blog.Preview.Example.com:443" }))).toMatchObject({ status: 200, environmentId: "env-a" });
+    for (let index = 0; index < 5100; index++) {
+      await service.decide(request({ host: `made-up-${index}.preview.example.com` }));
+    }
+    expect((service as unknown as { hosts: Map<string, unknown> }).hosts.size).toBeLessThanOrEqual(5000);
+  });
+
+  it("takes a share link off a public URL, so that the application never sees its token", () => {
+    expect(service.decidePublic({ proto: "https", host: HOST, uri: "/page?a=1&__spawner_share=share-token" })).toEqual({ status: 302, location: `https://${HOST}/page?a=1` });
+    expect(service.decidePublic({ proto: "https", host: HOST, uri: "/page?a=1" })).toEqual({ status: 200 });
+  });
+
+  it("takes the team cookie off the browser at logout", () => {
+    expect(clearedPreviewCookie(config)).toBe("spawner_preview=; Domain=preview.example.com; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure");
   });
 
   it("accepts the agents' header for its environment only", async () => {
@@ -128,7 +152,7 @@ describe("PreviewsService", () => {
     service.forgetShare("s1");
     expect(await service.decide(request({ cookies }))).toMatchObject({ status: 302, location: expect.stringContaining("/api/v1/auth/preview") });
 
-    const older = { "spawner_share_env-a": secrets.sign("share", { exp: inAnHour(), env: "env-a" }) };
+    const older = { "spawner_share_env-a": [secrets.sign("share", { exp: inAnHour(), env: "env-a" })] };
     expect(await service.decide(request({ cookies: older }))).toMatchObject({ status: 302, location: expect.stringContaining("/api/v1/auth/preview") });
   });
 
@@ -157,9 +181,11 @@ describe("PreviewsService", () => {
 });
 
 describe("parseCookies", () => {
-  it("reads a Cookie header", () => {
-    expect(parseCookies("a=1; spawner_preview=x.y; b = 2")).toEqual({ a: "1", spawner_preview: "x.y", b: "2" });
-    expect(parseCookies(undefined)).toEqual({});
+  it("reads a Cookie header, every value of a repeated name, 5 at most", () => {
+    expect({ ...parseCookies("a=1; spawner_preview=x.y; b = 2; a=3") }).toEqual({ a: ["1", "3"], spawner_preview: ["x.y"], b: ["2"] });
+    expect(parseCookies(Array.from({ length: 9 }, (_, index) => `a=${index}`).join("; ")).a).toEqual(["0", "1", "2", "3", "4"]);
+    expect({ ...parseCookies("constructor=1; __proto__=2") }).toEqual({ constructor: ["1"], ["__proto__"]: ["2"] });
+    expect({ ...parseCookies(undefined) }).toEqual({});
   });
 });
 

@@ -171,8 +171,16 @@ describe('rendering', () => {
     expect(service(document, 'api')).toMatchObject({ mem_limit: 768 * MiB, cpus: 1.5, pids_limit: 256 });
     expect(service(document, 'api').deploy).toBeUndefined();
     expect(service(document, 'front').mem_limit).toBe(256 * MiB);
-    expect(service(document, 'worker')).toMatchObject({ mem_limit: 512 * MiB, cpus: 1, pids_limit: 512 });
+    expect(service(document, 'worker')).toMatchObject({ mem_limit: 512 * MiB, cpus: 0.83, pids_limit: 512 });
     expect(service(document, 'cache').mem_limit).toBe(512 * MiB);
+  });
+
+  it('shares the CPUs and processes of the environment, and drops raw sockets', () => {
+    const many = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`s${index}`, { image: 'alpine', command: 'sleep infinity' }]));
+    const { document, issues } = prepareCompose(JSON.stringify({ services: { ...many, s0: { image: 'alpine', cap_drop: ['ALL'] } } }), vars, { ...ctx, exposures: [], seedServices: [] });
+    expect(issues).toEqual([]);
+    expect(service(document!, 's1')).toMatchObject({ cpus: 0.4, pids_limit: 409, cap_drop: ['NET_RAW'] });
+    expect(service(document!, 's0').cap_drop).toEqual(['ALL', 'NET_RAW']);
   });
 
   it('merges YAML anchors and drops extension fields', () => {

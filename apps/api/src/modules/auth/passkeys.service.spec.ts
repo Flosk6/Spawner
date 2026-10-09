@@ -106,6 +106,19 @@ describe("PasskeysService", () => {
     await expect(service.verifyLogin(request, authenticator.authenticate(options, "https://other.example.com"))).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it("asks for the user's verification, and refuses a passkey or a login without it", async () => {
+    expect((await service.loginOptions(request)).userVerification).toBe("required");
+    authenticator.userVerified = false;
+    const options = await service.registrationOptions(request, { name: "Ada", userHandle: randomToken(16), passkeys: [] }, "account");
+    expect(options.authenticatorSelection?.userVerification).toBe("required");
+    await expect(service.verifyRegistration(request, authenticator.register(options, ORIGIN), "account")).rejects.toThrow(/user could not be verified/i);
+
+    authenticator.userVerified = true;
+    await register();
+    authenticator.userVerified = false;
+    await expect(login()).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
   it("refuses unknown passkeys and deactivated users", async () => {
     const options = await service.loginOptions(request);
     const stranger = new SoftAuthenticator();

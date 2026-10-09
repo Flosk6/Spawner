@@ -54,6 +54,9 @@ const SERVICE_ALLOWED = new Set([
   'develop',
 ]);
 
+/** The least a service gets of the environment's CPUs and processes. */
+const MIN_SERVICE_CPUS = 0.05;
+const MIN_SERVICE_PIDS = 64;
 const CPU_KEYS_HINT = 'use cpus';
 const SERVICE_FORBIDDEN: Record<string, string> = {
   privileged: 'containers never run privileged',
@@ -941,7 +944,9 @@ class ComposeValidator {
 
   /**
    * Services with an explicit memory limit keep it; the rest of the
-   * environment budget is shared by the others, up to the per-service default.
+   * environment budget is shared by the others, up to the per-service
+   * default. CPUs and processes are shared the same way, so that an
+   * environment of many services cannot take the server's.
    */
   private allocate(drafts: ServiceDraft[]): NormalizedService[] {
     const explicit = new Map<string, number>();
@@ -963,18 +968,48 @@ class ComposeValidator {
       this.limit('services', `only ${formatSize(Math.max(0, budget - explicitTotal))} of memory is left for ${implicitCount} services without mem_limit`, 'set mem_limit on every service');
     }
 
-    return drafts.map((draft) => {
-      const cpus = draft.cpus ?? draft.deployCpus ?? this.limits.cpusDefault;
-      const pids = draft.pids ?? draft.deployPids ?? this.limits.pidsDefault;
-      return {
-        name: draft.name,
-        spec: draft.spec,
-        memoryBytes: explicit.get(draft.name) ?? share,
-        cpus,
-        pids,
-        networks: draft.networks,
-      };
-    });
+    const cpus = this.spread(
+      drafts.map((draft) => draft.cpus ?? draft.deployCpus),
+      { budget: this.limits.envCpus, perService: this.limits.cpusDefault, minimum: MIN_SERVICE_CPUS, round: (value) => Math.floor(value * 100) / 100 },
+      { unit: 'CPUs', key: 'cpus' },
+    );
+    const pids = this.spread(
+      drafts.map((draft) => draft.pids ?? draft.deployPids),
+      { budget: this.limits.envPids, perService: this.limits.pidsDefault, minimum: MIN_SERVICE_PIDS, round: Math.floor },
+      { unit: 'processes', key: 'pids_limit' },
+    );
+    return drafts.map((draft, index) => ({
+      name: draft.name,
+      spec: draft.spec,
+      memoryBytes: explicit.get(draft.name) ?? share,
+      cpus: cpus[index],
+      pids: pids[index],
+      networks: draft.networks,
+    }));
+  }
+
+  /**
+   * Shares an environment budget between its services: an explicit value is
+   * kept, the services without one share what is left, up to the default per
+   * service.
+   *
+   * @returns The value of each service, in the order given
+   */
+  private spread(
+    explicit: (number | undefined)[],
+    rule: { budget: number; perService: number; minimum: number; round: (value: number) => number },
+    words: { unit: string; key: string },
+  ): number[] {
+    const total = explicit.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+    const implicit = explicit.filter((value) => value === undefined).length;
+    if (total > rule.budget) {
+      this.limit('services', `services ask for ${total} ${words.unit}, the environment limit is ${rule.budget}`, `lower ${words.key}`);
+    }
+    const share = implicit > 0 ? Math.min(rule.perService, rule.round((rule.budget - total) / implicit)) : 0;
+    if (implicit > 0 && total <= rule.budget && share < rule.minimum) {
+      this.limit('services', `only ${Math.max(0, rule.budget - total)} ${words.unit} are left for ${implicit} services without ${words.key}`, `set ${words.key} on every service`);
+    }
+    return explicit.map((value) => value ?? share);
   }
 
   private labels(value: unknown, path: string): Record<string, string> {

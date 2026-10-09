@@ -140,6 +140,34 @@ describe("UploadService", () => {
     expect(await refusal(file)).toEqual(["more than 1253376 bytes once decompressed, the most an archive may hold"]);
   });
 
+  it("follows links through the links they lead to, and refuses those that end outside or loop", async () => {
+    expect(
+      await refusal(
+        write([
+          { name: "outside", type: "2", linkname: "root/.." },
+          { name: "root", type: "2", linkname: "sub/up" },
+          { name: "sub/", type: "5" },
+          { name: "sub/up", type: "2", linkname: ".." },
+        ]),
+      ),
+    ).toEqual(["outside: symlink leading outside the archive through other links"]);
+    expect(
+      await refusal(
+        write([
+          { name: "sub/", type: "5" },
+          { name: "sub/up", type: "2", linkname: ".." },
+          { name: "root", type: "2", linkname: "sub/up" },
+          { name: "outside", type: "2", linkname: "root/.." },
+        ]),
+      ),
+    ).toEqual(["the archive could not be extracted: TAR_SYMLINK_ERROR: Cannot extract through symbolic link"]);
+    expect(await refusal(write([{ name: "a", type: "2", linkname: "b" }, { name: "b", type: "2", linkname: "a" }]))).not.toEqual([]);
+
+    const kept = await service.extract(write([{ name: "lib/", type: "5" }, { name: "lib/x.js", content: "x" }, { name: "current", type: "2", linkname: "lib" }, { name: "x", type: "2", linkname: "lib/x.js" }]), target);
+    expect(kept.files).toBe(4);
+    expect(fs.readFileSync(path.join(target, "x"), "utf8")).toBe("x");
+  });
+
   it("lists 20 problems at most, and refuses what is not a gzip tar archive", async () => {
     const entries = Array.from({ length: 40 }, (_, index) => ({ name: `../f${index}`, content: "x" }));
     expect(await refusal(write(entries))).toHaveLength(20);

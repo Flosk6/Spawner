@@ -43,6 +43,8 @@ export interface ServerInfo {
     /** The compose limits of @spawner/core, plus the most memory an environment may ask for. */
     compose: {
       envMemoryBytes: number;
+      envCpus: number;
+      envPids: number;
       serviceMemoryDefaultBytes: number;
       minServiceMemoryBytes: number;
       cpusDefault: number;
@@ -140,6 +142,9 @@ export interface CreatedToken {
 export interface DeviceRequest {
   userCode: string;
   clientName: string;
+  /** When and from which address the CLI started the login. */
+  requestedAt: string;
+  requestIp: string | null;
   expiresAt: string;
   scopes: Scope[];
 }

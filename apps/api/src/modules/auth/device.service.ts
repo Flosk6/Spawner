@@ -3,6 +3,7 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { randomInt } from "crypto";
 import { ROLE_SCOPES, isRole, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
+import { requestContext } from "../../common/request-context";
 import { randomToken, sha256 } from "../../common/secrets.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
@@ -46,7 +47,13 @@ export class DeviceService {
     const deviceCode = randomToken(32);
     const userCode = await this.freeUserCode();
     await this.prisma.deviceCode.create({
-      data: { deviceCodeHash: sha256(deviceCode), userCode, clientName: name, expiresAt: new Date(Date.now() + LIFETIME_SECONDS * 1000) },
+      data: {
+        deviceCodeHash: sha256(deviceCode),
+        userCode,
+        clientName: name,
+        requestIp: requestContext()?.ip?.slice(0, 64) ?? null,
+        expiresAt: new Date(Date.now() + LIFETIME_SECONDS * 1000),
+      },
     });
     return {
       deviceCode,
@@ -90,12 +97,20 @@ export class DeviceService {
   }
 
   /**
-   * What the approval page shows about a pending login.
+   * What the approval page shows about a pending login: when and from where
+   * it started too, so that a login someone else started stands out.
    */
   async describe(actor: Actor, userCode: string) {
     this.requireSession(actor);
     const record = await this.pending(userCode);
-    return { userCode: record.userCode, clientName: record.clientName, expiresAt: record.expiresAt, scopes: DEFAULT_TOKEN_SCOPES };
+    return {
+      userCode: record.userCode,
+      clientName: record.clientName,
+      requestedAt: record.createdAt,
+      requestIp: record.requestIp,
+      expiresAt: record.expiresAt,
+      scopes: DEFAULT_TOKEN_SCOPES,
+    };
   }
 
   async decide(actor: Actor, userCode: unknown, approve: boolean) {

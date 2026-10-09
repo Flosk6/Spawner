@@ -124,9 +124,14 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 /**
  * Opens a URL in the default browser, without a shell, by the absolute path
  * of the opener (see findProgram); failures are silent (the URL is printed
- * anyway).
+ * anyway). Only http and https URLs open: the URL comes from the server, and
+ * the openers hand any other scheme (file:, a custom protocol) to whatever
+ * program claims it.
  */
 export function openBrowser(url: string, platform: NodeJS.Platform = process.platform): void {
+  if (!isWebUrl(url)) {
+    return;
+  }
   const [command, args] =
     platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["xdg-open", [url]];
   const program = findProgram(command, { platform });
@@ -136,6 +141,15 @@ export function openBrowser(url: string, platform: NodeJS.Platform = process.pla
   const child = execFile(program, args, { timeout: 10_000 }, () => undefined);
   child.on("error", () => undefined);
   child.unref();
+}
+
+/** Whether a URL is http or https, the only ones the CLI opens. */
+export function isWebUrl(url: string): boolean {
+  try {
+    return ["http:", "https:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
 }
 
 /** What `spawner whoami --json` prints. */

@@ -36,7 +36,12 @@ describe("isExcludedByDefault", () => {
     expect(isExcludedByDefault(".env")).toBe(true);
     expect(isExcludedByDefault("api/.env.local")).toBe(true);
     expect(isExcludedByDefault(".env.example")).toBe(true);
-    expect(isExcludedByDefault("src/environment.ts")).toBe(false);
+    for (const secret of [".env-staging", ".npmrc", "web/.yarnrc.yml", ".netrc", "keys/id_ed25519", "id_rsa", "certs/server.pem", "tls.key", "store.p12"]) {
+      expect(isExcludedByDefault(secret)).toBe(true);
+    }
+    for (const kept of ["src/environment.ts", "keys/id_ed25519.pub", "docs/keys.md", "src/monkey.ts", "public/key.svg"]) {
+      expect(isExcludedByDefault(kept)).toBe(false);
+    }
   });
 });
 

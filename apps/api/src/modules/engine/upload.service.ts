@@ -13,6 +13,8 @@ const ALLOWED_TYPES = new Set(["File", "OldFile", "ContiguousFile", "Directory",
 const ENTRY_OVERHEAD_BYTES = 4096;
 /** Enough problems to refuse an archive: reading on would only lengthen the list. */
 const MAX_PROBLEMS = 20;
+/** Links followed at most to resolve a path, as the kernel does (ELOOP). */
+const MAX_LINK_HOPS = 40;
 
 /**
  * An archive refused before anything was written to disk.
@@ -30,7 +32,9 @@ export class UploadRejectedError extends Error {
  * link, device or FIFO, no symlink pointing outside the archive, and limits
  * on size and file count, checked as the archive is read so that a
  * compression bomb stops at the first limit it crosses. Extraction then goes
- * to a temporary directory that replaces the previous content in one rename.
+ * to a temporary directory, where every link is followed through the links
+ * it leads to (a chain of links that each stay inside can still leave), and
+ * which replaces the previous content in one rename.
  */
 @Injectable()
 export class UploadService {
@@ -69,7 +73,13 @@ export class UploadService {
         strict: true,
         preservePaths: false,
         filter: (entryPath, entry) => this.entryProblem(entryPath, entry as ReadEntry) === null,
+      }).catch((error: Error) => {
+        throw new UploadRejectedError([`the archive could not be extracted: ${error.message}`]);
       });
+      const leaving = escapingLinks(incoming);
+      if (leaving.length > 0) {
+        throw new UploadRejectedError(leaving);
+      }
       if (fs.existsSync(target)) {
         fs.renameSync(target, previous);
       }
@@ -183,6 +193,76 @@ export class UploadService {
     }
     return null;
   }
+}
+
+/**
+ * The links under root that lead outside it once followed through every
+ * link on their way, or loop.
+ */
+function escapingLinks(root: string): string[] {
+  const realRoot = fs.realpathSync(root);
+  const problems: string[] = [];
+  for (const link of linksUnder(root)) {
+    const end = followLinks(link);
+    if (end === null || (end !== realRoot && !end.startsWith(`${realRoot}${path.sep}`))) {
+      problems.push(`${path.relative(root, link)}: symlink leading outside the archive through other links`);
+      if (problems.length >= MAX_PROBLEMS) {
+        break;
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * The links under a directory, which it never follows: a recursive readdir
+ * may, and loop on a link to a parent.
+ */
+function* linksUnder(dir: string): Generator<string> {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      yield full;
+    } else if (entry.isDirectory()) {
+      yield* linksUnder(full);
+    }
+  }
+}
+
+/**
+ * Where a path leads once every link on the way is followed, as the kernel
+ * resolves it; parts that do not exist are kept as they are. Null past 40
+ * links (a loop).
+ */
+function followLinks(file: string): string | null {
+  const pending = path.resolve(file).split(path.sep).filter(Boolean);
+  let current: string = path.sep;
+  let hops = 0;
+  while (pending.length > 0) {
+    const part = pending.shift() as string;
+    if (part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      current = path.dirname(current);
+      continue;
+    }
+    const next = path.join(current, part);
+    const stat = fs.lstatSync(next, { throwIfNoEntry: false });
+    if (!stat?.isSymbolicLink()) {
+      current = next;
+      continue;
+    }
+    if (++hops > MAX_LINK_HOPS) {
+      return null;
+    }
+    const target = fs.readlinkSync(next);
+    pending.unshift(...target.split("/").filter(Boolean));
+    if (path.isAbsolute(target)) {
+      current = path.sep;
+    }
+  }
+  return current;
 }
 
 function sha256(file: string): Promise<string> {

@@ -187,7 +187,7 @@ A preview database holds test data that the seed recreates. It needs neither rep
 
 ### Memory limits
 
-Each service gets 512 MiB unless the compose file says otherwise (`mem_limit`, or `deploy.resources.limits.memory`), within the memory of the environment. A limit reserves nothing: it decides what happens when a service leaks (an out-of-memory kill of that service, on the timeline, rather than the server swapping). The capacity Spawner announces counts what environments really use, so generous limits waste no room.
+Each service gets 512 MiB unless the compose file says otherwise (`mem_limit`, or `deploy.resources.limits.memory`), within the memory of the environment. CPUs and processes are shared the same way: 1 CPU and 512 processes per service by default, within 4 CPUs and 4096 processes per environment (the server's `SPAWNER_ENV_CPUS` and `SPAWNER_ENV_PIDS`); services without `cpus` or `pids_limit` share what the others leave. A limit reserves nothing: it decides what happens when a service leaks (an out-of-memory kill of that service, on the timeline, rather than the server swapping). The capacity Spawner announces counts what environments really use, so generous limits waste no room.
 
 A build can take far more memory than the running application (`next build` may take a few GiB for a minute): builds run one at a time below 8 GiB of memory, and each waits until 2 GiB are free.
 

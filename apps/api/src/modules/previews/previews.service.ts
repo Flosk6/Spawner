@@ -13,6 +13,10 @@ export const PREVIEW_HEADER = "x-spawner-preview";
 const PREVIEW_COOKIE_SECONDS = 12 * 3600;
 const PREVIEW_HEADER_SECONDS = 3600;
 const HOST_CACHE_MS = 30_000;
+/** Hosts kept in the cache at most: a client can make up any number of them. */
+const HOST_CACHE_SIZE = 5000;
+/** Values read of one cookie name at most. */
+const COOKIE_VALUES = 5;
 const USER_CACHE_MS = 60_000;
 const SHARE_CACHE_MS = 30_000;
 
@@ -23,7 +27,8 @@ export interface PreviewRequest {
   host: string;
   uri: string;
   accept: string;
-  cookies: Record<string, string>;
+  /** Every value of each name: a preview can set a cookie of the same name for the whole domain. */
+  cookies: Record<string, string[]>;
   header: string | undefined;
   /** Origin and Access-Control-Request-Method: what makes an OPTIONS request a CORS preflight. */
   origin?: string;
@@ -83,7 +88,7 @@ export class PreviewsService implements OnModuleInit {
   }
 
   async decide(request: PreviewRequest): Promise<PreviewDecision> {
-    const environmentId = await this.environmentOf(request.host.replace(/:\d+$/, ""));
+    const environmentId = await this.environmentOf(previewHost(request.host));
     if (!environmentId) {
       return { status: 404, body: { error: "unknown_preview" } };
     }
@@ -111,13 +116,17 @@ export class PreviewsService implements OnModuleInit {
       }
     }
 
-    const team = this.secrets.verify<PreviewClaims>("preview-cookie", request.cookies[PREVIEW_COOKIE]);
-    if (team && (await this.isActive(team.sub))) {
-      return this.allow(environmentId);
+    for (const value of request.cookies[PREVIEW_COOKIE] ?? []) {
+      const team = this.secrets.verify<PreviewClaims>("preview-cookie", value);
+      if (team && (await this.isActive(team.sub))) {
+        return this.allow(environmentId);
+      }
     }
-    const shared = this.secrets.verify<PreviewClaims>("share", request.cookies[`${SHARE_COOKIE_PREFIX}${environmentId}`]);
-    if (shared?.env === environmentId && shared.share && (await this.isShareOpen(shared.share, environmentId))) {
-      return this.allow(environmentId);
+    for (const value of request.cookies[`${SHARE_COOKIE_PREFIX}${environmentId}`] ?? []) {
+      const shared = this.secrets.verify<PreviewClaims>("share", value);
+      if (shared?.env === environmentId && shared.share && (await this.isShareOpen(shared.share, environmentId))) {
+        return this.allow(environmentId);
+      }
     }
 
     const loginUrl = `${this.config.dashboardUrl}/api/v1/auth/preview?next=${encodeURIComponent(url.toString())}`;
@@ -125,6 +134,20 @@ export class PreviewsService implements OnModuleInit {
       return { status: 302, location: loginUrl };
     }
     return { status: 401, body: { error: "preview_auth_required", loginUrl } };
+  }
+
+  /**
+   * What a public URL needs: nothing but its share link, if it came with
+   * one, taken off the URL (a redirect), so that the application never sees
+   * the token.
+   */
+  decidePublic(request: Pick<PreviewRequest, "proto" | "host" | "uri">): { status: 200 } | { status: 302; location: string } {
+    const url = new URL(request.uri || "/", `${request.proto}://${request.host}`);
+    if (!url.searchParams.has(SHARE_PARAM)) {
+      return { status: 200 };
+    }
+    url.searchParams.delete(SHARE_PARAM);
+    return { status: 302, location: url.toString() };
   }
 
   /**
@@ -179,16 +202,7 @@ export class PreviewsService implements OnModuleInit {
   }
 
   private cookie(name: string, value: string, exp: number): string {
-    const maxAge = Math.max(0, exp - Math.floor(Date.now() / 1000));
-    return [
-      `${name}=${value}`,
-      `Domain=${this.config.previewDomain}`,
-      "Path=/",
-      `Max-Age=${maxAge}`,
-      "HttpOnly",
-      "SameSite=Lax",
-      ...(this.config.scheme === "https" ? ["Secure"] : []),
-    ].join("; ");
+    return previewDomainCookie(this.config, name, value, Math.max(0, exp - Math.floor(Date.now() / 1000)));
   }
 
   private async environmentOf(host: string): Promise<string | null> {
@@ -202,6 +216,10 @@ export class PreviewsService implements OnModuleInit {
       select: { environmentId: true },
     });
     const environmentId = exposure?.environmentId ?? null;
+    this.hosts.delete(host);
+    if (this.hosts.size >= HOST_CACHE_SIZE) {
+      this.hosts.delete(this.hosts.keys().next().value as string);
+    }
     this.hosts.set(host, { environmentId, until: now + HOST_CACHE_MS });
     return environmentId;
   }
@@ -247,6 +265,22 @@ export class PreviewsService implements OnModuleInit {
 }
 
 /**
+ * A Set-Cookie value for the whole preview domain, where every preview and
+ * the dashboard live.
+ */
+function previewDomainCookie(config: Pick<SpawnerConfig, "previewDomain" | "scheme">, name: string, value: string, maxAge: number): string {
+  return [`${name}=${value}`, `Domain=${config.previewDomain}`, "Path=/", `Max-Age=${maxAge}`, "HttpOnly", "SameSite=Lax", ...(config.scheme === "https" ? ["Secure"] : [])].join("; ");
+}
+
+/**
+ * The Set-Cookie value that takes the team's preview cookie off a browser,
+ * at logout: it would otherwise open the previews for 12 more hours.
+ */
+export function clearedPreviewCookie(config: Pick<SpawnerConfig, "previewDomain" | "scheme">): string {
+  return previewDomainCookie(config, PREVIEW_COOKIE, "", 0);
+}
+
+/**
  * The cookies of a request without Spawner's own (the team's preview cookie
  * and the share cookies): what the application of a preview may receive.
  * Null when none is left.
@@ -263,15 +297,28 @@ export function applicationCookies(header: string | undefined): string | null {
 }
 
 /**
- * Reads a Cookie header into a map; the last value of a repeated name wins.
+ * Reads a Cookie header into the values of each name, 5 at most per name:
+ * a name can come more than once, from cookies of different domains or
+ * paths, and a preview may set one named after Spawner's to lock its
+ * visitors out.
  */
-export function parseCookies(header: string | undefined): Record<string, string> {
-  const cookies: Record<string, string> = {};
+export function parseCookies(header: string | undefined): Record<string, string[]> {
+  const cookies: Record<string, string[]> = Object.create(null);
   for (const part of (header ?? "").split(";")) {
     const index = part.indexOf("=");
     if (index > 0) {
-      cookies[part.slice(0, index).trim()] = part.slice(index + 1).trim();
+      const values = (cookies[part.slice(0, index).trim()] ??= []);
+      if (values.length < COOKIE_VALUES) {
+        values.push(part.slice(index + 1).trim());
+      }
     }
   }
   return cookies;
+}
+
+/**
+ * The host of a preview as Spawner stores it: lowercase, without its port.
+ */
+export function previewHost(host: string): string {
+  return host.replace(/:\d+$/, "").toLowerCase();
 }

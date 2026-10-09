@@ -75,6 +75,8 @@ The settings page overrides all of these but `ENABLE_MEMORY_CHECK`.
 | `SPAWNER_ENVS_PER_USER` | `5` | Live environments a person may own, sleeping ones included; `0` for no limit |
 | `SPAWNER_ENV_MEMORY` | `2g` | Memory of an environment, unless its manifest says otherwise |
 | `SPAWNER_ENV_MEMORY_MAX` | `4g` | The most memory an environment gets, whatever its manifest asks |
+| `SPAWNER_ENV_CPUS` | `4` | CPUs of an environment, shared by its services as its memory is (1 per service by default) |
+| `SPAWNER_ENV_PIDS` | `4096` | Processes of an environment, shared the same way (512 per service by default) |
 | `MIN_REQUIRED_FREE_MEMORY_GB` | `2` | Free memory a build waits for, up to two minutes, before it fails (code `capacity`) |
 | `MIN_REQUIRED_FREE_DISK_GB` | `10` | Free disk a build waits for, the same way |
 | `ENABLE_MEMORY_CHECK` | `true` | `false` turns the memory guard off |

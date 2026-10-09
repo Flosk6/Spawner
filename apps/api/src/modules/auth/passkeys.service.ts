@@ -59,7 +59,7 @@ export class PasskeysService {
       userID: isoBase64URL.toBuffer(user.userHandle),
       attestationType: "none",
       excludeCredentials: user.passkeys.map((passkey) => ({ id: passkey.id, transports: passkey.transports })),
-      authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+      authenticatorSelection: { residentKey: "required", userVerification: "required" },
     });
     request.session.webauthn = { challenge: options.challenge, purpose: "register", origin, userHandle: user.userHandle, context };
     return options;
@@ -79,7 +79,7 @@ export class PasskeysService {
       expectedChallenge: pending.challenge,
       expectedOrigin: pending.origin,
       expectedRPID: new URL(pending.origin).hostname,
-      requireUserVerification: false,
+      requireUserVerification: true,
     }).catch((error: Error) => {
       throw new BadRequestException(`the passkey could not be verified: ${error.message}`);
     });
@@ -103,7 +103,7 @@ export class PasskeysService {
    */
   async loginOptions(request: Request) {
     const origin = this.origin(request);
-    const options = await generateAuthenticationOptions({ rpID: new URL(origin).hostname, userVerification: "preferred" });
+    const options = await generateAuthenticationOptions({ rpID: new URL(origin).hostname, userVerification: "required" });
     request.session.webauthn = { challenge: options.challenge, purpose: "login", origin };
     return options;
   }
@@ -125,7 +125,7 @@ export class PasskeysService {
       expectedOrigin: pending.origin,
       expectedRPID: new URL(pending.origin).hostname,
       credential: { id: passkey.id, publicKey: new Uint8Array(passkey.publicKey), counter: Number(passkey.counter), transports: passkey.transports },
-      requireUserVerification: false,
+      requireUserVerification: true,
     }).catch(() => ({ verified: false, authenticationInfo: null }));
     if (!result.verified) {
       throw new UnauthorizedException("the passkey could not be verified");

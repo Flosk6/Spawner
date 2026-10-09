@@ -9,23 +9,31 @@ import type { SettingsService } from "../settings/settings.service";
 import { UsersService } from "./users.service";
 
 describe("UsersService", () => {
-  it("renames a user from a dashboard session only", async () => {
+  it("renames a user from a dashboard session only, to a name nobody else goes by, and records it", async () => {
     const names: string[] = [];
+    const recorded: unknown[][] = [];
     const prisma = {
       user: {
+        findFirst: async ({ where }: { where: { name: { equals: string }; NOT?: { id: number } } }) =>
+          where.name.equals.toLowerCase() === "ada" && where.NOT?.id !== 1 ? { id: 1 } : null,
         update: async ({ data }: { data: { name: string } }) => {
           names.push(data.name);
           return { id: 2, name: data.name, role: "member", isActive: true, createdAt: new Date() };
         },
       },
     };
-    const users = new UsersService(prisma as unknown as PrismaService, {} as PasskeysService, {} as SettingsService, {} as AuditService, {} as AccessService);
+    const audit = { record: async (...args: unknown[]) => void recorded.push(args) };
+    const users = new UsersService(prisma as unknown as PrismaService, {} as PasskeysService, {} as SettingsService, audit as unknown as AuditService, {} as AccessService);
     const session = sessionActor({ id: 2, name: "Bob", role: "member" });
     const token: Actor = { ...session, via: "token", tokenId: "t1", tokenName: "agent" };
 
-    await expect(users.rename(token, "Ada")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(users.rename(token, "Robert")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(users.rename(session, " ADA ")).rejects.toThrow('someone is already named "ADA"');
+    await expect(users.rename(session, "Ada via claude-laptop")).rejects.toThrow("via");
+    await expect(users.rename(session, "Bob\u202e")).rejects.toThrow("control characters");
     await users.rename(session, "Robert");
     expect(names).toEqual(["Robert"]);
+    expect(recorded).toEqual([[session, "user.rename", { target: "Robert", details: { userId: 2, from: "Bob" } }]]);
   });
 
   it("closes the terminals and streams of a user deactivated, and what a demoted admin may no longer do", async () => {
