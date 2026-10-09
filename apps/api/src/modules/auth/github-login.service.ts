@@ -3,7 +3,9 @@ import type { User } from "@prisma/client";
 import type { Request } from "express";
 import { PrismaService } from "../../common/prisma.service";
 import { randomToken } from "../../common/secrets.service";
+import { AuditService } from "../audit/audit.service";
 import { SettingsService, type GithubSettings } from "../settings/settings.service";
+import { freeName } from "../team/user-names";
 
 const AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
@@ -27,6 +29,7 @@ export class GithubLoginService {
   constructor(
     private readonly settings: SettingsService,
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -79,10 +82,12 @@ export class GithubLoginService {
       if (identity && identity.userId !== currentUserId) {
         throw new ConflictException("this GitHub account is already linked to another user");
       }
+      const user = await this.prisma.user.findUniqueOrThrow({ where: { id: currentUserId } });
       if (!identity) {
         await this.prisma.identity.create({ data: { userId: currentUserId, provider: "github", subject, username: profile.login } });
+        await this.audit.record(null, "user.github_link", { userId: user.id, actorName: user.name, target: profile.login, details: { githubId: subject }, request });
       }
-      return { user: await this.prisma.user.findUniqueOrThrow({ where: { id: currentUserId } }), next: pending.next, linked: true };
+      return { user, next: pending.next, linked: true };
     }
 
     if (identity) {
@@ -99,7 +104,7 @@ export class GithubLoginService {
     }
     const user = await this.prisma.user.create({
       data: {
-        name: profile.login.slice(0, 60),
+        name: await freeName(this.prisma, profile.login),
         avatarUrl: profile.avatar_url ?? null,
         role: "member",
         identities: { create: { provider: "github", subject, username: profile.login } },

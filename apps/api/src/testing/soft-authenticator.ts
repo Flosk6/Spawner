@@ -26,6 +26,8 @@ interface StoredCredential {
  */
 export class SoftAuthenticator {
   readonly credentials: StoredCredential[] = [];
+  /** Whether the user proved who they are (a PIN, a fingerprint), as an authenticator says. */
+  userVerified = true;
 
   register(options: PublicKeyCredentialCreationOptionsJSON, origin: string): RegistrationResponseJSON {
     const rpId = options.rp.id ?? new URL(origin).hostname;
@@ -45,7 +47,7 @@ export class SoftAuthenticator {
     credentialIdLength.writeUInt16BE(id.length);
     const authData = Buffer.concat([
       this.rpIdHash(rpId),
-      Buffer.from([FLAG_USER_PRESENT | FLAG_USER_VERIFIED | FLAG_ATTESTED_DATA]),
+      Buffer.from([FLAG_USER_PRESENT | this.verifiedFlag() | FLAG_ATTESTED_DATA]),
       this.counterBytes(0),
       Buffer.alloc(16),
       credentialIdLength,
@@ -80,7 +82,7 @@ export class SoftAuthenticator {
       throw new Error(`no credential for ${rpId}`);
     }
     credential.counter += 1;
-    const authenticatorData = Buffer.concat([this.rpIdHash(rpId), Buffer.from([FLAG_USER_PRESENT | FLAG_USER_VERIFIED]), this.counterBytes(credential.counter)]);
+    const authenticatorData = Buffer.concat([this.rpIdHash(rpId), Buffer.from([FLAG_USER_PRESENT | this.verifiedFlag()]), this.counterBytes(credential.counter)]);
     const clientDataJSON = this.clientData("webauthn.get", options.challenge, origin);
     const clientDataHash = createHash("sha256").update(Buffer.from(clientDataJSON, "base64url")).digest();
     const signature = sign("sha256", Buffer.concat([authenticatorData, clientDataHash]), credential.privateKey);
@@ -97,6 +99,10 @@ export class SoftAuthenticator {
       },
       clientExtensionResults: {},
     };
+  }
+
+  private verifiedFlag(): number {
+    return this.userVerified ? FLAG_USER_VERIFIED : 0;
   }
 
   private clientData(type: string, challenge: string, origin: string): string {

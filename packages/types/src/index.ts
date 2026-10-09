@@ -140,6 +140,9 @@ export interface CreatedToken {
 export interface DeviceRequest {
   userCode: string;
   clientName: string;
+  /** When and from which address the CLI started the login. */
+  requestedAt: string;
+  requestIp: string | null;
   expiresAt: string;
   scopes: Scope[];
 }

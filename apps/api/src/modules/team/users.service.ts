@@ -8,6 +8,7 @@ import { AuditService } from "../audit/audit.service";
 import { presentUser } from "../auth/present";
 import { PasskeysService } from "../auth/passkeys.service";
 import { SettingsService } from "../settings/settings.service";
+import { assertNameFree, checkedName } from "./user-names";
 
 /**
  * The team (admins) and each user's own account: name, passkeys and linked
@@ -98,12 +99,18 @@ export class UsersService {
    * Renames the user, from a dashboard session only: the name shows in the
    * audit trail and on environments, and a token is not the person.
    */
+  /**
+   * Renames the logged-in user, to a name nobody else goes by; recorded in
+   * the audit trail, with the name before.
+   */
   async rename(actor: Actor, name: unknown) {
-    const value = typeof name === "string" ? name.trim() : "";
-    if (value.length === 0 || value.length > 60) {
-      throw new BadRequestException("name must be 1 to 60 characters");
-    }
-    return presentUser(await this.prisma.user.update({ where: { id: this.sessionUserId(actor) }, data: { name: value } }));
+    const value = checkedName(name);
+    const userId = this.sessionUserId(actor);
+    await assertNameFree(this.prisma, value, userId);
+    const before = actor.user?.name;
+    const user = await this.prisma.user.update({ where: { id: userId }, data: { name: value } });
+    await this.audit.record(actor, "user.rename", { target: value, details: { userId, from: before } });
+    return presentUser(user);
   }
 
   async passkeyOptions(request: Request, actor: Actor) {

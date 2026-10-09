@@ -43,7 +43,9 @@
               <span v-for="scope in request.scopes" :key="scope" class="badge font-mono">{{ scope }}</span>
             </div>
             <p class="field-hint">
-              Code <span class="font-mono text-fg-2">{{ request.userCode }}</span>. Only approve a login you started yourself, just now.
+              Code <span class="font-mono text-fg-2">{{ request.userCode }}</span>, started {{ timeAgo(request.requestedAt)
+              }}<template v-if="request.requestIp"> from <span class="font-mono text-fg-2">{{ request.requestIp }}</span></template>. Only approve a
+              login you started yourself, just now.
             </p>
           </div>
           <div v-if="error" class="alert tone-danger" role="alert">
@@ -87,6 +89,7 @@ import UserAvatar from '../components/UserAvatar.vue';
 import { deviceApi, errorMessage } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import type { DeviceRequest } from '../types';
+import { timeAgo } from '../utils/format';
 
 /** The page stands alone, without the menu that names the account: it says which one the CLI acts as. */
 const authStore = useAuthStore();

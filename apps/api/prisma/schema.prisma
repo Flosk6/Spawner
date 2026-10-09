@@ -126,6 +126,8 @@ model DeviceCode {
   userId         Int?      @map("user_id")
   expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
   lastPolledAt   DateTime? @map("last_polled_at") @db.Timestamptz(6)
+  /// Address the login was started from, which the approval page shows.
+  requestIp      String?   @map("request_ip") @db.VarChar(64)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
 

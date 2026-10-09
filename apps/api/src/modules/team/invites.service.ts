@@ -8,6 +8,7 @@ import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
 import { PasskeysService } from "../auth/passkeys.service";
 import { SessionsService } from "../auth/sessions.service";
+import { assertNameFree, checkedName } from "./user-names";
 
 export const INVITE_DEFAULT_HOURS = 24;
 const INVITE_MAX_HOURS = 7 * 24;
@@ -145,6 +146,9 @@ export class InvitesService {
       throw new BadRequestException("create a passkey to accept the invitation");
     }
     const name = invite.user ? invite.user.name : this.name(body.name);
+    if (!invite.user) {
+      await assertNameFree(this.prisma, name);
+    }
 
     const user = await this.prisma.$transaction(async (db) => {
       const claimed = await db.invite.updateMany({ where: { id: invite.id, usedAt: null, revokedAt: null }, data: { usedAt: new Date() } });
@@ -181,11 +185,7 @@ export class InvitesService {
   }
 
   private name(value: unknown): string {
-    const name = typeof value === "string" ? value.trim() : "";
-    if (name.length === 0 || name.length > 60) {
-      throw new BadRequestException("enter your name, 60 characters at most");
-    }
-    return name;
+    return checkedName(value);
   }
 
   private passkeyName(value: unknown): string {

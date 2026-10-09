@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import type { Request } from "express";
 import { describeActor, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
+import { requestContext } from "../../common/request-context";
 
 const RETENTION_DAYS = 90;
 const PAGE_MAX = 200;
@@ -30,8 +31,9 @@ export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Records an event. A failed write is logged and never fails the request
-   * that caused it.
+   * Records an event, with the address and the user agent of the request
+   * that caused it (the request given, or the one being served). A failed
+   * write is logged and never fails the request that caused it.
    */
   async record(actor: Actor | null, action: string, options: AuditOptions = {}): Promise<void> {
     try {
@@ -42,8 +44,8 @@ export class AuditService {
           action,
           target: options.target?.slice(0, 200) ?? null,
           details: (options.details as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-          ip: options.request?.ip?.slice(0, 64) ?? null,
-          userAgent: options.request?.headers["user-agent"]?.slice(0, 300) ?? null,
+          ip: (options.request ? options.request.ip : requestContext()?.ip)?.slice(0, 64) ?? null,
+          userAgent: (options.request ? options.request.headers["user-agent"] : requestContext()?.userAgent)?.slice(0, 300) ?? null,
         },
       });
     } catch (error) {
