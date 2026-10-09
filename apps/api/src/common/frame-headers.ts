@@ -30,3 +30,21 @@ export function frameHeaders(_request: Request, response: Response, next: NextFu
   }
   next();
 }
+
+/**
+ * The frame headers, and on every response too: no Referer for other sites
+ * (the dashboard's paths name environments, and invitation links carry
+ * their token), no content sniffing, and over HTTPS, Strict-Transport-
+ * Security for a year, so that a browser that came once never reaches the
+ * dashboard over plain HTTP again.
+ */
+export function securityHeaders(options: { https: boolean }) {
+  return (request: Request, response: Response, next: NextFunction): void => {
+    response.setHeader("Referrer-Policy", "same-origin");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    if (options.https) {
+      response.setHeader("Strict-Transport-Security", "max-age=31536000");
+    }
+    frameHeaders(request, response, next);
+  };
+}
