@@ -39,7 +39,7 @@ Run the command above on the server, as root. The installer:
 3. checks that `*.<domain>` resolves to the server, and warns if not;
 4. installs Docker (from get.docker.com) if it is missing, and configures it for many short-lived environments (below);
 5. below 8 GiB of memory, offers compressed swap in memory (zram);
-6. writes `/opt/spawner` (a Compose file, its secrets) and starts Postgres, Traefik and Spawner from the images on GHCR, then waits for the dashboard and its certificate;
+6. writes `/opt/spawner` (a Compose file, its secrets, the firewall rules of the environments) and starts Postgres, Traefik, Spawner and its firewall from the images on GHCR, then waits for the dashboard and its certificate;
 7. prints the dashboard URL, a link valid one hour that creates the first admin account, and the commands that install the CLI.
 
 It takes a few minutes. Open the admin link, choose a name and create a passkey: accounts have no password. Then invite the team from the Team page.
@@ -93,10 +93,11 @@ The credentials go to `/opt/spawner/dns.env`, readable by root only, and only Tr
   - `live-restore`: containers keep running while Docker restarts;
   - on a Docker installed by the installer only, `"containerd-snapshotter": false`: images are stored once (overlay2) rather than twice. On an existing Docker it changes nothing, since switching would hide the images already there.
 - **zram**, if you accept it: `zram-tools`, half of the memory, zstd.
-- **`/opt/spawner`**: `compose.yaml`, `.env` (settings and secrets), `dns.env`, `backups/`; mode 700.
+- **nftables** (`nft`), if it is missing, and **`/etc/systemd/system/docker.service.d/spawner-firewall.conf`**: Docker loads the rules of `/opt/spawner/firewall.nft` before it starts any container, so that after a reboot no environment runs a moment without them ([security](security.md#isolation)). The rules sit in a table of their own (`inet spawner`), which Docker, ufw and firewalld leave alone.
+- **`/opt/spawner`**: `compose.yaml`, `.env` (settings and secrets), `dns.env`, `firewall.nft`, `backups/`; mode 700.
 - **`/var/lib/spawner`**: the data directory (repository mirrors, environment sources, routes, job logs, deploy keys).
 
-Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself, Postgres and Traefik run as containers named `spawner`, `spawner-postgres` and `spawner-traefik`.
+Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself, Postgres and Traefik run as containers named `spawner`, `spawner-postgres` and `spawner-traefik`; `spawner-firewall` loads the rules of the environments again every minute.
 
 ## Upgrading
 
@@ -119,7 +120,7 @@ sudo bash install.sh --uninstall           # stops Spawner and its environments;
 sudo bash install.sh --uninstall --purge   # deletes Spawner, every environment with its data, and /var/lib/spawner
 ```
 
-`--purge` asks you to type "delete everything", unless `--yes`. It removes only what Spawner created: containers, volumes, networks and images with its labels, and its own directories. Docker and its settings stay.
+`--purge` asks you to type "delete everything", unless `--yes`. It removes only what Spawner created: containers, volumes, networks and images with its labels, its firewall rules and Docker's drop-in, and its own directories. Docker, its settings and nftables stay.
 
 ## A local install
 
@@ -141,5 +142,6 @@ Every subdomain of `localtest.me` resolves to 127.0.0.1: the dashboard is `http:
 | The admin link expired | `docker exec -u node spawner node dist/admin.js invite --role admin` prints a new one. |
 | Spawner does not start | `docker logs spawner`, and `docker compose --project-directory /opt/spawner ps`. |
 | Spawner restarts by itself | `docker inspect -f '{{.State.OOMKilled}}' spawner`: `true` means it reached its memory limit. Rerun the installer with `--memory-limit 2g`. |
+| A container cannot reach a service of the server | On purpose: containers reach the server on DNS, HTTP and HTTPS only (`/opt/spawner/firewall.nft`). Publish the service on a port, or run it in the environment. `nft list table inet spawner` shows the rules in place. |
 
 More in [operations](operations.md).

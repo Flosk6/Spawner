@@ -33,7 +33,7 @@ LABEL org.opencontainers.image.title="Spawner" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${SPAWNER_VERSION}"
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git openssh-client tini curl \
+ && apt-get install -y --no-install-recommends git openssh-client tini curl nftables \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker:29-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
@@ -42,8 +42,9 @@ COPY --from=build --chown=node:node /out ./
 COPY --from=build --chown=node:node /repo/apps/web/dist ./web
 COPY --from=build --chown=node:node /repo/apps/cli/dist/spawner.cjs ./cli/spawner
 # The installer of this version: an update from the dashboard runs it with
-# --upgrade, from a short-lived container of this image.
-COPY install.sh LICENSE NOTICE ./
+# --upgrade, from a short-lived container of this image. firewall.nft: the
+# rules the spawner-firewall container of the stack loads on the host.
+COPY install.sh firewall.nft LICENSE NOTICE ./
 ENV NODE_ENV=production \
     PORT=3000 \
     WEB_DIST_PATH=/app/web \

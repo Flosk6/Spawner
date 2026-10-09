@@ -33,6 +33,7 @@ Service names, network aliases and hostnames are the names Docker's DNS answers 
 - **One network per environment.** Services of an environment reach each other by name; other environments and Spawner's own containers are not on their network.
 - **Traefik has no Docker socket.** It reads its routes from files Spawner writes, and joins each environment's network to reach its exposed services only.
 - **Traefik never follows a bare name.** It reaches Spawner as `spawner.spawner-core` and each exposed service by its name qualified by its environment's network (`<service>.spn-<project>--<env>_default`), and joins environment networks with a lower priority than Spawner's own: Docker's DNS answers a bare name from the first network that knows it, so an environment could otherwise receive the dashboard's traffic or another environment's.
+- **The cloud and the host are out of reach.** The containers of Docker's bridge networks (the environments, their builds, Spawner's own stack) are refused the metadata services of the clouds (`169.254.0.0/16`, Azure's `168.63.129.16`, Alibaba's `100.100.100.200`), where a branch would read the server's cloud credentials, except DNS, which some clouds answer there. Of the host itself, they reach DNS, HTTP and HTTPS only: not SSH, nor the other services listening on it. The rules (`firewall.nft`, a table `inet spawner` that Docker, ufw and firewalld leave alone) are loaded by the `spawner-firewall` container, again every minute, and by Docker before it starts any container.
 - **Every container** gets `no-new-privileges`, a memory limit (512 MiB per service by default, 2 GiB per environment), a CPU limit, a process limit (512), a restart policy, and compressed logs with a cap.
 - **The Spawner container** has a memory limit (1 GiB by default, `install.sh --memory-limit`): if the API runs out of memory, it restarts without taking the server down.
 - **Uploads** are checked entry by entry before extraction: no absolute paths, no `..`, no links leaving the archive, no devices or hard links, and limits on size and file count. The check reads the archive as a stream and stops at the first limit crossed, the decompressed size included, so a compression bomb costs no more than a legitimate archive. A person has 5 deploys of uploaded code waiting to start at most, since each keeps its archives on disk until it runs.
@@ -84,7 +85,7 @@ Every 6 hours, Spawner reads the list of releases from GitHub (`api.github.com`,
 
 ## What Spawner does not do (yet)
 
-- **Outbound traffic** from environments is not filtered: a branch can call any address on the internet. Do not put previews on a network that reaches private services.
+- **Outbound traffic** from environments is filtered for the cloud's metadata and the host only (above): a branch can call any other address, on the internet and on the private networks the server reaches. Do not put previews on a network that reaches private services.
 - **User namespaces** (`userns-remap`) are not set: a process running as root in a container is root on the host's kernel, held back by the namespaces, `no-new-privileges` and the absence of capabilities and devices. Keep Docker and the kernel up to date (enable `unattended-upgrades` on Ubuntu).
 - **Members see every environment's logs**: do not log secrets.
 

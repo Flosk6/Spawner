@@ -6,10 +6,11 @@ Running a Spawner server day to day: where things are, backups, restores, upgrad
 
 | Path | What it holds |
 |---|---|
-| `/opt/spawner/compose.yaml` | The stack: `spawner`, `spawner-postgres`, `spawner-traefik`. Written by the installer; rerun it rather than editing this file |
+| `/opt/spawner/compose.yaml` | The stack: `spawner`, `spawner-postgres`, `spawner-traefik`, `spawner-firewall`. Written by the installer; rerun it rather than editing this file |
 | `/opt/spawner/.env` | Version, domain, memory of the Spawner container (`SPAWNER_MEMORY_LIMIT`), and the secrets: `SPAWNER_SECRET`, `POSTGRES_PASSWORD`, `SPAWNER_BOOTSTRAP_TOKEN` |
 | `/opt/spawner/dns.env` | Credentials of the DNS provider, for Traefik |
 | `/opt/spawner/spawner.env` | Settings of your own (below); the installer never overwrites it |
+| `/opt/spawner/firewall.nft` | The rules for the containers of Docker's bridge networks, which Docker loads before it starts ([security](security.md#isolation)); copied from the image by each run of the installer |
 | `/opt/spawner/backups/` | Database backups taken by upgrades |
 | `/var/lib/spawner/` | Data: repository mirrors (`mirrors/`), sources and rendered compose files of the environments (`envs/`), Traefik routes (`traefik/`), job logs (`jobs/`), archived logs (`archives/`), terminal recordings (`terminals/`), deploy keys (`keys/`) |
 | Docker volumes `spawner_postgres-data`, `spawner_traefik-certs` | Spawner's database and the certificates |

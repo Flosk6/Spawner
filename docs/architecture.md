@@ -21,6 +21,7 @@ How Spawner is built, for those who read or change its code. [Concepts](concepts
 - **One image** (the root `Dockerfile`) runs the API and serves the dashboard (`WEB_DIST_PATH=/app/web`) and the CLI bundle (`SPAWNER_CLI_PATH=/app/cli/spawner`) on the same origin. It carries git, ssh, the Docker CLI with the compose plugin, and the installer (`/app/install.sh`) for updates. Its entrypoint gives the `node` user access to the Docker socket and the data directory, applies the Prisma migrations, then drops root.
 - **Postgres** holds Spawner's state, including the job queue and the sessions.
 - **Traefik** v3 reads its routes from files Spawner writes into `<data dir>/traefik/` (file provider, watched). It has no Docker socket: Spawner attaches it to each environment's network.
+- **The firewall** (`spawner-firewall`, the same image on the host's network with `NET_ADMIN` only) loads `firewall.nft` every minute: the containers of Docker's bridge networks reach neither the metadata services of the clouds nor the host's services but DNS, HTTP and HTTPS. `install.sh` also has Docker load the file before it starts (a drop-in of `docker.service`). The development stack starts it with `--profile firewall` only, since it changes the host's rules.
 - **The stacks**: `install.sh` writes `/opt/spawner/compose.yaml` from the images on GHCR; the root `docker-compose.yml` builds the same stack from the sources, over plain HTTP, for development and the end-to-end test.
 
 ## The workspace

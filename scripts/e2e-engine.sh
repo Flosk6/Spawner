@@ -2,15 +2,17 @@
 #
 # End-to-end test of the environment engine, access and the CLI.
 #
-# Starts the local stack (Postgres, Traefik, Spawner), checks that the
-# dashboard refuses to be framed and that its Socket.IO server refuses the
+# Starts the local stack (Postgres, Traefik, Spawner, and the firewall of
+# install.sh's stack), checks that the dashboard refuses to be framed and that its Socket.IO server refuses the
 # polling transport, then with examples/node-postgres sent as an archive
 # through the API:
 #   1. creates an environment and waits until it is ready
 #   2. calls its URL through Traefik (with an agent's preview token) and
 #      checks the seeded data; then an impostor calling itself "spawner" and
 #      taking the names of the environment's service, on a network Docker's
-#      DNS asks before Spawner's, must receive none of their traffic
+#      DNS asks before Spawner's, must receive none of their traffic; and
+#      the environment reaches neither the metadata address of the clouds
+#      nor a service of the host, but still the previews and the DNS
 #   3. checks the URL is protected: anonymous visitors go to the dashboard,
 #      API clients get a 401, only real CORS preflights pass without
 #      credentials, a share link opens it until it is revoked, and an invited
@@ -65,7 +67,7 @@ export FRONTEND_URL=http://spawner.localtest.me
 export COPYFILE_DISABLE=1
 
 API="http://127.0.0.1:8080/api/v1"
-COMPOSE=(docker compose -p spawner-e2e -f docker-compose.yml)
+COMPOSE=(docker compose -p spawner-e2e -f docker-compose.yml --profile firewall)
 WORK="$(mktemp -d)"
 EXAMPLE=examples/node-postgres
 
@@ -101,8 +103,12 @@ status() {
 IMPOSTOR=e2e-impostor
 IMPOSTOR_NETWORK=aaa-e2e-impostor
 
+# A service of the host that is not published: environments must not reach it.
+HOST_LISTENER=e2e-host-listener
+HOST_PORT=18181
+
 remove_impostor() {
-  docker rm -f "$IMPOSTOR" >/dev/null 2>&1 || true
+  docker rm -f "$IMPOSTOR" "$HOST_LISTENER" >/dev/null 2>&1 || true
   docker network disconnect -f "$IMPOSTOR_NETWORK" spawner-traefik >/dev/null 2>&1 || true
   docker network rm "$IMPOSTOR_NETWORK" >/dev/null 2>&1 || true
 }
@@ -164,13 +170,16 @@ cleanup() {
     for project in "${TEST_PROJECTS[@]}"; do
       remove_project "$project" >/dev/null 2>&1 || true
     done
+    # The rules of firewall.nft stay in the kernel once their container is gone.
+    docker rm -f spawner-firewall >/dev/null 2>&1 || true
+    docker run --rm --network host --cap-add NET_ADMIN --entrypoint nft spawner-e2e-firewall delete table inet spawner >/dev/null 2>&1 || true
     # Each run builds Spawner's image again: removing it keeps old builds from piling up (the build cache stays).
     "${COMPOSE[@]}" down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     docker run --rm -v "$SPAWNER_DATA_DIR:/data" alpine:3.20 sh -c 'rm -rf /data/*' >/dev/null 2>&1 || true
     rm -rf "$SPAWNER_DATA_DIR"
     rm -rf "$WORK"
   else
-    echo "Stack left running; work directory (the CLI and its login): $WORK"
+    echo "Stack left running, with the rules of firewall.nft on the host; work directory (the CLI and its login): $WORK"
   fi
   exit "$code"
 }
@@ -281,6 +290,32 @@ dashboard=$(curl -sS --max-time 10 -H "Host: spawner.localtest.me" "http://127.0
 [ "$(status "$host" -H 'Accept: application/json')" = "401" ] || fail "Spawner, not the impostor, should check each request to the preview"
 remove_impostor
 pass "an impostor named spawner, app and $app_container, on a network asked first: Traefik still reaches Spawner and the environment"
+
+step "Fencing the environments in"
+rules=$(docker exec spawner-firewall nft list table inet spawner 2>&1 || true)
+[[ "$rules" == *"chain from_containers"* && "$rules" == *"chain to_host"* ]] || fail "spawner-firewall should load the rules of firewall.nft: $rules"
+# reach HOST PORT: what the environment's app gets when it opens a connection there.
+reach() {
+  docker exec "$app_container" node -e "
+    const socket = require('net').connect(+process.argv[2], process.argv[1]);
+    socket.on('connect', () => { console.log('connected'); process.exit(0); });
+    socket.on('error', (error) => { console.log(error.code); process.exit(0); });
+    setTimeout(() => { console.log('timeout'); process.exit(0); }, 3000);" "$1" "$2"
+}
+[ "$(reach 169.254.169.254 80)" = "ECONNREFUSED" ] || fail "the environment should be refused the metadata address of the clouds, not: $(reach 169.254.169.254 80)"
+docker run -d --name "$HOST_LISTENER" --network host node:22-alpine \
+  node -e "require('net').createServer((socket) => socket.end('host')).listen($HOST_PORT)" >/dev/null
+gateway=$(docker network inspect spn-example--e2e-demo_default -f '{{(index .IPAM.Config 0).Gateway}}')
+for _ in $(seq 1 20); do
+  [ "$(docker exec "$HOST_LISTENER" node -e "require('net').connect($HOST_PORT, '$gateway').on('connect', () => { console.log('up'); process.exit(0); }).on('error', () => process.exit(0))")" = "up" ] && break
+  sleep 0.5
+done
+[ "$(reach "$gateway" "$HOST_PORT")" = "ECONNREFUSED" ] || fail "the environment should be refused a service of the host ($gateway:$HOST_PORT), not: $(reach "$gateway" "$HOST_PORT")"
+[ "$(reach "$gateway" "$SPAWNER_HTTP_PORT")" = "connected" ] || fail "the environment should still reach the previews on the host ($gateway:$SPAWNER_HTTP_PORT)"
+[ -n "$(docker exec "$app_container" node -e "require('dns').lookup('github.com', (error, address) => console.log(error ? '' : address))")" ] \
+  || fail "the environment should still resolve names"
+remove_impostor
+pass "the environment reaches neither 169.254.169.254 nor a service of the host on $gateway, but the previews and the DNS"
 
 step "Protecting the previews"
 [ "$(status "$host" -H 'Accept: text/html')" = "302" ] || fail "an anonymous visitor reached the preview"
