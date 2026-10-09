@@ -92,7 +92,9 @@ scripts/release.sh 2.1.0-rc.1   # a prerelease: only the tag
 ```
 
 Write the `CHANGELOG.md` section of the version first: the release notes come
-from it. The script sets the version of every `package.json` and the default
+from it. Bump the digests of `POSTGRES_IMAGE` and `TRAEFIK_IMAGE` in
+`install.sh` too (`docker buildx imagetools inspect postgres:17-alpine` gives
+the digest of the index), since nothing updates them. The script sets the version of every `package.json` and the default
 version of `install.sh`, commits, and makes an annotated tag. The tag must be
 on a commit of `master`: merge the branch with a merge commit (squash and
 rebase rewrite the tagged commit), then push the tag. It starts
@@ -100,7 +102,9 @@ rebase rewrite the tagged commit), then push the tag. It starts
 then, once a reviewer approves the jobs of the `release` environment,
 publishes the images on GHCR (`linux/amd64`, `linux/arm64`), the CLI on npm
 (`spawner-cli`) and the GitHub release with `install.sh`, the CLI bundle and
-their checksums.
+their checksums. The published `install.sh` gets the digest of the image
+(`IMAGE_DIGEST`, empty in the repository) unless it is a prerelease, and the
+images, `install.sh` and the bundle get build provenance attestations.
 
 npm publishes through trusted publishing: the settings of the `spawner-cli`
 package on npmjs.com trust this repository's `release.yml`, so no token is

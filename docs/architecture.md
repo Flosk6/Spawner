@@ -21,6 +21,7 @@ How Spawner is built, for those who read or change its code. [Concepts](concepts
 - **One image** (the root `Dockerfile`) runs the API and serves the dashboard (`WEB_DIST_PATH=/app/web`) and the CLI bundle (`SPAWNER_CLI_PATH=/app/cli/spawner`) on the same origin. It carries git, ssh, the Docker CLI with the compose plugin, and the installer (`/app/install.sh`) for updates. Its entrypoint gives the `node` user access to the Docker socket and the data directory, applies the Prisma migrations, then drops root.
 - **Postgres** holds Spawner's state, including the job queue and the sessions.
 - **Traefik** v3 reads its routes from files Spawner writes into `<data dir>/traefik/` (file provider, watched). It has no Docker socket: Spawner attaches it to each environment's network.
+- **The firewall** (`spawner-firewall`, the same image on the host's network with `NET_ADMIN` only) loads `firewall.nft` every minute: the containers of Docker's bridge networks reach neither the metadata services of the clouds nor the host's services but DNS, HTTP and HTTPS. `install.sh` also has Docker load the file before it starts (a drop-in of `docker.service`). The development stack starts it with `--profile firewall` only, since it changes the host's rules.
 - **The stacks**: `install.sh` writes `/opt/spawner/compose.yaml` from the images on GHCR; the root `docker-compose.yml` builds the same stack from the sources, over plain HTTP, for development and the end-to-end test.
 
 ## The workspace
@@ -171,7 +172,7 @@ An environment is ready once Traefik serves its hosts.
 
 ### Updates
 
-`releases.ts` (pure) compares versions and picks the newest update a server may take. `updates.service.ts` reads the list of releases every 6 hours (`SPAWNER_RELEASES_URL`, `file://` in tests). On request, it downloads the new image and starts `spawner-upgrade`, a container of that image that runs its `/app/install.sh --upgrade` as root, on the host network, with the Docker socket, the installation directory (from the Compose label `working_dir`) and the data directory. The run is kept in `settings` (`update.run`) and settled by whichever Spawner comes up: succeeded, or failed when the installer went back to the previous version. Only a container of the Compose project `spawner`, running a release image tagged with its own version, can update itself.
+`releases.ts` (pure) compares versions and picks the newest update a server may take. `updates.service.ts` reads the list of releases every 6 hours (`SPAWNER_RELEASES_URL`, `file://` in tests). On request, it reads the digest the release's `install.sh` names (`IMAGE_DIGEST`; a list of releases without that asset gives the tag), downloads the image by that digest and starts `spawner-upgrade`, a container of that image that runs its `/app/install.sh --upgrade` as root, on the host network, with the Docker socket, the installation directory (from the Compose label `working_dir`) and the data directory. The run is kept in `settings` (`update.run`) and settled by whichever Spawner comes up: succeeded, or failed when the installer went back to the previous version. Only a container of the Compose project `spawner`, running a release image tagged with its own version (pinned by digest or not), can update itself.
 
 ### Naming
 
@@ -250,4 +251,4 @@ Messages for people go to stderr and results to stdout (only JSON with `--json`)
 
 ## Releases
 
-`scripts/release.sh` versions and tags a release, and a tag starts `.github/workflows/release.yml`: images on GHCR for amd64 and arm64, the CLI on npm through trusted publishing, and a GitHub release with `install.sh`, the CLI bundle and their checksums. See [scripts](../scripts/README.md#releasesh).
+`scripts/release.sh` versions and tags a release, and a tag starts `.github/workflows/release.yml`: images on GHCR for amd64 and arm64, the CLI on npm through trusted publishing, and a GitHub release with `install.sh` (the digest of the image written into it), the CLI bundle and their checksums; the images, `install.sh` and the bundle get build provenance attestations. See [scripts](../scripts/README.md#releasesh).

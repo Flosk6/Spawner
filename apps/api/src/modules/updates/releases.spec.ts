@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareVersions, newestUpdate, parseVersion, splitImage, upgradeHelper, type GithubRelease } from "./releases";
+import { compareVersions, installerDigest, installerUrl, newestUpdate, parseVersion, splitImage, upgradeHelper, type GithubRelease } from "./releases";
 
 const release = (tag: string, extra: Partial<GithubRelease> = {}): GithubRelease => ({
   tag_name: tag,
@@ -55,6 +55,28 @@ describe("splitImage", () => {
     expect(splitImage("registry.local:5000/spawner:2.0.0")).toEqual({ repository: "registry.local:5000/spawner", tag: "2.0.0" });
     expect(splitImage("registry.local:5000/spawner")).toBeNull();
     expect(splitImage("ghcr.io/flosk6/spawner@sha256:abc")).toBeNull();
+  });
+
+  it("leaves out the digest that pins a release image", () => {
+    expect(splitImage("ghcr.io/flosk6/spawner:2.2.0@sha256:abc")).toEqual({ repository: "ghcr.io/flosk6/spawner", tag: "2.2.0" });
+  });
+});
+
+describe("the installer of a release", () => {
+  const digest = `sha256:${"ab".repeat(32)}`;
+
+  it("is the install.sh asset of the release of that version", () => {
+    const installer = { name: "install.sh", browser_download_url: "https://github.com/Flosk6/Spawner/releases/download/v2.2.0/install.sh" };
+    const releases = [release("v2.2.0", { assets: [{ name: "spawner", browser_download_url: "https://example.test/spawner" }, installer] }), release("v2.1.0")];
+    expect(installerUrl(releases, "2.2.0")).toBe(installer.browser_download_url);
+    expect(installerUrl(releases, "2.1.0")).toBeNull();
+    expect(installerUrl(releases, "9.9.9")).toBeNull();
+  });
+
+  it("names the digest of its image on a line of its own", () => {
+    expect(installerDigest(`DEFAULT_VERSION="2.2.0"\nIMAGE_DIGEST="${digest}"\n`)).toBe(digest);
+    expect(installerDigest('IMAGE_DIGEST=""\n')).toBeNull();
+    expect(installerDigest(`# IMAGE_DIGEST="${digest}" in a comment\nIMAGE_DIGEST="sha256:short"\n`)).toBeNull();
   });
 });
 

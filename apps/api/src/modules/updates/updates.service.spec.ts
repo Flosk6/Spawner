@@ -107,6 +107,29 @@ describe("UpdatesService", () => {
     await expect(service.start(admin)).rejects.toThrow(ConflictException);
   });
 
+  it("pins the new image to the digest its release's installer names, and refuses an installer without one", async () => {
+    const digest = `sha256:${"cd".repeat(32)}`;
+    const installer = path.join(dir, "install.sh");
+    const list = [{ tag_name: `v${next}`, assets: [{ name: "install.sh", browser_download_url: `file://${installer}` }] }];
+    fs.writeFileSync(path.join(dir, "releases.json"), JSON.stringify(list));
+    fs.writeFileSync(installer, `DEFAULT_VERSION="${next}"\nIMAGE_DIGEST=""\n`);
+    await expect(service.start(admin)).rejects.toThrow(`The installer of ${next} names no image digest`);
+    expect(settings.has("update.run")).toBe(false);
+
+    fs.writeFileSync(installer, `DEFAULT_VERSION="${next}"\nIMAGE_DIGEST="${digest}"\n`);
+    await service.start(admin);
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+    const pinned = `ghcr.io/flosk6/spawner:${next}@${digest}`;
+    expect(created[0]).toMatchObject({ Image: pinned, Cmd: ["--upgrade", "--version", next, "--image", pinned, "--yes"] });
+    expect(audit.record).toHaveBeenCalledWith(admin, "system.update", expect.objectContaining({ details: expect.objectContaining({ image: pinned }) }));
+  });
+
+  it("keeps updating a server whose image is pinned by digest", async () => {
+    self!.Config.Image = `ghcr.io/flosk6/spawner:${SPAWNER_VERSION}@sha256:${"ef".repeat(32)}`;
+    await service.check();
+    expect(await service.status()).toMatchObject({ managed: true, latest: { version: next } });
+  });
+
   it("refuses while jobs run, when there is nothing newer, or when it was not installed by install.sh", async () => {
     runningJobs = 2;
     await expect(service.start(admin)).rejects.toThrow("2 jobs are running");

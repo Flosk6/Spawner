@@ -6,7 +6,10 @@
 #      its version as a release image is), over HTTP on localtest.me, and
 #      checks the dashboard and the first admin link
 #   2. deploys examples/node-postgres with the CLI downloaded from the server,
-#      calls its URL with a preview token, and asks the MCP server its status
+#      calls its URL with a preview token, and asks the MCP server its status;
+#      the environment reaches neither the metadata service of the cloud the
+#      runner lives in nor a service of the host, but the previews and the
+#      internet; the rules load before Docker, and come back when flushed
 #   3. two agents deploy examples/laravel-next-mysql from two branches of the
 #      same repository at once, then update both at once: each environment
 #      serves its own branch and keeps its own data, and its own part of the
@@ -17,7 +20,8 @@
 #   5. upgrades with the installer: the database is backed up, the
 #      environment keeps running
 #   6. runs it again without options: the secrets stay
-#   7. removes everything with --uninstall --purge: nothing may be left
+#   7. removes everything with --uninstall --purge: nothing may be left, the
+#      rules and Docker's drop-in included
 #
 # Usage: IMAGE=spawner:ci scripts/e2e-installer.sh
 # It changes the machine (Docker settings, /opt/spawner, /var/lib/spawner):
@@ -106,6 +110,36 @@ page=$(curl -fsS -H "Host: $(echo "$url" | json 'new URL(v.url).host')" -H "X-Sp
 node "$ROOT/scripts/e2e/mcp-status.mjs" "$WORK/spawner" "$WORK/app" e2e-demo
 cd "$ROOT"
 pass "spawner up deployed examples/node-postgres; its URL answers with a preview token"
+
+step "Fencing the environments in"
+sudo nft list table inet spawner >/dev/null || fail "the rules of firewall.nft should be loaded"
+sudo systemctl cat docker | grep -q '^ExecStartPre=-.*nft -f /opt/spawner/firewall.nft$' || fail "Docker should load firewall.nft before it starts"
+app=$(sudo docker ps --filter "label=dev.spawner.env=$env_id" --filter label=dev.spawner.service=app --format '{{.Names}}')
+# reach URL: what the environment's app gets for a request there (the status, or the error code).
+reach() {
+  sudo docker exec "$app" node -e "
+    const request = require('http').get(process.argv[1], { headers: { Metadata: 'true' }, timeout: 5000 }, (response) => { console.log(response.statusCode); process.exit(0); });
+    request.on('error', (error) => { console.log(error.code); process.exit(0); });
+    request.on('timeout', () => { console.log('timeout'); process.exit(0); });" "$1"
+}
+metadata="http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H Metadata:true "$metadata")" = "200" ]; then
+  pass "the runner reads its cloud's metadata service"
+fi
+[ "$(reach "$metadata")" = "ECONNREFUSED" ] || fail "the environment should be refused the metadata service, not: $(reach "$metadata")"
+gateway=$(sudo docker network inspect spn-example--e2e-demo_default -f '{{(index .IPAM.Config 0).Gateway}}')
+python3 -m http.server 18181 --bind 0.0.0.0 >/dev/null 2>&1 &
+listener=$!
+for _ in $(seq 1 20); do curl -fs -o /dev/null "http://$gateway:18181/" && break; sleep 0.5; done
+[ "$(reach "http://$gateway:18181/")" = "ECONNREFUSED" ] || fail "the environment should be refused a service of the host, not: $(reach "http://$gateway:18181/")"
+kill "$listener"
+[ "$(reach "http://$gateway/api/v1/healthz")" = "404" ] || fail "the environment should still reach Traefik on the host, not: $(reach "http://$gateway/api/v1/healthz")"
+[ "$(sudo docker exec "$app" node -e "fetch('https://github.com', { method: 'HEAD' }).then((response) => console.log(response.ok), () => console.log(false))")" = "true" ] \
+  || fail "the environment should still reach the internet"
+sudo nft delete table inet spawner
+for _ in $(seq 1 40); do sudo nft list table inet spawner >/dev/null 2>&1 && break; sleep 2; done
+sudo nft list table inet spawner >/dev/null 2>&1 || fail "spawner-firewall should load the rules again within a minute"
+pass "the environment reaches neither the metadata service nor the host's other services, but Traefik and the internet; the rules load before Docker and come back"
 
 step "Two agents deploy examples/laravel-next-mysql from two branches at once"
 api POST /projects -H 'Content-Type: application/json' \
@@ -225,6 +259,8 @@ sudo bash install.sh --uninstall --purge --yes
 [ -z "$(sudo docker volume ls -q --filter label=dev.spawner.env)" ] || fail "environment volumes are left"
 [ -z "$(sudo docker ps -aq --filter name='^spawner')" ] || fail "Spawner's containers are left"
 [ ! -e /opt/spawner ] && [ ! -e /var/lib/spawner ] || fail "Spawner's files are left"
+! sudo nft list table inet spawner >/dev/null 2>&1 || fail "the rules of firewall.nft are left"
+[ ! -e /etc/systemd/system/docker.service.d/spawner-firewall.conf ] || fail "Docker's drop-in is left"
 pass "--uninstall --purge removed Spawner, its environments and its data"
 
 step "All installer checks passed"

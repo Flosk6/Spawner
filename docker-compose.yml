@@ -7,6 +7,10 @@
 #
 # SPAWNER_DATA_DIR is mounted at the same path in the container, so the paths
 # Spawner writes in compose files are the same for the Docker daemon.
+#
+# The firewall of install.sh's stack (firewall.nft) changes the host's rules
+# for every container of Docker's bridge networks: here it only starts with
+# --profile firewall, as the end-to-end test does.
 
 services:
   postgres:
@@ -89,6 +93,28 @@ services:
         condition: service_healthy
     networks:
       - spawner-core
+
+  firewall:
+    profiles: [firewall]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spawner-firewall
+    restart: unless-stopped
+    network_mode: host
+    user: "0"
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    entrypoint: ["/usr/bin/tini", "-g", "--"]
+    command: ["sh", "-c", "while nft -f /app/firewall.nft; do sleep 60; done"]
+    # Healthy while the rules are in place (the image's own check is the API's).
+    healthcheck:
+      test: ["CMD", "nft", "list", "table", "inet", "spawner"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   spawner-core:

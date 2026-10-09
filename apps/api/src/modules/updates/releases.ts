@@ -19,6 +19,7 @@ export interface GithubRelease {
   published_at?: string | null;
   prerelease?: boolean;
   draft?: boolean;
+  assets?: { name: string; browser_download_url: string }[] | null;
 }
 
 /** A release this server may move to. */
@@ -128,19 +129,35 @@ export function newestUpdate(current: string, releases: GithubRelease[]): Releas
 }
 
 /**
- * Splits an image reference into its repository and tag; null for a digest
- * or a reference without a tag.
+ * Splits an image reference into its repository and tag, leaving out the
+ * digest that pins it (install.sh runs release images as
+ * repository:tag@sha256:...); null for a reference without a tag.
  */
 export function splitImage(reference: string): { repository: string; tag: string } | null {
-  if (reference.includes("@")) {
-    return null;
-  }
-  const slash = reference.lastIndexOf("/");
-  const colon = reference.lastIndexOf(":");
+  const named = reference.split("@")[0];
+  const slash = named.lastIndexOf("/");
+  const colon = named.lastIndexOf(":");
   if (colon <= slash) {
     return null;
   }
-  return { repository: reference.slice(0, colon), tag: reference.slice(colon + 1) };
+  return { repository: named.slice(0, colon), tag: named.slice(colon + 1) };
+}
+
+/**
+ * Where the installer of a version is published: the install.sh asset of its
+ * release, or null when the list gives none (a list of your own).
+ */
+export function installerUrl(releases: GithubRelease[], version: string): string | null {
+  const release = releases.find((candidate) => candidate.tag_name.replace(/^v/, "") === version);
+  return release?.assets?.find((asset) => asset.name === "install.sh")?.browser_download_url ?? null;
+}
+
+/**
+ * The digest of the image a published installer runs, which the release
+ * workflow writes into it (IMAGE_DIGEST); null when it names none.
+ */
+export function installerDigest(installer: string): string | null {
+  return /^IMAGE_DIGEST="(sha256:[0-9a-f]{64})"$/m.exec(installer)?.[1] ?? null;
 }
 
 /**
