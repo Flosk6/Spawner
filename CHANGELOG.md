@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Smaller hardening**:
+  - Previews: a cookie a preview sets under the name of Spawner's no longer locks its visitors out; share links opened on public URLs never reach the application; the waiting page of a public URL no longer says why its environment failed; logging out takes the preview cookie off the browser; the cache of preview hosts is bounded.
+  - The dashboard's page has a Content-Security-Policy that runs its own scripts only; every answer carries `Referrer-Policy`, and over HTTPS `Strict-Transport-Security`.
+  - Accounts: passkeys must verify their user (a PIN, a fingerprint); names are unique, whatever their case; renames and linked GitHub accounts are audited, and every audit event records the address of its request; the CLI approval page says when and from where the login started. Removing someone from the GitHub organization does not deactivate them in Spawner: do it on the Team page.
+  - Compose: an environment has 4 CPUs and 4096 processes to share between its services (`SPAWNER_ENV_CPUS`, `SPAWNER_ENV_PIDS`), as it has its memory, and no service gets raw sockets (`NET_RAW`). A file asking more CPUs or processes than that is refused.
+  - Uploads: links are followed through the links they lead to once extracted.
+  - CLI: `spawner login` opens http and https URLs only; untracked `.env-*`, `.npmrc`, private keys and `*.pem` files stay home like `.env` files; a Dockerfile is read only when it is a regular file of 1 MiB at most; the MCP server fences what comes from the environment and tells the model to read it as data.
 - **Source repositories are chosen by admins**: the other sources of `spawner.yaml` must come from repositories listed in the project (Projects, Edit, "Source repositories"); `spawner up` refuses the others before sending anything. A branch could otherwise make Spawner clone any repository its deploy keys reach, or an address of the internal network. The upgrade lists for each project the repositories its live environments already use.
 - **Terminals and log streams close when their access goes**: deactivating a user, changing their role or revoking a token now closes the terminals and the streams of logs they had open, at once, and an expired token's within 30 seconds.
 - **Uploads stop at their first limit**: an archive is read as a stream that stops at the first file, byte or decompressed byte over the limits, so that a compression bomb costs no more than a legitimate archive; a person has 5 deploys of uploaded code waiting to start at most.
