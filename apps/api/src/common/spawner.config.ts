@@ -10,6 +10,12 @@ function integer(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** A positive number, decimals allowed. */
+function positive(value: string | undefined, fallback: number): number {
+  const parsed = value === undefined ? NaN : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /** A count where 0 means no limit. */
 function count(value: string | undefined, fallback: number): number {
   const parsed = value === undefined ? NaN : parseInt(value, 10);
@@ -91,6 +97,8 @@ export class SpawnerConfig {
   readonly composeLimits: ComposeLimits = {
     ...DEFAULT_COMPOSE_LIMITS,
     envMemoryBytes: parseSize(process.env.SPAWNER_ENV_MEMORY || "") ?? DEFAULT_COMPOSE_LIMITS.envMemoryBytes,
+    envCpus: positive(process.env.SPAWNER_ENV_CPUS, DEFAULT_COMPOSE_LIMITS.envCpus),
+    envPids: integer(process.env.SPAWNER_ENV_PIDS, DEFAULT_COMPOSE_LIMITS.envPids),
   };
   envMemoryMaxBytes = parseSize(process.env.SPAWNER_ENV_MEMORY_MAX || "") ?? 4 * GiB;
 

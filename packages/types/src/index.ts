@@ -43,6 +43,8 @@ export interface ServerInfo {
     /** The compose limits of @spawner/core, plus the most memory an environment may ask for. */
     compose: {
       envMemoryBytes: number;
+      envCpus: number;
+      envPids: number;
       serviceMemoryDefaultBytes: number;
       minServiceMemoryBytes: number;
       cpusDefault: number;

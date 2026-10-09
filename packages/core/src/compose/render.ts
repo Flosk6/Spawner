@@ -7,7 +7,8 @@ const LOGGING = { driver: 'local', options: { 'max-size': '10m', 'max-file': '3'
 /**
  * Builds the compose document Spawner runs: the validated services plus the
  * settings it always imposes (memory, CPU and process limits,
- * no-new-privileges, capped local logs, restart policy) and the labels it
+ * no-new-privileges, no raw sockets, capped local logs, restart policy) and
+ * the labels it
  * uses to find the environment's containers, built images, volumes and
  * network again.
  */
@@ -29,6 +30,7 @@ export function renderCompose(model: NormalizedCompose, ctx: ComposeContext): Re
       mem_limit: service.memoryBytes,
       cpus: service.cpus,
       pids_limit: service.pids,
+      cap_drop: [...new Set([...(Array.isArray(service.spec.cap_drop) ? service.spec.cap_drop.map(String) : []), 'NET_RAW'])],
       security_opt: ['no-new-privileges:true'],
       restart: 'unless-stopped',
       logging: LOGGING,

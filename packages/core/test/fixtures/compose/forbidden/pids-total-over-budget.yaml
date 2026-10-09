@@ -1,0 +1,12 @@
+# expect: compose.limit_exceeded services
+services:
+  api:
+    build: ..
+    pids_limit: 2048
+  front:
+    image: nginx:alpine
+    pids_limit: 2048
+  worker:
+    image: alpine
+    command: sleep infinity
+    pids_limit: 64

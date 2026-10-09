@@ -1,0 +1,12 @@
+# expect: compose.limit_exceeded services
+services:
+  api:
+    build: ..
+    cpus: 2
+  front:
+    image: nginx:alpine
+    cpus: 2
+  worker:
+    image: alpine
+    command: sleep infinity
+    cpus: 1

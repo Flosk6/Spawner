@@ -7,6 +7,10 @@ const GiB = 1024 ** 3;
  */
 export interface ComposeLimits {
   envMemoryBytes: number;
+  /** CPUs of the whole environment, shared like its memory. */
+  envCpus: number;
+  /** Processes of the whole environment, shared like its memory. */
+  envPids: number;
   serviceMemoryDefaultBytes: number;
   minServiceMemoryBytes: number;
   cpusDefault: number;
@@ -20,6 +24,8 @@ export interface ComposeLimits {
 
 export const DEFAULT_COMPOSE_LIMITS: ComposeLimits = {
   envMemoryBytes: 2 * GiB,
+  envCpus: 4,
+  envPids: 4096,
   serviceMemoryDefaultBytes: 512 * MiB,
   minServiceMemoryBytes: 32 * MiB,
   cpusDefault: 1,
