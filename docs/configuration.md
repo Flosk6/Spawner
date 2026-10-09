@@ -61,7 +61,7 @@ The installer sets some variables itself, in `/opt/spawner/compose.yaml` and `/o
 | `SPAWNER_JOB_TIMEOUT_SECONDS` | `1800` | How long a whole job may take |
 | `SPAWNER_UPLOAD_MAX` | `100m` | Largest worktree upload, compressed |
 | `SPAWNER_UPLOAD_MAX_FILES` | `50000` | Files in an upload |
-| `SPAWNER_UPLOAD_MAX_EXTRACTED` | `1g` | Size of an upload once extracted |
+| `SPAWNER_UPLOAD_MAX_EXTRACTED` | `1g` | Size of an upload once extracted; the decompressed archive may hold 4 KiB more per file, for the tar headers |
 
 ## Lifecycle and limits
 

@@ -4,11 +4,12 @@ import { ErrorLineFilter, matchesGrep, parseDuration, slugIssue, type Manifest }
 import { sanitizeGitBranch } from "@spawner/utils";
 import type Docker from "dockerode";
 import { assertCanAct, assertInProject, describeActor, type Actor } from "../../common/actor";
+import { LimitReachedException } from "../../common/limit-reached";
 import type { RawLogLine } from "../../common/docker-logs";
 import { DockerService } from "../../common/docker.service";
 import { PrismaService } from "../../common/prisma.service";
 import { JobQueueService, type JobType } from "../engine/job-queue.service";
-import type { DeployPayload, SourceRequest } from "../engine/pipeline.service";
+import { payloadArchives, type DeployPayload, type SourceRequest } from "../engine/pipeline.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { AuditService } from "../audit/audit.service";
 import { LogArchiveService } from "../engine/log-archive.service";
@@ -30,6 +31,8 @@ const LOG_MAX_LINES = 5000;
 /** Lines read from each service when filtering, to find enough matches. */
 const LOG_SCAN_LINES = 5000;
 export const MIN_TTL_SECONDS = 10 * 60;
+/** Deploys of uploaded code a person may have waiting to start. */
+export const MAX_WAITING_UPLOADS = 5;
 
 export interface DeployRequest {
   primary: SourceRequest;
@@ -188,6 +191,7 @@ export class EnvironmentsService {
       throw new NotFoundException(`project "${input.project}" not found`);
     }
     assertInProject(actor, project.id);
+    await this.ensureUploadRoom(actor, input.request);
     await this.usage.ensureRoom(project.id, "create", actor);
 
     let environment: Environment;
@@ -255,6 +259,7 @@ export class EnvironmentsService {
     const environment = await this.find(actor, id);
     assertCanAct(actor, "envs:write", environment);
     this.ensureNotDeleting(environment);
+    await this.ensureUploadRoom(actor, request);
     this.activity.touch(environment.id);
     const job = await this.queue.enqueue(environment.id, "update", this.payload(request), actor.user?.id ?? null, describeActor(actor));
     await this.audit.record(actor, "env.update", { target: this.label(environment), details: { ...this.auditSources(request), fresh: request.fresh, reseed: request.reseed } });
@@ -613,6 +618,30 @@ export class EnvironmentsService {
   private ensureNotDeleting(environment: Environment): void {
     if (environment.status === "deleting") {
       throw new ConflictException("the environment is being deleted");
+    }
+  }
+
+  /**
+   * Refuses a deploy of uploaded code from a person who already has 5
+   * waiting to start: their archives stay on disk until their jobs run.
+   *
+   * @throws LimitReachedException with the code "quota"
+   */
+  private async ensureUploadRoom(actor: Actor, request: DeployRequest): Promise<void> {
+    if (payloadArchives(request).length === 0) {
+      return;
+    }
+    const queued = await this.prisma.job.findMany({
+      where: { status: "queued", type: { in: ["create", "update"] }, triggeredById: actor.user?.id ?? null },
+      select: { payload: true },
+    });
+    const waiting = queued.filter((job) => payloadArchives(job.payload as Partial<DeployPayload> | null).length > 0).length;
+    if (waiting >= MAX_WAITING_UPLOADS) {
+      throw new LimitReachedException(
+        "quota",
+        `You have ${waiting} deploys of uploaded code waiting to start, the most a person may have`,
+        "wait for one of them to start (spawner status shows its job), then deploy again",
+      );
     }
   }
 

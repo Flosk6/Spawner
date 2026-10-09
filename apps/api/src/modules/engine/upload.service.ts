@@ -2,12 +2,17 @@ import { Injectable } from "@nestjs/common";
 import { createHash, randomBytes } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { extract, list } from "tar";
+import { Parser, extract } from "tar";
 import type { ReadEntry } from "tar";
+import { createGunzip } from "zlib";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 
 const ALLOWED_TYPES = new Set(["File", "OldFile", "ContiguousFile", "Directory", "SymbolicLink"]);
+/** What the tar stream may hold for an entry besides its content: header, padding, extended headers. */
+const ENTRY_OVERHEAD_BYTES = 4096;
+/** Enough problems to refuse an archive: reading on would only lengthen the list. */
+const MAX_PROBLEMS = 20;
 
 /**
  * An archive refused before anything was written to disk.
@@ -23,8 +28,9 @@ export class UploadRejectedError extends Error {
  * Receives source archives sent by the CLI (gzip tar of a worktree). Every
  * entry is checked before extraction: no absolute path, no "..", no hard
  * link, device or FIFO, no symlink pointing outside the archive, and limits
- * on size and file count. Extraction then goes to a temporary directory that
- * replaces the previous content in one rename.
+ * on size and file count, checked as the archive is read so that a
+ * compression bomb stops at the first limit it crosses. Extraction then goes
+ * to a temporary directory that replaces the previous content in one rename.
  */
 @Injectable()
 export class UploadService {
@@ -76,29 +82,82 @@ export class UploadService {
     return { digest: await sha256(archivePath), sizeBytes, files };
   }
 
-  private async inspect(archivePath: string): Promise<{ problems: string[]; files: number; sizeBytes: number }> {
-    const problems: string[] = [];
-    let files = 0;
-    let sizeBytes = 0;
-    await list({
-      file: archivePath,
-      strict: true,
-      onReadEntry: (entry) => {
-        files++;
-        sizeBytes += entry.size ?? 0;
-        const problem = this.entryProblem(entry.path, entry);
-        if (problem) {
-          problems.push(problem);
+  /**
+   * Reads the entries of the archive without writing anything, and stops at
+   * the first limit crossed: the file count, the extracted size, the size
+   * of the decompressed stream (which a compression bomb can inflate without
+   * entries, past the end of the archive), or 20 problems found.
+   *
+   * @throws UploadRejectedError when the file is not a gzip tar archive
+   */
+  private inspect(archivePath: string): Promise<{ problems: string[]; files: number; sizeBytes: number }> {
+    const { uploadMaxFiles, uploadMaxExtractedBytes } = this.config;
+    const maxStreamBytes = uploadMaxExtractedBytes + uploadMaxFiles * ENTRY_OVERHEAD_BYTES;
+    return new Promise((resolve, reject) => {
+      const problems: string[] = [];
+      let files = 0;
+      let sizeBytes = 0;
+      let streamBytes = 0;
+      let done = false;
+      const input = fs.createReadStream(archivePath);
+      const gunzip = createGunzip();
+      const finish = (error?: Error) => {
+        if (done) {
+          return;
         }
-      },
+        done = true;
+        input.destroy();
+        gunzip.destroy();
+        if (error) {
+          reject(new UploadRejectedError([`not a gzip tar archive: ${error.message}`]));
+        } else {
+          resolve({ problems, files, sizeBytes });
+        }
+      };
+      const stop = (problem: string) => {
+        problems.push(problem);
+        finish();
+      };
+      const parser = new Parser({
+        strict: true,
+        onReadEntry: (entry) => {
+          entry.resume();
+          if (done) {
+            return;
+          }
+          files++;
+          sizeBytes += entry.size ?? 0;
+          const problem = this.entryProblem(entry.path, entry);
+          if (problem) {
+            problems.push(problem);
+          }
+          if (files > uploadMaxFiles) {
+            stop(`more than ${uploadMaxFiles} files, the most an archive may hold`);
+          } else if (sizeBytes > uploadMaxExtractedBytes) {
+            stop(`more than ${uploadMaxExtractedBytes} bytes once extracted, the most an archive may hold`);
+          } else if (problems.length >= MAX_PROBLEMS) {
+            finish();
+          }
+        },
+      });
+      parser.on("error", finish);
+      parser.on("end", () => finish());
+      gunzip.on("data", (chunk: Buffer) => {
+        if (done) {
+          return;
+        }
+        streamBytes += chunk.length;
+        if (streamBytes > maxStreamBytes) {
+          stop(`more than ${maxStreamBytes} bytes once decompressed, the most an archive may hold`);
+        } else {
+          parser.write(chunk);
+        }
+      });
+      gunzip.on("end", () => parser.end());
+      gunzip.on("error", finish);
+      input.on("error", finish);
+      input.pipe(gunzip);
     });
-    if (files > this.config.uploadMaxFiles) {
-      problems.push(`${files} files, the limit is ${this.config.uploadMaxFiles}`);
-    }
-    if (sizeBytes > this.config.uploadMaxExtractedBytes) {
-      problems.push(`${sizeBytes} bytes once extracted, the limit is ${this.config.uploadMaxExtractedBytes}`);
-    }
-    return { problems, files, sizeBytes };
   }
 
   private entryProblem(entryPath: string, entry: ReadEntry): string | null {

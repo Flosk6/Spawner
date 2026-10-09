@@ -55,6 +55,13 @@ export interface DeployPayload {
   ttlSeconds?: number;
 }
 
+/**
+ * The uploaded archives a deploy waits for, on disk until its job runs.
+ */
+export function payloadArchives(payload: Partial<DeployPayload> | null): string[] {
+  return [payload?.primary, ...Object.values(payload?.sources ?? {})].flatMap((request) => (request?.archive ? [request.archive] : []));
+}
+
 export type JobPhase = "preparing" | "validating" | "building" | "seeding" | "routing" | "deleting" | "stopping" | "starting" | "sleeping" | "waking";
 
 /**
@@ -707,12 +714,7 @@ export class PipelineService {
   }
 
   private removeArchives(payload: DeployPayload | null): void {
-    const requests = [payload?.primary, ...Object.values(payload?.sources ?? {})];
-    for (const request of requests) {
-      if (request?.archive) {
-        fs.rmSync(request.archive, { force: true });
-      }
-    }
+    payloadArchives(payload).forEach((archive) => fs.rmSync(archive, { force: true }));
   }
 
   private environment(id: string) {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { gzipSync } from "zlib";
+import { gunzipSync, gzipSync } from "zlib";
 import type { SpawnerConfig } from "../../common/spawner.config";
 import { StorageService } from "./storage.service";
 import { UploadRejectedError, UploadService } from "./upload.service";
@@ -114,13 +114,37 @@ describe("UploadService", () => {
     expect(fs.readdirSync(path.dirname(target))).toEqual(["app"]);
   });
 
-  it("rejects archives with too many files", async () => {
-    const entries = Array.from({ length: 51 }, (_, index) => ({ name: `f${index}.txt`, content: "x" }));
-    await expect(service.extract(write(entries), target)).rejects.toThrow(/51 files, the limit is 50/);
+  async function refusal(file: string): Promise<string[]> {
+    const error = await service.extract(file, target).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(UploadRejectedError);
+    expect(fs.existsSync(target)).toBe(false);
+    return (error as UploadRejectedError).problems;
+  }
+
+  it("stops reading at the first file over the limit", async () => {
+    const entries = Array.from({ length: 5000 }, (_, index) => ({ name: `f${index}.txt`, content: "x" }));
+    expect(await refusal(write(entries))).toEqual(["more than 50 files, the most an archive may hold"]);
   });
 
   it("rejects archives that expand beyond the limit", async () => {
     const big = "a".repeat(600 * 1024);
-    await expect(service.extract(write([{ name: "a", content: big }, { name: "b", content: big }]), target)).rejects.toThrow(/once extracted/);
+    expect(await refusal(write([{ name: "a", content: big }, { name: "b", content: big }]))).toEqual([
+      "more than 1048576 bytes once extracted, the most an archive may hold",
+    ]);
+  });
+
+  it("stops inflating a compression bomb past the end of the archive", async () => {
+    const tar = gunzipSync(archive([{ name: "ok.txt", content: "ok" }]));
+    const file = path.join(dir, "bomb.tar.gz");
+    fs.writeFileSync(file, gzipSync(Buffer.concat([tar, Buffer.alloc(64 * 1024 * 1024)])));
+    expect(await refusal(file)).toEqual(["more than 1253376 bytes once decompressed, the most an archive may hold"]);
+  });
+
+  it("lists 20 problems at most, and refuses what is not a gzip tar archive", async () => {
+    const entries = Array.from({ length: 40 }, (_, index) => ({ name: `../f${index}`, content: "x" }));
+    expect(await refusal(write(entries))).toHaveLength(20);
+    const file = path.join(dir, "plain.tar.gz");
+    fs.writeFileSync(file, "not an archive");
+    expect((await refusal(file))[0]).toMatch(/^not a gzip tar archive: /);
   });
 });
