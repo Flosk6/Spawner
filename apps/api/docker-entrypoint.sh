@@ -14,11 +14,15 @@ if [ "$(id -u)" = "0" ]; then
   fi
   # The data directory and its first level may come from the host or from
   # Docker, as root, when it creates the mount source of Traefik: Spawner
-  # writes in all of them.
+  # writes in all of them. The data directory is Spawner's alone (the
+  # containers that mount parts of it do not go through it); route files
+  # stay readable by Traefik, which runs without capabilities.
   if [ -n "$SPAWNER_DATA_DIR" ]; then
     mkdir -p "$SPAWNER_DATA_DIR"
     chown node:node "$SPAWNER_DATA_DIR" 2>/dev/null || true
+    chmod 700 "$SPAWNER_DATA_DIR" 2>/dev/null || true
     find "$SPAWNER_DATA_DIR" -mindepth 1 -maxdepth 1 -type d -exec chown node:node {} + 2>/dev/null || true
+    find "$SPAWNER_DATA_DIR/traefik" -maxdepth 1 -type f -name '*.yaml' -exec chmod 644 {} + 2>/dev/null || true
   fi
   exec setpriv --reuid=node --regid=node --init-groups "$0" "$@"
 fi

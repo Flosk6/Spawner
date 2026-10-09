@@ -28,7 +28,7 @@ export class JobLogsService {
       return;
     }
     const text = size + line.length > MAX_LOG_BYTES ? "[log truncated at 5 MiB]\n" : `${new Date().toISOString()} ${line}\n`;
-    fs.appendFileSync(this.storage.jobLogPath(jobId), text);
+    fs.appendFileSync(this.storage.jobLogPath(jobId), text, { mode: 0o600 });
     this.sizes.set(jobId, size + Buffer.byteLength(text));
     this.events.emit(jobId, text);
   }

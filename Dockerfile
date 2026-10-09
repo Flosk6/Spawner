@@ -5,9 +5,9 @@ FROM node:22-bookworm-slim AS base
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-RUN npm install -g pnpm@8.15.0
 
 FROM base AS build
+RUN npm install -g pnpm@8.15.0
 ENV TURBO_TELEMETRY_DISABLED=1
 # Set by the release workflow from its tag (2.0.0-rc.1): the version the CLI
 # bundle and the API report. Empty: the version of the package.json files.
@@ -38,14 +38,16 @@ RUN apt-get update \
 COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker:29-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
 WORKDIR /app
-COPY --from=build --chown=node:node /out ./
-COPY --from=build --chown=node:node /repo/apps/web/dist ./web
-COPY --from=build --chown=node:node /repo/apps/cli/dist/spawner.cjs ./cli/spawner
+# Owned by root: Spawner, which runs as node, cannot change its own code.
+COPY --from=build /out ./
+COPY --from=build /repo/apps/web/dist ./web
+COPY --from=build /repo/apps/cli/dist/spawner.cjs ./cli/spawner
 # The installer of this version: an update from the dashboard runs it with
 # --upgrade, from a short-lived container of this image. firewall.nft: the
 # rules the spawner-firewall container of the stack loads on the host.
 COPY install.sh firewall.nft LICENSE NOTICE ./
 ENV NODE_ENV=production \
+    CHECKPOINT_DISABLE=1 \
     PORT=3000 \
     WEB_DIST_PATH=/app/web \
     SPAWNER_CLI_PATH=/app/cli/spawner \

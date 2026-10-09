@@ -24,7 +24,7 @@ The installer sets some variables itself, in `/opt/spawner/compose.yaml` and `/o
 | `SPAWNER_SECRET` | generated into `<data dir>/secret.key` | Master secret, from which the keys that sign tokens and sessions and encrypt settings derive (installer) |
 | `SESSION_SECRET` | derived from the master secret | Signs the session cookie |
 | `SESSION_MAX_AGE` | `86400000` (24 hours) | Dashboard sessions, in milliseconds |
-| `SPAWNER_BOOTSTRAP_TOKEN` | none | Bearer token of the installation, with every scope and no user, for scripts and CI (installer) |
+| `SPAWNER_BOOTSTRAP_TOKEN` | none | Bearer token of the installation, with every scope and no user, for scripts and CI; the installer sets it only when given one |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | none | GitHub login, until it is configured from the settings page |
 | `GITHUB_ORG`, `GITHUB_TEAM` | none | Restrict the GitHub login to the members of an organization, and of a team |
 | `GITHUB_CALLBACK_URL` | `<dashboard>/api/v1/auth/github/callback` | The OAuth callback |

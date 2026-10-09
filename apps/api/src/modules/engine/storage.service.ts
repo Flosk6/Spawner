@@ -119,11 +119,12 @@ export class StorageService implements OnModuleInit {
 
   /**
    * Writes a file through a temporary file and a rename, so readers such as
-   * Traefik never see a half-written file.
+   * Traefik never see a half-written file; readable by Spawner only unless
+   * a mode says otherwise.
    */
-  writeAtomic(target: string, content: string): void {
+  writeAtomic(target: string, content: string, mode = 0o600): void {
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temporary, content, { mode: 0o640 });
+    fs.writeFileSync(temporary, content, { mode });
     fs.renameSync(temporary, target);
   }
 }

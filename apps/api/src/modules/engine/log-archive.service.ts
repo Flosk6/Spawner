@@ -40,7 +40,7 @@ export class LogArchiveService {
         continue;
       }
       const lines = await this.docker.logLines(container.Id, { tail: SCAN_LINES }).catch(() => [] as RawLogLine[]);
-      fs.writeFileSync(path.join(dir, `${service}${SUFFIX}`), gzipSync(lastBytes(lines, ARCHIVE_BYTES)), { mode: 0o640 });
+      fs.writeFileSync(path.join(dir, `${service}${SUFFIX}`), gzipSync(lastBytes(lines, ARCHIVE_BYTES)), { mode: 0o600 });
       archived.push(service);
     }
     return archived;

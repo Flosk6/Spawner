@@ -27,6 +27,8 @@
 #                          (default: 1g) [SPAWNER_MEMORY_LIMIT]
 #   --yes                  ask nothing, and fail when an answer is missing
 #   --upgrade              back the database up, then move to --version
+#   --allow-downgrade      install a version older than the one installed (its
+#                          database only migrates forward: restore its backup)
 #   --uninstall            stop Spawner and its environments; the data stays
 #   --purge                with --uninstall, delete the environments and the data too
 #
@@ -35,7 +37,9 @@
 # nothing else is installed on the host, apart from Docker itself, nftables
 # (the rules of firewall.nft, loaded before Docker by a drop-in of
 # docker.service) and zram if asked. spawner.env holds settings of your own,
-# which the installer never overwrites.
+# which the installer never overwrites. SPAWNER_BOOTSTRAP_TOKEN, when set,
+# becomes a token of the installation with every scope, for scripts: none is
+# made otherwise.
 
 set -euo pipefail
 
@@ -73,6 +77,8 @@ MEMORY_LIMIT="${SPAWNER_MEMORY_LIMIT:-}"
 ASSUME_YES=false
 ACTION=install
 PURGE=false
+ALLOW_DOWNGRADE=false
+BOOTSTRAP_TOKEN="${SPAWNER_BOOTSTRAP_TOKEN:-}"
 DNS_VARS=()
 declare -A DNS_VALUES=()
 DOCKER_INSTALLED_NOW=false
@@ -134,6 +140,18 @@ ask() {
   printf -v "$variable" '%s' "${answer:-$default}"
 }
 
+# A secret, such as a token of the DNS provider: not shown while typed.
+# ask_secret VARIABLE "Question"
+ask_secret() {
+  local variable=$1 question=$2 answer=""
+  if [ "$ASSUME_YES" = true ] || [ ! -r /dev/tty ]; then
+    die "$question: give it with an option (see --help)"
+  fi
+  read -rs -p "$question (hidden): " answer </dev/tty || true
+  printf '\n'
+  printf -v "$variable" '%s' "$answer"
+}
+
 # A yes or no question; the default applies without a terminal or with --yes.
 confirm() {
   local question=$1 default=${2:-n} answer=""
@@ -179,6 +197,7 @@ parse_args() {
       --upgrade) ACTION=upgrade; shift ;;
       --uninstall) ACTION=uninstall; shift ;;
       --purge) PURGE=true; shift ;;
+      --allow-downgrade) ALLOW_DOWNGRADE=true; shift ;;
       --help | -h) usage 0 ;;
       *) die "unknown option $1 (see --help)" ;;
     esac
@@ -200,14 +219,18 @@ parse_args() {
 load_previous() {
   if [ ! -f "$ENV_FILE" ]; then
     DATA_DIR=${DATA_DIR:-/var/lib/spawner}
+    check_directory SPAWNER_DATA_DIR "$DATA_DIR"
     return 0
   fi
   head -1 "$COMPOSE_FILE" 2>/dev/null | grep -q "^$MARKER" ||
     die "$INSTALL_DIR holds an installation this installer did not make (an older Spawner?): back it up and remove it first"
-  local key value
-  while IFS='=' read -r key value; do
+  local line key value previous_data_dir=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" == *=* && "$line" != \#* ]] || continue
+    key=${line%%=*}
+    value=${line#*=}
     case "$key" in
-      SPAWNER_DATA_DIR) DATA_DIR=${DATA_DIR:-$value} ;;
+      SPAWNER_DATA_DIR) previous_data_dir=$value ;;
       SPAWNER_PREVIEW_DOMAIN) DOMAIN=${DOMAIN:-$value} ;;
       ACME_EMAIL) EMAIL=${EMAIL:-$value} ;;
       SPAWNER_DNS_PROVIDER) DNS_PROVIDER=${DNS_PROVIDER:-$value} ;;
@@ -217,10 +240,31 @@ load_previous() {
       SPAWNER_MEMORY_LIMIT) MEMORY_LIMIT=${MEMORY_LIMIT:-$value} ;;
       SPAWNER_SECRET) SECRET=$value ;;
       POSTGRES_PASSWORD) POSTGRES_PASSWORD=$value ;;
-      SPAWNER_BOOTSTRAP_TOKEN) BOOTSTRAP_TOKEN=$value ;;
+      SPAWNER_BOOTSTRAP_TOKEN) BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN:-$value} ;;
     esac
   done <"$ENV_FILE"
+  INSTALLED=true
+  if [ -n "$previous_data_dir" ]; then
+    [ -z "$DATA_DIR" ] || [ "$DATA_DIR" = "$previous_data_dir" ] ||
+      die "the data of this installation is in $previous_data_dir, not $DATA_DIR: moving it is not supported"
+    DATA_DIR=$previous_data_dir
+  fi
   DATA_DIR=${DATA_DIR:-/var/lib/spawner}
+  check_directory SPAWNER_DATA_DIR "$DATA_DIR"
+}
+
+# Refuses a directory the installer would write to, or delete with --purge,
+# that is not one of its own: relative, with "..", or a directory of the
+# system.
+check_directory() {
+  local name=$1 dir=$2
+  [[ "$dir" == /* && "$dir" != *"/../"* && "$dir" != *"/.." && "$dir" != *"/./"* ]] || die "$name must be an absolute path without . or .., not \"$dir\""
+  dir=${dir%/}
+  case "${dir:-/}" in
+    / | /bin | /boot | /dev | /etc | /home | /lib | /lib64 | /media | /mnt | /opt | /proc | /root | /run | /sbin | /srv | /sys | /tmp | /usr | /usr/* | /var | /var/lib | /var/log)
+      die "$name cannot be $dir, a directory of the system: use a directory of its own, such as /var/lib/spawner"
+      ;;
+  esac
 }
 
 # --- Checks -------------------------------------------------------------------
@@ -281,6 +325,7 @@ ask_questions() {
     DOMAIN=${DOMAIN:-localtest.me}
     DNS_PROVIDER=none
     ok "local install over HTTP, on $DOMAIN"
+    warn "plain HTTP on port 80 of every interface: whoever reaches this machine reaches the dashboard and the previews unencrypted. Keep it to a laptop or a private network."
     return
   fi
   if [ -z "$DOMAIN" ]; then
@@ -333,7 +378,11 @@ ask_dns_credentials() {
     DNS_VALUES[${entry%%=*}]=${entry#*=}
   done
   if [ -f "$DNS_ENV_FILE" ]; then
-    while IFS='=' read -r name value; do
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+      [[ "$line" == *=* ]] || continue
+      name=${line%%=*}
+      value=${line#*=}
       [ -n "$name" ] && [ -z "${DNS_VALUES[$name]:-}" ] && DNS_VALUES[$name]=$value
     done <"$DNS_ENV_FILE"
   fi
@@ -342,17 +391,20 @@ ask_dns_credentials() {
     value=${!name:-}
     if [ -z "$value" ] && [ "$name" = OVH_ENDPOINT ]; then
       ask value "$name (ovh-eu, ovh-ca, ovh-us)" ovh-eu
-    elif [ -z "$value" ]; then
+    elif [ -z "$value" ] && [ "$name" = AWS_REGION ]; then
       ask value "$name"
+    elif [ -z "$value" ]; then
+      ask_secret value "$name"
     fi
     DNS_VALUES[$name]=$value
   done
   if [ ${#names[@]} -eq 0 ] && [ ${#DNS_VALUES[@]} -eq 0 ]; then
     [ "$ASSUME_YES" != true ] && [ -r /dev/tty ] || die "--dns-provider $DNS_PROVIDER needs its credentials: --dns-env KEY=VALUE"
     say "Give the variables of $DNS_PROVIDER listed on https://go-acme.github.io/lego/dns/$DNS_PROVIDER/, one KEY=VALUE per line, then an empty line:"
-    while read -r entry </dev/tty && [ -n "$entry" ]; do
+    while read -rs entry </dev/tty && [ -n "$entry" ]; do
       if [[ "$entry" == *=* ]]; then
         DNS_VALUES[${entry%%=*}]=${entry#*=}
+        say "${entry%%=*}=(hidden)"
       else
         warn "expected KEY=VALUE"
       fi
@@ -465,6 +517,18 @@ configure_zram() {
 
 # --- Files and start ----------------------------------------------------------
 
+# Whether version $1 comes before $2: 2.0.0-rc.1 before 2.0.0 before 2.0.1.
+version_before() {
+  local a=${1%%-*} b=${2%%-*}
+  if [ "$a" != "$b" ]; then
+    [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -1)" = "$a" ]
+    return
+  fi
+  [[ "$1" == *-* ]] || return 1
+  [[ "$2" != *-* ]] && return 0
+  [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]
+}
+
 resolve_version() {
   if [ "$VERSION" = latest ]; then
     VERSION=$(curl -fsS --max-time 10 "$RELEASES_API" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"v\{0,1\}\([^"]*\)"$/\1/')
@@ -475,6 +539,9 @@ resolve_version() {
     VERSION=${VERSION:-$DEFAULT_VERSION}
   else
     VERSION=${VERSION:-${PREVIOUS_VERSION:-$DEFAULT_VERSION}}
+  fi
+  if [ -n "${PREVIOUS_VERSION:-}" ] && [ "$ALLOW_DOWNGRADE" != true ] && version_before "$VERSION" "$PREVIOUS_VERSION"; then
+    die "$VERSION is older than the installed $PREVIOUS_VERSION, whose database only migrates forward: restore a backup taken by $VERSION first, then --allow-downgrade (docs/operations.md)"
   fi
   if [ -z "$IMAGE" ]; then
     if [ -n "${PREVIOUS_IMAGE:-}" ] && [[ "$PREVIOUS_IMAGE" != "$IMAGE_REPOSITORY:"* ]] && [ "$ACTION" != upgrade ]; then
@@ -488,17 +555,19 @@ resolve_version() {
 
 write_files() {
   step "Writing $INSTALL_DIR"
+  if [ "${INSTALLED:-false}" = true ] && { [ -z "${SECRET:-}" ] || [ -z "${POSTGRES_PASSWORD:-}" ]; }; then
+    die "$ENV_FILE lacks SPAWNER_SECRET or POSTGRES_PASSWORD: put them back from a copy of it (docs/operations.md), new ones would lock the data out"
+  fi
   mkdir -p "$INSTALL_DIR/backups" "$DATA_DIR"
-  chmod 700 "$INSTALL_DIR"
+  chmod 700 "$INSTALL_DIR" "$DATA_DIR"
   SECRET=${SECRET:-$(random_secret)}
   POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(random_secret)}
-  BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN:-$(random_secret)}
   MEMORY_LIMIT=${MEMORY_LIMIT:-1g}
   local wildcard=false
   [ "$TLS" = off ] || [ "$DNS_PROVIDER" = none ] || wildcard=true
 
   umask 077
-  cat >"$ENV_FILE" <<EOF
+  cat >"$ENV_FILE.new" <<EOF
 $MARKER: rerun it to change these values.
 SPAWNER_VERSION=$VERSION
 SPAWNER_IMAGE=$IMAGE
@@ -513,13 +582,15 @@ POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 SPAWNER_BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN
 SPAWNER_MEMORY_LIMIT=$MEMORY_LIMIT
 EOF
-  : >"$DNS_ENV_FILE"
+  mv "$ENV_FILE.new" "$ENV_FILE"
+  : >"$DNS_ENV_FILE.new"
   if [ "$wildcard" = true ]; then
     local name
     for name in "${!DNS_VALUES[@]}"; do
-      printf '%s=%s\n' "$name" "${DNS_VALUES[$name]}" >>"$DNS_ENV_FILE"
+      printf '%s=%s\n' "$name" "${DNS_VALUES[$name]}" >>"$DNS_ENV_FILE.new"
     done
   fi
+  mv "$DNS_ENV_FILE.new" "$DNS_ENV_FILE"
   if [ ! -f "$SETTINGS_FILE" ]; then
     cat >"$SETTINGS_FILE" <<'SETTINGS'
 # Settings of your own for Spawner, one VARIABLE=value per line: the installer
@@ -573,6 +644,7 @@ services:
     image: $POSTGRES_IMAGE
     container_name: spawner-postgres
     restart: unless-stopped
+    mem_limit: 1g
     environment:
       POSTGRES_DB: spawner
       POSTGRES_USER: spawner
@@ -590,6 +662,12 @@ services:
     image: $TRAEFIK_IMAGE
     container_name: spawner-traefik
     restart: unless-stopped
+    mem_limit: 512m
+    # Root in its container, for the certificates it already stored, but
+    # without the capabilities of root: it binds ports, nothing else.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
     command:
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
@@ -786,8 +864,20 @@ summary() {
 
 # --- Upgrade and removal ------------------------------------------------------
 
+# Saves the database before an upgrade. Postgres is started for it when it
+# was stopped: an upgrade never goes on without a backup.
 backup_database() {
-  docker ps --format '{{.Names}}' | grep -qx spawner-postgres || return 0
+  if ! docker ps --format '{{.Names}}' | grep -qx spawner-postgres; then
+    [ -f "$COMPOSE_FILE" ] || die "Postgres is not running and $COMPOSE_FILE is missing: the database cannot be backed up before the upgrade"
+    say "Starting Postgres to back the database up"
+    compose up -d postgres >/dev/null 2>&1 || die "Postgres does not start: the database cannot be backed up before the upgrade (docker logs spawner-postgres)"
+    local ready=false
+    for _ in $(seq 1 30); do
+      docker exec spawner-postgres pg_isready -U spawner -d spawner >/dev/null 2>&1 && { ready=true; break; }
+      sleep 2
+    done
+    [ "$ready" = true ] || die "Postgres does not answer: the database cannot be backed up before the upgrade (docker logs spawner-postgres)"
+  fi
   local file
   file="$INSTALL_DIR/backups/spawner-$(date -u +%Y%m%d-%H%M%S)-${PREVIOUS_VERSION:-unknown}.sql.gz"
   docker exec spawner-postgres pg_dump -U spawner -d spawner | gzip >"$file"
@@ -849,7 +939,7 @@ roll_back() {
 uninstall() {
   [ "$(id -u)" -eq 0 ] || die "run it as root"
   if [ "$PURGE" = true ]; then
-    say "This deletes Spawner, every environment it runs with their data, its database and $DATA_DIR."
+    say "This deletes Spawner, every environment it runs with their data, its database, $DATA_DIR, and $INSTALL_DIR with the backups of the database."
     if [ "$ASSUME_YES" != true ]; then
       local answer=""
       [ -r /dev/tty ] || die "confirm with --yes"
@@ -891,6 +981,7 @@ uninstall() {
 
 main() {
   parse_args "$@"
+  check_directory SPAWNER_INSTALL_DIR "$INSTALL_DIR"
   case "$ACTION" in
     uninstall)
       load_previous
