@@ -63,3 +63,16 @@ describe("StorageService.removeTree", () => {
     await expect(new StorageService(config).removeTree(lockedSource())).rejects.toMatchObject({ code: expect.stringMatching(/EACCES|EPERM/) });
   });
 });
+
+describe("StorageService.writeAtomic", () => {
+  it("writes files Spawner alone reads, unless a mode says otherwise", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spawner-atomic-"));
+    const storage = new StorageService(config);
+    storage.writeAtomic(path.join(root, "compose.rendered.yaml"), "secret: x\n");
+    storage.writeAtomic(path.join(root, "routes.yaml"), "http: {}\n", 0o644);
+    expect(fs.statSync(path.join(root, "compose.rendered.yaml")).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.join(root, "routes.yaml")).mode & 0o777).toBe(0o644);
+    expect(fs.readdirSync(root).sort()).toEqual(["compose.rendered.yaml", "routes.yaml"]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});

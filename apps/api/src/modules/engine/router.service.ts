@@ -45,6 +45,8 @@ export const WAKE_PATH = "/api/v1/wake";
 
 /** Traefik applies a changed file within a couple of seconds. */
 const ROUTE_WAIT_MS = 15_000;
+/** Route files hold no secret; Traefik, root without capabilities, reads them as any other user would. */
+const ROUTES_MODE = 0o644;
 const ROUTE_POLL_MS = 250;
 /** Header of the answers of Spawner's waiting page. */
 export const WAKE_HEADER = "x-spawner-wake";
@@ -114,6 +116,7 @@ export class RouterService implements OnModuleInit, OnApplicationBootstrap {
           },
         },
       }),
+      ROUTES_MODE,
     );
   }
 
@@ -198,7 +201,7 @@ export class RouterService implements OnModuleInit, OnApplicationBootstrap {
       routers[id] = { ...this.router(exposure.host, id), middlewares: exposure.auth === "none" ? PUBLIC_MIDDLEWARES : PREVIEW_MIDDLEWARES };
       services[id] = { loadBalancer: { servers: [{ url: `http://${exposure.service}.${network}:${exposure.port}` }] } };
     }
-    this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers, services } }));
+    this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers, services } }), ROUTES_MODE);
   }
 
   /**
@@ -217,7 +220,7 @@ export class RouterService implements OnModuleInit, OnApplicationBootstrap {
         middlewares: exposure.auth === "none" ? [WAKE_MIDDLEWARE] : ["spawner-preview-auth", WAKE_MIDDLEWARE],
       };
     }
-    this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers } }));
+    this.storage.writeAtomic(this.storage.traefikFile(environmentId), stringify({ http: { routers } }), ROUTES_MODE);
     try {
       await this.docker.disconnectNetwork(`${composeProject}_default`, this.config.traefikContainer);
     } catch (error) {
