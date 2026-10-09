@@ -5,6 +5,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { config } from "dotenv";
 import { join } from "path";
+import { AccessModule } from "./common/access.module";
 import { AuthGuard } from "./common/auth.guard";
 import { DockerModule } from "./common/docker.module";
 import { PrismaModule } from "./common/prisma.module";
@@ -44,6 +45,7 @@ config({ path: envPath });
     ThrottlerModule.forRoot(THROTTLERS),
     SpawnerConfigModule,
     PrismaModule,
+    AccessModule,
     DockerModule,
     AuditModule,
     TimelineModule,

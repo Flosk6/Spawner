@@ -1,11 +1,14 @@
 import { createServer, request } from "http";
 import type { AddressInfo } from "net";
+import { PassThrough } from "stream";
 import { IoAdapter } from "@nestjs/platform-socket.io";
 import { GATEWAY_OPTIONS } from "@nestjs/websockets/constants";
 import { TERMINAL_INPUT_CHUNK } from "@spawner/core";
-import type { Namespace, Server, ServerOptions } from "socket.io";
+import type { Namespace, Server, ServerOptions, Socket } from "socket.io";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Actor } from "../../common/actor";
+import { AccessService } from "../../common/access.service";
+import { sessionActor, type Actor } from "../../common/actor";
+import type { PrismaService } from "../../common/prisma.service";
 import { WsTicketsService } from "../auth/ws-tickets.service";
 import { TERMINAL_SOCKET_OPTIONS, TerminalGateway } from "./terminal.gateway";
 
@@ -78,6 +81,7 @@ describe("TerminalGateway on its Socket.IO server", () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   let io: Server;
   let port: number;
@@ -147,5 +151,57 @@ describe("TerminalGateway on its Socket.IO server", () => {
 
     peer.socket.send(`42/terminal,${JSON.stringify(["terminal-input", { input: "x".repeat(64 * 1024), resourceName: "app" }])}`);
     expect(await peer.closed).toBe(1009);
+  });
+});
+
+describe("TerminalGateway sessions", () => {
+  const users = { 7: { id: 7, name: "Grace", role: "admin", isActive: true } };
+  const prisma = {
+    user: { findUnique: async ({ where }: { where: { id: number } }) => users[where.id as 7] ?? null },
+    environment: { findFirst: async () => ({ id: "e1", slug: "feat", ownerId: 1, projectId: "p1", project: { slug: "blog" } }) },
+  };
+  const ended: string[] = [];
+  const access = new AccessService(prisma as unknown as PrismaService);
+  const gateway = new TerminalGateway(
+    prisma as never,
+    new WsTicketsService(),
+    {
+      findServiceContainer: async () => ({ Id: "c1", State: "running" }),
+      execInteractive: async () => ({ stream: new PassThrough(), exitCode: async () => 0, resize: async () => undefined }),
+    } as never,
+    { dashboardOrigins: [] } as never,
+    { record: async () => undefined } as never,
+    { open: async () => ({ sessionId: "s1", write: () => undefined, close: async (reason: string) => void ended.push(reason) }) } as never,
+    { touch: () => undefined } as never,
+    access,
+  );
+  const client = (actor: Actor) => {
+    const events: unknown[][] = [];
+    const socket = { id: `socket-${Math.random()}`, data: { actor }, connected: true, emit: (...event: unknown[]) => events.push(event), disconnect: () => (socket.connected = false) };
+    return { socket: socket as unknown as Socket & { connected: boolean }, events };
+  };
+
+  afterAll(() => {
+    gateway.onModuleDestroy();
+    access.onModuleDestroy();
+  });
+
+  it("closes an open terminal once its user may no longer open it, and reads the user again at each start", async () => {
+    const { socket, events } = client(sessionActor({ id: 7, name: "Grace", role: "admin" }));
+    await gateway.start(socket, { environmentId: "e1", resourceName: "app" });
+    expect(events.at(-1)?.[1]).toContain("Connected to app");
+
+    users[7].role = "member";
+    await access.changed(7);
+    expect(events.at(-1)).toEqual(["terminal-error", "Closed: only the owner of the environment or an admin can do this"]);
+    expect(ended).toEqual(["revoked"]);
+
+    await gateway.start(socket, { environmentId: "e1", resourceName: "app" });
+    expect(events.at(-1)).toEqual(["terminal-error", "only the owner of the environment or an admin can do this"]);
+
+    users[7].isActive = false;
+    await gateway.start(socket, { environmentId: "e1", resourceName: "app" });
+    expect(events.at(-1)).toEqual(["terminal-error", "Unauthorized: access revoked or expired"]);
+    expect(socket.connected).toBe(false);
   });
 });

@@ -49,6 +49,40 @@ export function bootstrapActor(): Actor {
   return { user: null, via: "bootstrap", scopes: SCOPES, tokenId: null, tokenName: "bootstrap token", projectId: null };
 }
 
+/** A personal token as stored, with its user. */
+export interface TokenRecord {
+  id: string;
+  name: string;
+  scopes: string[];
+  projectId: string | null;
+  revokedAt: Date | null;
+  expiresAt: Date | null;
+  user: { id: number; name: string; role: string; isActive: boolean };
+}
+
+/**
+ * What a token may do now: nothing once it is revoked or expired or its user
+ * deactivated, and never more than its user's role allows (without admin
+ * when it is restricted to a project, since admin reaches the whole
+ * installation).
+ *
+ * @returns The actor, or null when the token no longer opens anything
+ */
+export function tokenActor(record: TokenRecord, now = new Date()): Actor | null {
+  if (record.revokedAt || (record.expiresAt && record.expiresAt <= now) || !record.user.isActive || !isRole(record.user.role)) {
+    return null;
+  }
+  const allowed: readonly string[] = record.projectId ? ROLE_SCOPES[record.user.role].filter((scope) => scope !== "admin") : ROLE_SCOPES[record.user.role];
+  return {
+    user: { id: record.user.id, name: record.user.name, role: record.user.role },
+    via: "token",
+    scopes: record.scopes.filter((scope): scope is Scope => allowed.includes(scope)),
+    tokenId: record.id,
+    tokenName: record.name,
+    projectId: record.projectId,
+  };
+}
+
 export function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ROLES as readonly string[]).includes(value);
 }
@@ -79,11 +113,18 @@ export function describeActor(actor: Actor | null): string {
  */
 export function assertCanAct(actor: Actor, scope: Scope, resource: { ownerId: number | null; projectId: string }): void {
   assertInProject(actor, resource.projectId);
-  if (!hasScope(actor, scope)) {
-    throw new ForbiddenException(`this needs the ${scope} scope`);
-  }
+  assertScope(actor, scope);
   if (!hasScope(actor, "admin") && resource.ownerId !== actor.user?.id) {
     throw new ForbiddenException("only the owner of the environment or an admin can do this");
+  }
+}
+
+/**
+ * @throws ForbiddenException when the actor lacks the scope
+ */
+export function assertScope(actor: Actor, scope: Scope): void {
+  if (!hasScope(actor, scope)) {
+    throw new ForbiddenException(`this needs the ${scope} scope`);
   }
 }
 

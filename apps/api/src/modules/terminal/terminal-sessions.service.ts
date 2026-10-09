@@ -9,7 +9,7 @@ import { StorageService } from "../engine/storage.service";
 /** The most a recording keeps of a session. */
 export const MAX_RECORDING_BYTES = 2 * 1024 * 1024;
 
-export type TerminalEndReason = "exit" | "idle" | "max_duration" | "closed" | "error" | "interrupted";
+export type TerminalEndReason = "exit" | "idle" | "max_duration" | "closed" | "error" | "interrupted" | "revoked";
 
 /**
  * Records what a terminal session shows (the commands typed are echoed in

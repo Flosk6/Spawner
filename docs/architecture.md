@@ -76,6 +76,7 @@ A pnpm workspace built with Turborepo. `build` depends on the build of the depen
 - `common/auth.guard.ts` is global: a route needs an actor unless it is marked `@Public()`, and the scopes listed by `@Scopes()`.
 - Changes made without a bearer token must carry the `X-Spawner-Client` header (CSRF).
 - Rate limits apply per user, per address without one, tighter on the login routes (`common/throttler.guard.ts`).
+- `common/access.service.ts` (global) holds the terminals and log streams to what their actor may still do: it reads the actor again when the team or tokens services report a change, and every 30 seconds, and closes what it no longer allows.
 - `common/secrets.service.ts` holds the master secret and the keys derived from it (signed tokens, encrypted settings, the session).
 - `common/docker.service.ts` wraps the Docker API (Dockerode): containers by environment label, exec with stdin, logs (structured, followed, by time range), usage and stats samples, networks. `common/docker-logs.ts` decodes the logs stream (multiplexed frames or TTY text) into lines with their stream and time.
 
