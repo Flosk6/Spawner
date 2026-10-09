@@ -179,8 +179,9 @@ export class GitMirrorService {
 
   /**
    * Environment of git commands: no prompt, no system config, SSH and HTTPS
-   * transports only, and the repository's deploy key. Hosts are trusted on
-   * first use and pinned in known_hosts afterwards.
+   * transports only, and the repository's deploy key. GitHub, GitLab and
+   * Bitbucket are reached with their published host keys only; other hosts
+   * are trusted on first use and pinned in known_hosts afterwards.
    */
   private env(repoUrl: string): Record<string, string> {
     const ssh = [
@@ -191,6 +192,8 @@ export class GitMirrorService {
       "StrictHostKeyChecking=accept-new",
       "-o",
       `UserKnownHostsFile=${this.keys.knownHostsPath}`,
+      "-o",
+      `GlobalKnownHostsFile=${this.keys.publishedKnownHostsPath}`,
     ];
     const key = this.keys.keyPathFor(repoUrl);
     if (key) {

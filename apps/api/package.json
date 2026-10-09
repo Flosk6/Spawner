@@ -7,7 +7,8 @@
   "files": [
     "dist",
     "prisma",
-    "docker-entrypoint.sh"
+    "docker-entrypoint.sh",
+    "known_hosts"
   ],
   "scripts": {
     "build": "nest build",

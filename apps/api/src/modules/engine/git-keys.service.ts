@@ -13,6 +13,8 @@ export interface RepoKeyInfo {
 }
 
 const GLOBAL_KEY = "id_spawner";
+/** apps/api/known_hosts, from dist/ as from src/. */
+const PUBLISHED_KNOWN_HOSTS = path.resolve(__dirname, "..", "..", "..", "known_hosts");
 
 /**
  * SSH deploy keys. Each repository can have its own read-only key
@@ -28,6 +30,14 @@ export class GitKeysService {
 
   get knownHostsPath(): string {
     return path.join(this.config.keysDir, "known_hosts");
+  }
+
+  /**
+   * The host keys of GitHub, GitLab and Bitbucket shipped with Spawner: git
+   * connects to them with these keys only, even the first time.
+   */
+  get publishedKnownHostsPath(): string {
+    return PUBLISHED_KNOWN_HOSTS;
   }
 
   /**
