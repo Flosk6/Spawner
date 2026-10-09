@@ -93,7 +93,7 @@ done
 sudo grep -q '"log-driver": "local"' /etc/docker/daemon.json || fail "Docker should keep compressed, capped logs"
 grep -q "plain HTTP on port 80 of every interface" "$WORK/install.log" || fail "a local install should warn that it serves plain HTTP on every interface"
 [ "$(sudo stat -c %a /var/lib/spawner)" = "700" ] || fail "the data directory should be Spawner's alone, not $(sudo stat -c %a /var/lib/spawner)"
-[ "$(sudo docker inspect -f '{{json .HostConfig.CapDrop}} {{json .HostConfig.CapAdd}}' spawner-traefik)" = '["ALL"] ["NET_BIND_SERVICE"]' ] \
+[ "$(sudo docker inspect -f '{{json .HostConfig.CapDrop}} {{json .HostConfig.CapAdd}}' spawner-traefik)" = '["ALL"] ["CAP_NET_BIND_SERVICE"]' ] \
   || fail "Traefik should run without capabilities but binding ports: $(sudo docker inspect -f '{{json .HostConfig.CapDrop}} {{json .HostConfig.CapAdd}}' spawner-traefik)"
 [ "$(sudo docker exec spawner stat -c %U /app/dist/main.js)" = "root" ] || fail "Spawner's code should belong to root, not to the user it runs as"
 SPAWNER_TOKEN=$(secret SPAWNER_BOOTSTRAP_TOKEN)
