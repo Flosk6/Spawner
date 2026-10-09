@@ -19,13 +19,21 @@ export interface SourceFiles {
 /** Directories never sent unless git tracks them or upload.include names them. */
 const HEAVY_DIRECTORIES = new Set(["node_modules", "vendor", ".git"]);
 
+/** Files of credentials, by name. */
+const SECRET_FILES = new Set([".npmrc", ".yarnrc.yml", ".pypirc", ".netrc", ".git-credentials", ".pgpass", ".dockercfg"]);
+
+/** .env files, private SSH keys, and keys or certificates with their key. */
+const SECRET_PATTERN = /^(?:\.env(?:[.-].+)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|.+\.(?:pem|key|p12|pfx|jks|keystore))$/;
+
 /**
  * Tells whether an untracked file stays home by default: dependencies
- * (node_modules, vendor) and local secrets (.env, .env.local...).
+ * (node_modules, vendor) and local secrets (.env, .env.local, .env-staging,
+ * .npmrc, private keys, *.pem...).
  */
 export function isExcludedByDefault(file: string): boolean {
   const parts = file.split("/");
-  return parts.some((part) => HEAVY_DIRECTORIES.has(part)) || /^\.env(\..+)?$/.test(parts[parts.length - 1]);
+  const name = parts[parts.length - 1];
+  return parts.some((part) => HEAVY_DIRECTORIES.has(part)) || SECRET_FILES.has(name) || SECRET_PATTERN.test(name);
 }
 
 /**

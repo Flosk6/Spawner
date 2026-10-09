@@ -79,7 +79,7 @@ spawner up --wait --ttl 24h                        # lifetime, instead of spawne
 
 Before sending anything, `up` checks `spawner.yaml` and the compose file with the same code and the same limits as the server: a refused file fails in a second, with every issue and its path (exit code 7). It also checks that `spawner.yaml` sits where the project expects it (its root directory, for a monorepo).
 
-What is sent: the files git sees in the worktree (`git ls-files --cached --others --exclude-standard`), so uncommitted work is included and ignored files are not. Untracked `node_modules/`, `vendor/` and `.env` files stay home; `upload.include` in `spawner.yaml` names ignored files to send anyway (globs: `config/*.local.php`, `**/*.pem`). Outside git, every file but `.git/`, `node_modules/`, `vendor/` and `.env` files. Git submodules are skipped with a warning. Symbolic links stay links; a link pointing outside the repository is refused before upload. Limits come from the server (100 MiB compressed, 50,000 files, 1 GiB extracted by default).
+What is sent: the files git sees in the worktree (`git ls-files --cached --others --exclude-standard`), so uncommitted work is included and ignored files are not. Untracked `node_modules/`, `vendor/` and local secrets stay home: `.env` files (`.env.local`, `.env-staging`...), `.npmrc`, `.yarnrc.yml`, `.pypirc`, `.netrc`, `.git-credentials`, `.pgpass`, private SSH keys (`id_ed25519`...) and `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`; `upload.include` in `spawner.yaml` names ignored files to send anyway (globs: `config/*.local.php`, `**/*.pem`). Outside git, every file but `.git/`, `node_modules/`, `vendor/` and `.env` files. Git submodules are skipped with a warning. Symbolic links stay links; a link pointing outside the repository is refused before upload. Limits come from the server (100 MiB compressed, 50,000 files, 1 GiB extracted by default).
 
 For a monorepo, only the project directory (the one holding `.spawner/`) is sent, at its place in the repository.
 
@@ -173,7 +173,7 @@ Errors, with `--json`: `{ "error": { "code": "not_found", "message": "...", "hin
 
 ## MCP server
 
-`spawner mcp` runs an MCP server on stdio, with the same code, the same credentials and the same rights as the CLI. [Coding agents](agents.md) shows how to add it to Claude Code, Codex, Cursor and others, Windows included.
+`spawner mcp` runs an MCP server on stdio, with the same code, the same credentials and the same rights as the CLI. What comes from the environment (logs, job logs) is fenced between markers the environment cannot guess, and its instructions tell the model to read it as data: the code of a branch writes it, and could try to steer the agent that reads it. [Coding agents](agents.md) shows how to add it to Claude Code, Codex, Cursor and others, Windows included.
 
 | Tool | Parameters |
 |---|---|

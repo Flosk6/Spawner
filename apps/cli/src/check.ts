@@ -122,9 +122,13 @@ export function checkProject(
   return { manifest, issues: prepared.issues, services: prepared.services, warnings: layerWarnings(prepared.document ?? {}) };
 }
 
+/** A Dockerfile larger than this is not read: it would not be one. */
+const DOCKERFILE_MAX_BYTES = 1024 * 1024;
+
 /**
  * Looks at the Dockerfiles of this machine's sources for a copy of the whole
- * code before the dependencies are installed.
+ * code before the dependencies are installed. Only regular files of 1 MiB
+ * at most are read: a FIFO or a device named Dockerfile would hang the CLI.
  */
 function layerWarnings(document: Record<string, unknown>): string[] {
   const services = (document.services ?? {}) as Record<string, { build?: { context?: string; dockerfile?: string } }>;
@@ -136,7 +140,12 @@ function layerWarnings(document: Record<string, unknown>): string[] {
     }
     let text: string;
     try {
-      text = fs.readFileSync(service.build?.dockerfile ?? path.join(context, "Dockerfile"), "utf8");
+      const dockerfile = service.build?.dockerfile ?? path.join(context, "Dockerfile");
+      const stat = fs.statSync(dockerfile);
+      if (!stat.isFile() || stat.size > DOCKERFILE_MAX_BYTES) {
+        continue;
+      }
+      text = fs.readFileSync(dockerfile, "utf8");
     } catch {
       continue;
     }

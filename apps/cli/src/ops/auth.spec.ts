@@ -5,7 +5,7 @@ import { credentialsPath, readCredentials } from "../config";
 import { EXIT } from "../errors";
 import { fakeFetch, reply, SERVER } from "../testing/fake-api";
 import { tempDir } from "../testing/repo";
-import { login, machineName } from "./auth";
+import { isWebUrl, login, machineName } from "./auth";
 
 describe("login", () => {
   it("waits for the approval, then stores the token for its owner only", async () => {
@@ -59,5 +59,15 @@ describe("login", () => {
   it("names tokens after the machine", () => {
     expect(machineName("Ada-MBP.local")).toBe("ada-mbp");
     expect(machineName("")).toBe("cli");
+  });
+});
+
+describe("isWebUrl", () => {
+  it("lets the CLI open http and https URLs only, whatever the server answers", () => {
+    expect(isWebUrl("https://spawner.example.com/device")).toBe(true);
+    expect(isWebUrl("http://spawner.localtest.me/device")).toBe(true);
+    for (const url of ["file:///etc/passwd", "vscode://open?url=x", "javascript:alert(1)", "smb://host/share", "/device", ""]) {
+      expect(isWebUrl(url)).toBe(false);
+    }
   });
 });
