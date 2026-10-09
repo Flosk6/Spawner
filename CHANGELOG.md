@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Source repositories are chosen by admins**: the other sources of `spawner.yaml` must come from repositories listed in the project (Projects, Edit, "Source repositories"); `spawner up` refuses the others before sending anything. A branch could otherwise make Spawner clone any repository its deploy keys reach, or an address of the internal network. The upgrade lists for each project the repositories its live environments already use.
+- **Terminals and log streams close when their access goes**: deactivating a user, changing their role or revoking a token now closes the terminals and the streams of logs they had open, at once, and an expired token's within 30 seconds.
+- **Uploads stop at their first limit**: an archive is read as a stream that stops at the first file, byte or decompressed byte over the limits, so that a compression bomb costs no more than a legitimate archive; a person has 5 deploys of uploaded code waiting to start at most.
+
 ## 2.1.0
 
 A new dashboard, and patched dependencies.
