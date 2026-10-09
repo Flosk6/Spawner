@@ -37,6 +37,7 @@ Service names, network aliases and hostnames are the names Docker's DNS answers 
 - **The Spawner container** has a memory limit (1 GiB by default, `install.sh --memory-limit`): if the API runs out of memory, it restarts without taking the server down.
 - **Uploads** are checked entry by entry before extraction: no absolute paths, no `..`, no links leaving the archive, no devices or hard links, and limits on size and file count. The check reads the archive as a stream and stops at the first limit crossed, the decompressed size included, so a compression bomb costs no more than a legitimate archive. A person has 5 deploys of uploaded code waiting to start at most, since each keeps its archives on disk until it runs.
 - **Git** runs without a shell, with a minimal environment, no system configuration, `ssh` and `https` only, SSH in batch mode against a known_hosts file, the repository URL after `--`, and validated refs. Deploy keys are read-only and per repository.
+- **Repositories are chosen by admins.** A branch names its other sources in `spawner.yaml`, but Spawner clones, or lists the branches of, only the project's repository and the source repositories an admin listed for it: a branch cannot point Spawner, and the global deploy key, at another repository or at an address of the internal network.
 - **External programs** (git, docker compose) run with argument arrays, never through a shell.
 - **Logs** of services are served as `text/plain` with `nosniff`.
 

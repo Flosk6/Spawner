@@ -10,6 +10,7 @@ import {
   parseManifest,
   prepareCompose,
   publicExposureIssues,
+  sourceRepoIssues,
   type ComposeLimits,
   type Issue,
   type Manifest,
@@ -37,22 +38,32 @@ export interface LocalCheck {
  *
  * @param uploads - Local directory of each source sent from a worktree
  * @param project - What the server says of the project: whether it allows
- *   public URLs and environments that never sleep, and the names of its
- *   variables (their values stay there)
+ *   public URLs and environments that never sleep, the names of its
+ *   variables (their values stay there), and the repositories its sources
+ *   may come from (null from a server that does not say)
  */
 export function checkProject(
   workspace: Workspace,
   env: string,
   info: ServerInfo,
   uploads: Record<string, string>,
-  project: { allowPublic: boolean; allowAlwaysOn: boolean; variables: string[] } = { allowPublic: true, allowAlwaysOn: true, variables: [] },
+  project: { allowPublic: boolean; allowAlwaysOn: boolean; variables: string[]; sourceRepos: string[] | null } = {
+    allowPublic: true,
+    allowAlwaysOn: true,
+    variables: [],
+    sourceRepos: null,
+  },
 ): LocalCheck {
   const parsed = parseManifest(workspace.manifestText);
   if (!parsed.manifest) {
     return { issues: parsed.issues.map((issue) => ({ ...issue, path: issue.path ? `spawner.yaml: ${issue.path}` : "spawner.yaml" })), services: [] };
   }
   const manifest = parsed.manifest;
-  const permissionIssues = [...publicExposureIssues(manifest, project.allowPublic), ...alwaysOnIssues(manifest, project.allowAlwaysOn)];
+  const permissionIssues = [
+    ...publicExposureIssues(manifest, project.allowPublic),
+    ...alwaysOnIssues(manifest, project.allowAlwaysOn),
+    ...(project.sourceRepos ? sourceRepoIssues(manifest, project.sourceRepos) : []),
+  ];
   if (permissionIssues.length > 0) {
     return { manifest, issues: permissionIssues.map((issue) => ({ ...issue, path: `spawner.yaml: ${issue.path}` })), services: [] };
   }

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type Project } from "@prisma/client";
 import * as path from "path";
-import { MANIFEST_PATH, parseManifest, slugIssue } from "@spawner/core";
+import { MANIFEST_PATH, parseManifest, slugIssue, sourceRepoIssues } from "@spawner/core";
 import { sanitizeGitBranch } from "@spawner/utils";
 import { assertInProject, type Actor } from "../../common/actor";
 import { PrismaService } from "../../common/prisma.service";
@@ -17,14 +17,17 @@ export interface ProjectInput {
   rootDir?: string;
   allowPublic?: boolean;
   allowAlwaysOn?: boolean;
+  sourceRepos?: unknown;
 }
 
 const VARIABLE_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const MAX_VARIABLE_BYTES = 64 * 1024;
+const MAX_SOURCE_REPOS = 20;
 
 /**
  * Projects: a repository holding .spawner/spawner.yaml (in rootDir, for
- * monorepos) and the branch environments start from by default.
+ * monorepos), the branch environments start from by default, and the other
+ * repositories its sources may come from.
  */
 @Injectable()
 export class ProjectsService {
@@ -57,7 +60,8 @@ export class ProjectsService {
   /**
    * spawner.yaml at a branch, tag or commit (the default branch otherwise),
    * read from the repository: what the new environment form needs, the
-   * other sources and their default branches.
+   * other sources and their default branches, and the sources the project
+   * does not allow among the issues.
    */
   async manifest(slug: string, actor: Actor, ref?: string) {
     const project = await this.get(slug, actor);
@@ -78,12 +82,13 @@ export class ProjectsService {
       name: manifest?.name ?? null,
       sources: Object.entries(manifest?.sources ?? {}).map(([name, source]) => ({ name, repo: source.repo, defaultRef: source.defaultRef })),
       exposures: manifest?.exposures ?? [],
-      issues,
+      issues: manifest ? [...issues, ...sourceRepoIssues(manifest, [project.repoUrl, ...project.sourceRepos])] : issues,
     };
   }
 
   /**
-   * Branches of the project repository, or of one of its other sources.
+   * Branches of the project repository, or of one of its other sources when
+   * the project allows its repository.
    */
   async branches(slug: string, actor: Actor, source?: string): Promise<string[]> {
     const project = await this.get(slug, actor);
@@ -94,6 +99,10 @@ export class ProjectsService {
         const declared = manifest.sources.find((candidate) => candidate.name === source);
         if (!declared) {
           throw new NotFoundException(`spawner.yaml declares no source "${source}"`);
+        }
+        const [refused] = sourceRepoIssues({ sources: { [source]: declared } }, [project.repoUrl, ...project.sourceRepos]);
+        if (refused) {
+          throw new BadRequestException(`${refused.message} (${refused.hint})`);
         }
         repoUrl = declared.repo;
       }
@@ -230,6 +239,9 @@ export class ProjectsService {
       }
       data.allowAlwaysOn = input.allowAlwaysOn;
     }
+    if (input.sourceRepos !== undefined) {
+      data.sourceRepos = this.sourceRepos(input.sourceRepos);
+    }
     if (input.rootDir !== undefined) {
       const rootDir = path.posix.normalize(input.rootDir || ".");
       if (path.posix.isAbsolute(rootDir) || rootDir === ".." || rootDir.startsWith("../")) {
@@ -238,5 +250,27 @@ export class ProjectsService {
       data.rootDir = rootDir;
     }
     return data;
+  }
+
+  /**
+   * The repositories the other sources of spawner.yaml may come from: valid
+   * repository URLs, each once, 20 at most.
+   */
+  private sourceRepos(value: unknown): string[] {
+    if (!Array.isArray(value) || !value.every((repo) => typeof repo === "string")) {
+      throw new BadRequestException("sourceRepos must be a list of repository URLs");
+    }
+    const repos = [...new Set(value.map((repo: string) => repo.trim()).filter((repo) => repo.length > 0))];
+    if (repos.length > MAX_SOURCE_REPOS) {
+      throw new BadRequestException(`a project has ${MAX_SOURCE_REPOS} source repositories at most`);
+    }
+    for (const repo of repos) {
+      try {
+        this.git.validateRepoUrl(repo);
+      } catch (error) {
+        throw new BadRequestException(`sourceRepos: ${(error as Error).message}`);
+      }
+    }
+    return repos;
   }
 }

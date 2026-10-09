@@ -63,6 +63,23 @@
         </div>
       </div>
 
+      <div class="field">
+        <label class="field-label" for="project-sources">Source repositories</label>
+        <textarea
+          id="project-sources"
+          v-model="form.sourceRepos"
+          class="input font-mono"
+          rows="2"
+          placeholder="git@github.com:acme/blog-front.git"
+          autocomplete="off"
+          spellcheck="false"
+        ></textarea>
+        <p class="field-hint">
+          The other repositories the <code>sources</code> of spawner.yaml may name, one per line, written as there. Spawner clones nothing else for
+          this project.
+        </p>
+      </div>
+
       <div class="divide-y rounded-lg border">
         <div class="flex items-start gap-4 p-3">
           <div class="flex min-w-0 flex-1 flex-col gap-1">
@@ -112,7 +129,7 @@ import { PROJECT_SLUG_MAX_LENGTH, PROJECT_SLUG_PATTERN } from '../utils/environm
 const props = defineProps<{ visible: boolean; project?: Project | null }>();
 const emit = defineEmits<{ 'update:visible': [visible: boolean]; saved: [project: Project] }>();
 
-const form = reactive({ name: '', slug: '', repoUrl: '', defaultRef: 'main', rootDir: '.', allowPublic: false, allowAlwaysOn: false });
+const form = reactive({ name: '', slug: '', repoUrl: '', defaultRef: 'main', rootDir: '.', sourceRepos: '', allowPublic: false, allowAlwaysOn: false });
 const slugEdited = ref(false);
 const saving = ref(false);
 const testing = ref(false);
@@ -135,6 +152,7 @@ watch(
       repoUrl: project?.repoUrl ?? '',
       defaultRef: project?.defaultRef ?? 'main',
       rootDir: project?.rootDir ?? '.',
+      sourceRepos: (project?.sourceRepos ?? []).join('\n'),
       allowPublic: project?.allowPublic ?? false,
       allowAlwaysOn: project?.allowAlwaysOn ?? false,
     });
@@ -183,6 +201,10 @@ async function submit() {
     repoUrl: form.repoUrl.trim(),
     defaultRef: form.defaultRef.trim() || 'main',
     rootDir: form.rootDir.trim() || '.',
+    sourceRepos: form.sourceRepos
+      .split('\n')
+      .map((repo) => repo.trim())
+      .filter(Boolean),
     allowPublic: form.allowPublic,
     allowAlwaysOn: form.allowAlwaysOn,
   };

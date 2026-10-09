@@ -206,6 +206,27 @@ export function alwaysOnIssues(manifest: Pick<Manifest, 'idle'>, allowAlwaysOn: 
 }
 
 /**
+ * Sources from a repository the project's admins did not list: otherwise a
+ * branch would choose what Spawner clones, with its deploy keys.
+ *
+ * @param allowedRepos - The project's repository and its source repositories
+ */
+export function sourceRepoIssues(manifest: Pick<Manifest, 'sources'>, allowedRepos: readonly string[]): Issue[] {
+  return Object.entries(manifest.sources).flatMap(([name, source]) =>
+    allowedRepos.includes(source.repo)
+      ? []
+      : [
+          {
+            code: 'manifest.source_repo' as const,
+            path: keyPath(keyPath('sources', name), 'repo'),
+            message: `source "${name}" comes from ${source.repo}, which is not among the source repositories of this project`,
+            hint: 'ask an admin to add it to the source repositories in the project settings',
+          },
+        ],
+  );
+}
+
+/**
  * Exposures that would be public (auth: none) in a project whose admins did
  * not allow public URLs: by default, every preview needs a login.
  */

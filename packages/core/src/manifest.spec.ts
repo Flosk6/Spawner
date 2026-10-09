@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alwaysOnIssues, parseManifest, publicExposureIssues } from './manifest';
+import { alwaysOnIssues, parseManifest, publicExposureIssues, sourceRepoIssues } from './manifest';
 
 const MINIMAL = `
 version: 1
@@ -156,5 +156,22 @@ describe('publicExposureIssues', () => {
       expect.objectContaining({ code: 'manifest.public_exposure', path: 'exposures[1].auth' }),
     ]);
     expect(publicExposureIssues(manifest, true)).toEqual([]);
+  });
+});
+
+describe('sourceRepoIssues', () => {
+  const manifest = {
+    sources: {
+      front: { repo: 'git@github.com:acme/blog-front.git', defaultRef: 'main' },
+      admin: { repo: 'git@internal.example.com:ops/secrets.git', defaultRef: 'main' },
+    },
+  };
+
+  it('refuses sources from repositories the project does not list', () => {
+    expect(sourceRepoIssues(manifest, ['git@github.com:acme/blog.git', 'git@github.com:acme/blog-front.git'])).toEqual([
+      expect.objectContaining({ code: 'manifest.source_repo', path: 'sources.admin.repo' }),
+    ]);
+    expect(sourceRepoIssues(manifest, ['git@github.com:acme/blog-front.git', 'git@internal.example.com:ops/secrets.git'])).toEqual([]);
+    expect(sourceRepoIssues({ sources: {} }, [])).toEqual([]);
   });
 });

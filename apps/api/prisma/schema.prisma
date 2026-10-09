@@ -161,6 +161,9 @@ model Project {
   allowPublic  Boolean           @default(false) @map("allow_public")
   /// Environments may never sleep (idle: never in spawner.yaml) only when an admin allows it.
   allowAlwaysOn Boolean          @default(false) @map("allow_always_on")
+  /// Repositories the other sources of spawner.yaml may come from, listed by
+  /// an admin: a branch cannot make Spawner clone anything else.
+  sourceRepos  String[]          @default([]) @map("source_repos")
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   environments Environment[]

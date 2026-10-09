@@ -180,6 +180,8 @@ export interface Project {
   allowPublic: boolean;
   /** Environments may never sleep (idle: never). */
   allowAlwaysOn: boolean;
+  /** Repositories the other sources of spawner.yaml may come from, besides repoUrl. */
+  sourceRepos: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -201,6 +203,7 @@ export interface ProjectInput {
   rootDir?: string;
   allowPublic?: boolean;
   allowAlwaysOn?: boolean;
+  sourceRepos?: string[];
 }
 
 /** A variable of the compose files of a project; secret values are never shown again. */

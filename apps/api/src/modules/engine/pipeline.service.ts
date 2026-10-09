@@ -12,6 +12,7 @@ import {
   parseManifest,
   prepareCompose,
   publicExposureIssues,
+  sourceRepoIssues,
   type Issue,
   type Manifest,
 } from "@spawner/core";
@@ -203,7 +204,15 @@ export class PipelineService {
       );
       const projectRoot = this.projectRoot(primaryDir, env.project.rootDir);
       const manifest = this.readManifest(projectRoot, env.project.slug, log);
-      this.rejectIfIssues([...publicExposureIssues(manifest, env.project.allowPublic), ...alwaysOnIssues(manifest, env.project.allowAlwaysOn)], "spawner.yaml", log);
+      this.rejectIfIssues(
+        [
+          ...publicExposureIssues(manifest, env.project.allowPublic),
+          ...alwaysOnIssues(manifest, env.project.allowAlwaysOn),
+          ...sourceRepoIssues(manifest, [env.project.repoUrl, ...env.project.sourceRepos]),
+        ],
+        "spawner.yaml",
+        log,
+      );
 
       const undeclared = Object.keys(payload.sources ?? {}).filter((name) => !(name in manifest.sources));
       if (undeclared.length > 0) {

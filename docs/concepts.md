@@ -16,9 +16,9 @@ Spawner runs one copy of an application per branch, on a server of your own, eac
 
 ## Projects and sources
 
-A **project** is an application Spawner knows how to run: a slug (`blog`), a repository, a default branch and, for a monorepo, the directory holding `.spawner/`. Admins create projects from the dashboard.
+A **project** is an application Spawner knows how to run: a slug (`blog`), a repository, a default branch, for a monorepo the directory holding `.spawner/`, and the other repositories it may take code from. Admins create projects from the dashboard.
 
-The repository holds `.spawner/spawner.yaml` (the manifest) and a Docker Compose file. An application spread over several repositories names the others in the manifest: each repository is a **source** (`api`, `front`), checked out next to the others. See [the manifest](manifest.md).
+The repository holds `.spawner/spawner.yaml` (the manifest) and a Docker Compose file. An application spread over several repositories names the others in the manifest: each repository is a **source** (`api`, `front`), checked out next to the others, among those an admin listed for the project. See [the manifest](manifest.md).
 
 ## Environments
 

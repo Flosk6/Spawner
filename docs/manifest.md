@@ -44,6 +44,7 @@ limits:
 
 - Names (`project`, `name`, sources, exposures) use lowercase letters, digits and single dashes, starting with a letter: at most 20 characters for a project, 10 for an exposure. Environments, named after branches, take 29.
 - `seed` steps are argument arrays, run in the service without a shell (call `[sh, -c, "..."]` if you need one).
+- `sources` name other repositories among those an admin listed for the project (Projects, Edit, "Source repositories"), written the same way; otherwise the deploy is refused, by `spawner up` before anything is sent. A branch thus never makes Spawner clone a repository the project does not use, with its deploy keys.
 - `auth: none` makes a URL public (webhooks, a public page). An admin allows it per project (Projects, Edit, "Allow public URLs"); otherwise the deploy is refused, by `spawner up` before anything is sent.
 - At most 10 exposures.
 - `idle`: an environment without visits or actions for this long goes to sleep. Its containers stop, its data stays, and the next visit to one of its URLs wakes it up within seconds. `idle: never` keeps it awake; an admin allows it per project (Projects, Edit, "Allow environments that never sleep").
