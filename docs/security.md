@@ -63,10 +63,10 @@ Before each request to a protected URL (`auth: team`, the default), Traefik asks
 1. CORS preflights (`OPTIONS` with `Origin` and `Access-Control-Request-Method`), which browsers send without credentials; they neither count as activity nor wake a sleeping environment;
 2. an `X-Spawner-Preview` header: a token valid one hour for one environment, for agents and scripts; Traefik removes it before the request reaches the application;
 3. a share link (`?__spawner_share=`), answered by a redirect that sets a cookie valid for that environment only, and checked against its link at every request: revoking the link closes it to whoever opened it;
-4. the team's preview cookie (12 hours), set on the preview domain by the dashboard for an active member;
+4. the team's preview cookie (12 hours), set on the preview domain by the dashboard for an active member, and taken off the browser at logout;
 5. a share cookie.
 
-Otherwise a browser goes to the login page and other clients get a 401. Public URLs (`auth: none`) skip the access check; an admin allows them per project.
+Otherwise a browser goes to the login page and other clients get a 401. Every value of a cookie name counts, since a preview can set a cookie named after Spawner's for the whole domain: it cannot lock its visitors out that way. Public URLs (`auth: none`) skip the access check; an admin allows them per project. A share link opened on a public URL is taken off it by a redirect, and the waiting page of a public URL does not say why its environment failed.
 
 **Spawner's cookies never reach an application.** The team's preview cookie and the share cookies are set on the whole preview domain, so browsers send them to every preview. For every request, public URLs included, Spawner answers Traefik with the request's cookies minus its own, and Traefik passes the request on with those: the code of a branch cannot read, then replay, what opens the other previews. The preview token header is removed the same way.
 

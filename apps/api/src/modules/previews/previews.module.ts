@@ -63,17 +63,27 @@ export class PreviewAuthController {
   /**
    * forwardAuth of Traefik before every request to a public preview: lets
    * it through, with its cookies without Spawner's own, so that a public
-   * application does not see what opens the other previews either.
+   * application does not see what opens the other previews either. A share
+   * link opened on a public URL is taken off it first (a redirect).
    */
   @Public()
   @NoThrottle()
   @Get("verify-public")
   verifyPublic(@Req() request: Request, @Res() response: Response) {
+    response.setHeader("Cache-Control", "no-store");
+    const decision = this.previews.decidePublic({
+      proto: header(request, "x-forwarded-proto") ?? "http",
+      host: header(request, "x-forwarded-host") ?? "",
+      uri: header(request, "x-forwarded-uri") ?? "/",
+    });
+    if (decision.status === 302) {
+      response.redirect(302, decision.location);
+      return;
+    }
     const cookies = applicationCookies(header(request, "cookie"));
     if (cookies) {
       response.setHeader("Cookie", cookies);
     }
-    response.setHeader("Cache-Control", "no-store");
     response.status(200).end();
   }
 

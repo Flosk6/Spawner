@@ -4,6 +4,8 @@ import type { Request, Response } from "express";
 import type { Actor } from "../../common/actor";
 import { CurrentActor, Public, Scopes } from "../../common/auth.guard";
 import { PrismaService } from "../../common/prisma.service";
+import { SpawnerConfig } from "../../common/spawner.config";
+import { clearedPreviewCookie } from "../previews/previews.service";
 import { SettingsService } from "../settings/settings.service";
 import { DeviceService } from "./device.service";
 import { GithubLoginService } from "./github-login.service";
@@ -21,6 +23,7 @@ export class AuthController {
     private readonly settings: SettingsService,
     private readonly tickets: WsTicketsService,
     private readonly prisma: PrismaService,
+    private readonly config: SpawnerConfig,
   ) {}
 
   /**
@@ -33,10 +36,14 @@ export class AuthController {
     return { user: user ? presentUser(user) : null, methods: { passkey: true, github: (await this.settings.github()) !== null } };
   }
 
+  /**
+   * Ends the session, and takes the team's preview cookie off the browser.
+   */
   @Post("logout")
   @HttpCode(204)
-  logout(@Req() request: Request) {
-    return this.sessions.logout(request);
+  async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    await this.sessions.logout(request);
+    response.setHeader("Set-Cookie", clearedPreviewCookie(this.config));
   }
 
   /**

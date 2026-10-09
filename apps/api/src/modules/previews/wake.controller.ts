@@ -9,7 +9,7 @@ import { NoThrottle } from "../../common/throttler.guard";
 import { JobQueueService } from "../engine/job-queue.service";
 import { WAKE_HEADER } from "../engine/router.service";
 import { UsageService } from "../supervision/usage.service";
-import { PREVIEW_HEADER, PreviewsService, parseCookies, type PreviewDecision } from "./previews.service";
+import { PREVIEW_HEADER, PreviewsService, parseCookies, previewHost, type PreviewDecision } from "./previews.service";
 import { wakePage, type WakeState, type WakeView } from "./wake-page";
 
 const RETRY_AFTER_SECONDS = 5;
@@ -43,7 +43,7 @@ export class WakeController {
   @NoThrottle()
   @All("wake")
   async wake(@Req() request: Request, @Res() response: Response) {
-    const host = (header(request, "x-forwarded-host") ?? header(request, "host") ?? "").replace(/:\d+$/, "");
+    const host = previewHost(header(request, "x-forwarded-host") ?? header(request, "host") ?? "");
     response.setHeader("Cache-Control", "no-store");
     response.setHeader(WAKE_HEADER, "1");
     const exposure = await this.prisma.exposure.findFirst({
@@ -76,7 +76,7 @@ export class WakeController {
 
     const environment = exposure.environment;
     const mayWake = exposure.auth !== "none" && request.method !== "OPTIONS";
-    const view = await this.handle(environment, environment.project.slug, mayWake, host);
+    const view = await this.handle(environment, environment.project.slug, mayWake, host, exposure.auth === "none");
     if (request.query.__spawner_wake === "status") {
       response.status(200).json({ state: view.state, message: view.message });
       return;
@@ -94,9 +94,10 @@ export class WakeController {
   /**
    * What the environment's status calls for; a sleeping one reached by a
    * request that may wake it gets a wake-up queued, unless the server lacks
-   * the memory for it.
+   * the memory for it. Anyone reaches a public URL: it does not say why the
+   * environment failed.
    */
-  private async handle(environment: Environment, project: string, mayWake: boolean, host: string): Promise<WakeView> {
+  private async handle(environment: Environment, project: string, mayWake: boolean, host: string, isPublic: boolean): Promise<WakeView> {
     const view = (state: WakeState, message: string): WakeView => ({
       state,
       message,
@@ -132,6 +133,9 @@ export class WakeController {
       case "stopped":
         return view("stopped", "Someone stopped it. Start it again from Spawner, or with spawner start.");
       case "failed":
+        if (isPublic) {
+          return view("failed", "It failed. Someone of the team can see why in Spawner.");
+        }
         return view("failed", `It failed${environment.phase ? ` while ${environment.phase}` : ""}: ${(environment.error ?? "unknown error").split("\n")[0].slice(0, 300)}`);
       default:
         return view("busy", `It is ${environment.status} right now. This page reloads by itself when it is ready.`);
