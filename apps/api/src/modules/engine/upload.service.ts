@@ -202,11 +202,7 @@ export class UploadService {
 function escapingLinks(root: string): string[] {
   const realRoot = fs.realpathSync(root);
   const problems: string[] = [];
-  for (const entry of fs.readdirSync(root, { recursive: true, withFileTypes: true })) {
-    if (!entry.isSymbolicLink()) {
-      continue;
-    }
-    const link = path.join(entry.parentPath, entry.name);
+  for (const link of linksUnder(root)) {
     const end = followLinks(link);
     if (end === null || (end !== realRoot && !end.startsWith(`${realRoot}${path.sep}`))) {
       problems.push(`${path.relative(root, link)}: symlink leading outside the archive through other links`);
@@ -216,6 +212,21 @@ function escapingLinks(root: string): string[] {
     }
   }
   return problems;
+}
+
+/**
+ * The links under a directory, which it never follows: a recursive readdir
+ * may, and loop on a link to a parent.
+ */
+function* linksUnder(dir: string): Generator<string> {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      yield full;
+    } else if (entry.isDirectory()) {
+      yield* linksUnder(full);
+    }
+  }
 }
 
 /**
