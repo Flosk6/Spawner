@@ -172,7 +172,7 @@ An environment is ready once Traefik serves its hosts.
 
 ### Updates
 
-`releases.ts` (pure) compares versions and picks the newest update a server may take. `updates.service.ts` reads the list of releases every 6 hours (`SPAWNER_RELEASES_URL`, `file://` in tests). On request, it downloads the new image and starts `spawner-upgrade`, a container of that image that runs its `/app/install.sh --upgrade` as root, on the host network, with the Docker socket, the installation directory (from the Compose label `working_dir`) and the data directory. The run is kept in `settings` (`update.run`) and settled by whichever Spawner comes up: succeeded, or failed when the installer went back to the previous version. Only a container of the Compose project `spawner`, running a release image tagged with its own version, can update itself.
+`releases.ts` (pure) compares versions and picks the newest update a server may take. `updates.service.ts` reads the list of releases every 6 hours (`SPAWNER_RELEASES_URL`, `file://` in tests). On request, it reads the digest the release's `install.sh` names (`IMAGE_DIGEST`; a list of releases without that asset gives the tag), downloads the image by that digest and starts `spawner-upgrade`, a container of that image that runs its `/app/install.sh --upgrade` as root, on the host network, with the Docker socket, the installation directory (from the Compose label `working_dir`) and the data directory. The run is kept in `settings` (`update.run`) and settled by whichever Spawner comes up: succeeded, or failed when the installer went back to the previous version. Only a container of the Compose project `spawner`, running a release image tagged with its own version (pinned by digest or not), can update itself.
 
 ### Naming
 
@@ -251,4 +251,4 @@ Messages for people go to stderr and results to stdout (only JSON with `--json`)
 
 ## Releases
 
-`scripts/release.sh` versions and tags a release, and a tag starts `.github/workflows/release.yml`: images on GHCR for amd64 and arm64, the CLI on npm through trusted publishing, and a GitHub release with `install.sh`, the CLI bundle and their checksums. See [scripts](../scripts/README.md#releasesh).
+`scripts/release.sh` versions and tags a release, and a tag starts `.github/workflows/release.yml`: images on GHCR for amd64 and arm64, the CLI on npm through trusted publishing, and a GitHub release with `install.sh` (the digest of the image written into it), the CLI bundle and their checksums; the images, `install.sh` and the bundle get build provenance attestations. See [scripts](../scripts/README.md#releasesh).

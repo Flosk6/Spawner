@@ -30,6 +30,18 @@ Environments get `<env>--<project>.preview.example.com` and the dashboard `spawn
 - **One wildcard certificate** (advised): Traefik proves it owns the domain through your DNS provider's API. You need an API token of the provider. New environments get HTTPS at once, without any limit.
 - **One certificate per URL**: nothing to set up, but each new URL waits a few seconds for its certificate, and Let's Encrypt allows about 50 new certificates a week per domain. Fine to try Spawner, short for a team.
 
+### Verifying the installer
+
+Each release attests where its files come from: `install.sh`, the CLI bundle and the images were built by this repository's release workflow from the tagged commit. With the [GitHub CLI](https://cli.github.com), check the installer before you run it:
+
+```bash
+curl -fsSLO https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
+gh attestation verify install.sh -R Flosk6/Spawner
+sudo bash install.sh
+```
+
+The installer of a release names the digest of its image: it runs the image that release built, whatever the tag points to later, and the Postgres and Traefik images are pinned by digest too. `gh attestation verify oci://ghcr.io/flosk6/spawner:<version> -R Flosk6/Spawner` checks an image.
+
 ## The installation
 
 Run the command above on the server, as root. The installer:

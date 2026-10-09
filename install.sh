@@ -40,7 +40,15 @@
 set -euo pipefail
 
 DEFAULT_VERSION="2.1.0"
+# The digest of the image of DEFAULT_VERSION, which the release workflow
+# writes into the install.sh it publishes: installing or upgrading to that
+# version runs the image the release built, whatever its tag points to later.
+IMAGE_DIGEST=""
 IMAGE_REPOSITORY="ghcr.io/flosk6/spawner"
+# Postgres and Traefik, pinned by digest: bumped by hand before a release
+# (scripts/README.md).
+POSTGRES_IMAGE="postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
+TRAEFIK_IMAGE="traefik:v3.5@sha256:16acb89c6db341182970d6fdafece31303b0a380a8ed7aa51682e225229bf1d2"
 RELEASES_API="https://api.github.com/repos/Flosk6/Spawner/releases/latest"
 INSTALL_DIR="${SPAWNER_INSTALL_DIR:-/opt/spawner}"
 DATA_DIR="${SPAWNER_DATA_DIR:-}"
@@ -473,6 +481,7 @@ resolve_version() {
       IMAGE=$PREVIOUS_IMAGE
     else
       IMAGE="$IMAGE_REPOSITORY:$VERSION"
+      [ -z "$IMAGE_DIGEST" ] || [ "$VERSION" != "$DEFAULT_VERSION" ] || IMAGE+="@$IMAGE_DIGEST"
     fi
   fi
 }
@@ -561,7 +570,7 @@ name: spawner
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: $POSTGRES_IMAGE
     container_name: spawner-postgres
     restart: unless-stopped
     environment:
@@ -578,7 +587,7 @@ services:
       retries: 30
 
   traefik:
-    image: traefik:v3.5
+    image: $TRAEFIK_IMAGE
     container_name: spawner-traefik
     restart: unless-stopped
     command:

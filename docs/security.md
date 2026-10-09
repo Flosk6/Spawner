@@ -81,7 +81,11 @@ Previews still share the preview domain with each other and with the dashboard: 
 
 ## Updates
 
-Every 6 hours, Spawner reads the list of releases from GitHub (`api.github.com`, nothing sent but the request); `SPAWNER_UPDATE_CHECK=false` stops it. An update from the dashboard needs an admin, and installs only the newest release of that list, from the repository of the image Spawner already runs. Spawner uses the Docker socket it already holds to start the installer of the new version in a short-lived container, as root, with the installation directory and the data directory: the same power the installer has when you run it. Each update is in the audit trail, with how it ended.
+Every 6 hours, Spawner reads the list of releases from GitHub (`api.github.com`, nothing sent but the request); `SPAWNER_UPDATE_CHECK=false` stops it. An update from the dashboard needs an admin, and installs only the newest release of that list, from the repository of the image Spawner already runs, pinned to the digest the release's `install.sh` names: a tag moved on the registry afterwards changes nothing. Spawner uses the Docker socket it already holds to start the installer of the new version in a short-lived container, as root, with the installation directory and the data directory: the same power the installer has when you run it. Each update is in the audit trail, with how it ended.
+
+## Releases
+
+A release is built by `.github/workflows/release.yml` from a tag on `master`, which only admins can push, after a reviewer approves its `release` environment; actions are pinned by commit and nothing reads a cache another workflow wrote. Its images, `install.sh` and CLI bundle carry build provenance attestations (`gh attestation verify`, see [installing](install.md#verifying-the-installer)), the `install.sh` of a release names the digest of its image, and releases are immutable once published. The CLI goes to npm through trusted publishing, with its provenance (`npm audit signatures`).
 
 ## What Spawner does not do (yet)
 

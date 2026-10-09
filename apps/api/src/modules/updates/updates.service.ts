@@ -6,7 +6,17 @@ import { PrismaService } from "../../common/prisma.service";
 import { SpawnerConfig } from "../../common/spawner.config";
 import { SPAWNER_VERSION } from "../../common/version";
 import { AuditService } from "../audit/audit.service";
-import { newestUpdate, splitImage, upgradeHelper, UPGRADE_CONTAINER, type GithubRelease, type Release, type UpdateRun } from "./releases";
+import {
+  installerDigest,
+  installerUrl,
+  newestUpdate,
+  splitImage,
+  upgradeHelper,
+  UPGRADE_CONTAINER,
+  type GithubRelease,
+  type Release,
+  type UpdateRun,
+} from "./releases";
 
 const RUN_KEY = "update.run";
 const FIRST_CHECK_MS = 30_000;
@@ -23,17 +33,18 @@ type Installation =
 /**
  * Updates of Spawner from the dashboard. Spawner reads the list of releases
  * every few hours. When an admin asks, it downloads the image of the newest
- * version and starts a short-lived container of it that runs that version's
- * installer with --upgrade: it backs the database up, writes the files of
- * the installation, and restarts the stack. The container outlives the
- * Spawner it replaces, and puts the previous version back when the new one
- * does not start. The run is recorded in the settings table, so that the
- * Spawner that comes up (new or previous) says how it went.
+ * version, pinned to the digest the release's installer names, and starts a
+ * short-lived container of it that runs that version's installer with
+ * --upgrade: it backs the database up, writes the files of the
+ * installation, and restarts the stack. The container outlives the Spawner
+ * it replaces, and puts the previous version back when the new one does not
+ * start. The run is recorded in the settings table, so that the Spawner
+ * that comes up (new or previous) says how it went.
  */
 @Injectable()
 export class UpdatesService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(UpdatesService.name);
-  private checked: { at: string; error: string | null; latest: Release | null } | null = null;
+  private checked: { at: string; error: string | null; latest: Release | null; installer: string | null } | null = null;
   private settling: Promise<UpdateRun | null> | null = null;
   private timers: NodeJS.Timeout[] = [];
 
@@ -86,10 +97,11 @@ export class UpdatesService implements OnApplicationBootstrap, OnModuleDestroy {
   async check(): Promise<void> {
     try {
       const releases = await this.releases();
-      this.checked = { at: new Date().toISOString(), error: null, latest: newestUpdate(SPAWNER_VERSION, releases) };
+      const latest = newestUpdate(SPAWNER_VERSION, releases);
+      this.checked = { at: new Date().toISOString(), error: null, latest, installer: latest ? installerUrl(releases, latest.version) : null };
     } catch (error) {
       this.logger.warn(`Could not read the releases: ${(error as Error).message}`);
-      this.checked = { at: new Date().toISOString(), error: (error as Error).message, latest: this.checked?.latest ?? null };
+      this.checked = { at: new Date().toISOString(), error: (error as Error).message, latest: this.checked?.latest ?? null, installer: this.checked?.installer ?? null };
     }
   }
 
@@ -98,7 +110,8 @@ export class UpdatesService implements OnApplicationBootstrap, OnModuleDestroy {
    * while jobs run (Spawner restarts), or when this server was not installed
    * by install.sh from a release image.
    *
-   * @throws BadRequestException when there is nothing to update to, or no way to
+   * @throws BadRequestException when there is nothing to update to, or no way
+   * to, or when the release's installer names no image
    * @throws ConflictException when an update or jobs are running
    */
   async start(actor: Actor): Promise<UpdateRun> {
@@ -119,6 +132,7 @@ export class UpdatesService implements OnApplicationBootstrap, OnModuleDestroy {
     if (!latest) {
       throw new BadRequestException(this.checked?.error ? `The list of releases could not be read: ${this.checked.error}` : "Spawner is up to date");
     }
+    const image = await this.imageOf(installation.repository, latest.version, this.checked?.installer ?? null);
     const run: UpdateRun = {
       from: SPAWNER_VERSION,
       to: latest.version,
@@ -131,16 +145,39 @@ export class UpdatesService implements OnApplicationBootstrap, OnModuleDestroy {
       log: [],
     };
     await this.save(run);
-    await this.audit.record(actor, "system.update", { target: run.to, details: { from: run.from, to: run.to } });
-    void this.install(installation, run);
+    await this.audit.record(actor, "system.update", { target: run.to, details: { from: run.from, to: run.to, image } });
+    void this.install(installation, run, image);
     return run;
+  }
+
+  /**
+   * The image of a version, pinned to the digest its release's installer
+   * names: what runs is what the release built, whatever its tag points to
+   * by then. A release without an installer (a list of your own) gives the
+   * tag.
+   *
+   * @throws BadRequestException when the installer cannot be read or names no digest
+   */
+  private async imageOf(repository: string, version: string, installer: string | null): Promise<string> {
+    if (!installer) {
+      return `${repository}:${version}`;
+    }
+    let digest: string | null;
+    try {
+      digest = installerDigest(await this.download(installer));
+    } catch (error) {
+      throw new BadRequestException(`The installer of ${version} could not be read: ${(error as Error).message}`);
+    }
+    if (!digest) {
+      throw new BadRequestException(`The installer of ${version} names no image digest: update from the server with install.sh`);
+    }
+    return `${repository}:${version}@${digest}`;
   }
 
   /**
    * Downloads the new image, then starts the container that installs it.
    */
-  private async install(installation: Extract<Installation, { kind: "managed" }>, run: UpdateRun): Promise<void> {
-    const image = `${installation.repository}:${run.to}`;
+  private async install(installation: Extract<Installation, { kind: "managed" }>, run: UpdateRun, image: string): Promise<void> {
     try {
       await this.docker.pullImage(image);
       await this.docker.removeContainer(UPGRADE_CONTAINER);
@@ -237,6 +274,21 @@ export class UpdatesService implements OnApplicationBootstrap, OnModuleDestroy {
       throw new Error("the answer is not a list of releases");
     }
     return body as GithubRelease[];
+  }
+
+  private async download(url: string): Promise<string> {
+    const { protocol, host } = new URL(url);
+    if (protocol === "file:") {
+      return fs.readFileSync(new URL(url), "utf8");
+    }
+    if (protocol !== "https:") {
+      throw new Error(`${url} is not an https URL`);
+    }
+    const response = await fetch(url, { headers: { "User-Agent": `spawner/${SPAWNER_VERSION}` }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) {
+      throw new Error(`${host} answered ${response.status}`);
+    }
+    return response.text();
   }
 
   private async load(): Promise<UpdateRun | null> {

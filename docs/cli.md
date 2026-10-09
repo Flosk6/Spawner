@@ -7,7 +7,7 @@
 The CLI is one JavaScript file that needs Node.js 20 or later:
 
 ```bash
-npm install -g spawner-cli
+npm install -g spawner-cli@<version>    # your server's, shown in the dashboard's sidebar; npm audit signatures checks its provenance
 ```
 
 Every Spawner server also serves the CLI of its own version, for machines without npm:
@@ -18,7 +18,7 @@ curl -fsSL https://spawner.preview.example.com/api/v1/cli/spawner -o ~/.local/bi
 chmod +x ~/.local/bin/spawner
 ```
 
-From a clone of this repository: `pnpm install && pnpm build`, then link `apps/cli/dist/spawner.cjs` into your `PATH`. `spawner whoami` shows the version of the CLI and of the server: keep them on the same version.
+Each GitHub release also has the bundle as `spawner`, which `gh attestation verify spawner -R Flosk6/Spawner` checks. From a clone of this repository: `pnpm install && pnpm build`, then link `apps/cli/dist/spawner.cjs` into your `PATH`. `spawner whoami` shows the version of the CLI and of the server: keep them on the same version.
 
 ## Log in
 
