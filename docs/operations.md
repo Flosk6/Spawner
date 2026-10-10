@@ -91,8 +91,8 @@ Environments of the old server are then listed as failed, their containers being
 **From the dashboard.** Spawner looks for new versions every 6 hours. When one is out, admins see "Spawner X is available" at the bottom of the sidebar (an **Update** button in the top bar on a phone). The System page links its release notes and shows an **Update to X** button. Spawner then:
 
 1. downloads the image of the new version;
-2. starts a short-lived container of it (`spawner-upgrade`) that runs that version's installer with `--upgrade`: the database is backed up to `/opt/spawner/backups/`, the files of the installation are written, and the stack restarts on the new version, which applies its migrations;
-3. if the new version does not start, puts the previous one back: its files, and its database as the backup holds it.
+2. starts a short-lived container of it (`spawner-upgrade`) that runs that version's installer with `--upgrade`: the database is backed up to `/opt/spawner/backups/`, the files of the installation are written, Traefik's routes are made readable to it (versions before 2.2 wrote them for Spawner alone), and the stack restarts on the new version, which applies its migrations;
+3. if the new version does not start, or Traefik does not serve its dashboard, puts the previous one back: its files, and its database as the backup holds it.
 
 The dashboard is away for about a minute, environments keep running, and the page reloads by itself on the new version. Spawner restarts, so it refuses to update while jobs run: try again once they end. A server running a release is offered releases only; one running a prerelease (such as `2.1.0-rc.1`) is offered prereleases too.
 
@@ -103,7 +103,7 @@ curl -fsSL https://github.com/Flosk6/Spawner/releases/latest/download/install.sh
   | sudo bash -s -- --upgrade
 ```
 
-`--version 2.1.0` picks a version. If the new version does not start, the installer goes back to the previous one by itself. To go back later, restore the backup the upgrade took (it holds the database of the previous version), then install that version with `--upgrade --version <previous> --allow-downgrade`: migrations only go forward, so the installer refuses an older version without that option.
+`--version 2.1.0` picks a version. If the new version does not start, or Traefik does not serve its dashboard, the installer goes back to the previous one by itself. To go back later, restore the backup the upgrade took (it holds the database of the previous version), then install that version with `--upgrade --version <previous> --allow-downgrade`: migrations only go forward, so the installer refuses an older version without that option.
 
 **The CLI** checks `.spawner/` with its own copy of the rules: after an upgrade, everyone moves to the server's version (`npm install -g spawner-cli@2.1.0`); `spawner whoami` shows both versions ([the CLI](cli.md#versions-and-updates)).
 
