@@ -254,7 +254,7 @@ One bundle, `dist/spawner.cjs`, made by esbuild: CommonJS so that it runs saved 
 - `src/ops/`: the operations, shared by the commands and the MCP server: `up.ts` (local check with the project's permissions and variables, packing, create or update, wait), `envs.ts` (status with the timeline and crash loops, list, stats, capacity, url, share, stop, start, down, extend), `logs.ts`, `exec.ts`, `auth.ts` (device login, whoami, logout, tokens), `init.ts`, `shell.ts` (the Socket.IO terminal).
 - `src/mcp.ts`: `spawner mcp`, the MCP tools over the same operations, on stdio.
 - `src/context.ts`: the server connection, the target (project from `spawner.yaml` or `--project`, environment from the branch), waiting for jobs; `ensureAwake` wakes a sleeping environment before `exec`, `shell`, `url` and `logs --follow`.
-- `src/archive.ts`: what is sent (`git ls-files`, default excludes, `upload.include`) and the tar.gz (no hard links, symbolic links checked).
+- `src/archive.ts`: what is sent (`git ls-files` of the worktree and of the repositories cloned inside it, default excludes, `upload.include`) and the tar.gz (no hard links, symbolic links checked).
 - `src/check.ts`: `spawner.yaml` and the compose file validated with `@spawner/core` and the server's limits (`GET /api/v1/info`).
 - `src/config.ts`: `~/.config/spawner/credentials.json` (mode 0600), `SPAWNER_URL` and `SPAWNER_TOKEN`.
 - `src/errors.ts`: `CliError` and the [exit codes](cli.md#exit-codes).

@@ -3,7 +3,7 @@ import * as path from "path";
 import { Pack } from "tar";
 import { CliError } from "./errors";
 import { formatBytes } from "./format";
-import { git, gitTopLevel, splitNul } from "./git";
+import { git, gitLocation, gitSubmodulePaths, gitTopLevel, splitNul } from "./git";
 
 /** The files of a source that go into its archive. */
 export interface SourceFiles {
@@ -12,7 +12,9 @@ export interface SourceFiles {
   files: string[];
   /** Total size of the regular files. */
   bytes: number;
-  /** Paths left out, and why (submodules, sockets). */
+  /** The git repositories cloned inside and sent with it, relative to root, sorted. */
+  repositories: string[];
+  /** Paths left out, and why (submodules, worktrees, sockets). */
   skipped: { path: string; reason: string }[];
 }
 
@@ -63,11 +65,34 @@ export function globToRegExp(pattern: string): RegExp {
 }
 
 /**
+ * Rewrites a glob of upload.include, relative to the source's root, for git
+ * listing the repository at prefix: "admin/.env.preview" under "admin/"
+ * gives ".env.preview", and "api/.env" gives null, as it cannot match
+ * there. A glob naming a directory above prefix, or with "**" before its
+ * end, gives "**". Git only narrows the listing: every path it lists is
+ * then checked against the whole glob.
+ */
+export function globUnder(pattern: string, prefix: string): string | null {
+  const parts = pattern.replace(/^\.\//, "").replace(/\/+$/, "").split("/");
+  const dirs = prefix.split("/").filter(Boolean);
+  for (let i = 0; i < dirs.length; i++) {
+    if (i === parts.length || parts[i].includes("**")) {
+      return "**";
+    }
+    if (!globToRegExp(parts[i]).test(dirs[i])) {
+      return null;
+    }
+  }
+  return parts.slice(dirs.length).join("/") || "**";
+}
+
+/**
  * Lists the files of a source the way git sees the worktree: tracked files
  * and untracked files that are not ignored (uncommitted work included),
  * without dependencies and .env files unless tracked, plus the ignored files
- * that upload.include names. Outside git, every file but .git,
- * node_modules, vendor and .env files.
+ * that upload.include names. A git repository cloned inside, unless git
+ * ignores it, is listed the same way by its own git; submodules are not.
+ * Outside git, every file but .git, node_modules, vendor and .env files.
  *
  * @param root - Directory to send (the project root or a source's worktree)
  * @param include - Globs of upload.include, relative to root
@@ -75,42 +100,79 @@ export function globToRegExp(pattern: string): RegExp {
 export async function collectFiles(root: string, include: string[] = []): Promise<SourceFiles> {
   const included = include.map(globToRegExp);
   const isIncluded = (file: string) => included.some((pattern) => pattern.test(file));
-  let candidates: string[];
-
+  const source: SourceFiles = { root, files: [], bytes: 0, repositories: [], skipped: [] };
   if (await gitTopLevel(root)) {
-    const tracked = splitNul(await git(["ls-files", "-z", "--cached"], root));
-    const untracked = splitNul(await git(["ls-files", "-z", "--others", "--exclude-standard"], root));
-    const ignored =
-      include.length > 0
-        ? splitNul(await git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...include.map((pattern) => `:(glob)${pattern}`)], root))
-        : [];
-    candidates = [...tracked, ...untracked.filter((file) => !isExcludedByDefault(file) || isIncluded(file)), ...ignored.filter(isIncluded)];
+    await addRepository(source, "", include, isIncluded);
   } else {
-    candidates = walk(root, include).filter((file) => !isExcludedByDefault(file) || isIncluded(file));
+    addFiles(source, walk(root, include).filter((file) => !isExcludedByDefault(file) || isIncluded(file)));
+  }
+  source.files.sort();
+  source.repositories.sort();
+  return source;
+}
+
+/**
+ * Adds the files git sees in the repository at prefix, relative to the
+ * source's root ("" for its own, "admin/" for one cloned there), then goes
+ * down the repositories cloned inside it. Git lists each of them as one
+ * directory, as it does submodules, which .gitmodules declares, and
+ * worktrees of the same repository: both are skipped.
+ */
+async function addRepository(source: SourceFiles, prefix: string, include: string[], isIncluded: (file: string) => boolean): Promise<void> {
+  const dir = path.join(source.root, prefix);
+  const list = async (args: string[]) => splitNul(await git(["ls-files", "-z", ...args], dir)).map((file) => prefix + file);
+  const globs = include.flatMap((pattern) => globUnder(pattern, prefix) ?? []);
+  const tracked = await list(["--cached"]);
+  const untracked = await list(["--others", "--exclude-standard"]);
+  const ignored = globs.length > 0 ? await list(["--others", "--ignored", "--exclude-standard", "--", ...globs.map((glob) => `:(glob)${glob}`)]) : [];
+  const directories = addFiles(source, [...tracked, ...untracked.filter((file) => !isExcludedByDefault(file) || isIncluded(file)), ...ignored.filter(isIncluded)]);
+  if (directories.length === 0) {
+    return;
   }
 
-  const files: string[] = [];
-  const skipped: SourceFiles["skipped"] = [];
-  let bytes = 0;
-  for (const file of [...new Set(candidates)].sort()) {
+  const repository = await gitLocation(dir);
+  const submodules = await gitSubmodulePaths(repository.top);
+  for (const directory of directories) {
+    const nested = await gitLocation(path.join(source.root, directory)).catch(() => null);
+    if (submodules.includes(repository.prefix + directory.slice(prefix.length)) || nested?.prefix !== "") {
+      source.skipped.push({ path: directory, reason: "git submodule (not sent)" });
+    } else if (nested.gitDir === repository.gitDir) {
+      source.skipped.push({ path: directory, reason: "git worktree (not sent)" });
+    } else {
+      source.repositories.push(directory);
+      await addRepository(source, `${directory}/`, include, isIncluded);
+    }
+  }
+}
+
+/**
+ * Adds the regular files and symbolic links among paths to the source, and
+ * skips what is neither a file nor a directory.
+ *
+ * @returns The directories: git lists a directory holding a repository of
+ *   its own as one path
+ */
+function addFiles(source: SourceFiles, paths: string[]): string[] {
+  const directories: string[] = [];
+  for (const file of [...new Set(paths)].sort()) {
     let stat: fs.Stats;
     try {
-      stat = fs.lstatSync(path.join(root, file));
+      stat = fs.lstatSync(path.join(source.root, file));
     } catch {
       continue;
     }
     if (stat.isFile()) {
-      files.push(file);
-      bytes += stat.size;
+      source.files.push(file);
+      source.bytes += stat.size;
     } else if (stat.isSymbolicLink()) {
-      files.push(file);
+      source.files.push(file);
     } else if (stat.isDirectory()) {
-      skipped.push({ path: file, reason: "git submodule (not sent)" });
+      directories.push(file.replace(/\/+$/, ""));
     } else {
-      skipped.push({ path: file, reason: "not a regular file" });
+      source.skipped.push({ path: file, reason: "not a regular file" });
     }
   }
-  return { root, files, bytes, skipped };
+  return directories;
 }
 
 /**

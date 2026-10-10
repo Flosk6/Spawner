@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { list } from "tar";
 import { describe, expect, it } from "vitest";
-import { checkSourceFiles, collectFiles, globToRegExp, isExcludedByDefault, packFiles } from "./archive";
+import { checkSourceFiles, collectFiles, globToRegExp, globUnder, isExcludedByDefault, packFiles } from "./archive";
 import { CliError } from "./errors";
 import { git, repo, tempDir, write } from "./testing/repo";
 
@@ -87,6 +87,107 @@ describe("collectFiles", () => {
     expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
     expect(files.files).not.toContain("lib");
   });
+
+  it("sends a repository cloned inside as its own git sees it, but not a submodule", async () => {
+    const root = repo({ ".gitignore": "old/\n", "index.js": "x" });
+    git(root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", repo({ "lib.js": "x" }), "lib");
+    const admin = repo({ ".gitignore": "dist/\n", "src/main.js": "x" }, path.join(root, "admin"));
+    write(admin, "src/new.js", "uncommitted");
+    write(admin, "dist/bundle.js", "ignored");
+    write(admin, "node_modules/x/index.js", "dependency");
+    write(admin, ".env", "local secret");
+    repo({ "legacy.js": "x" }, path.join(root, "old"));
+
+    const files = await collectFiles(root);
+    expect(files.files).toEqual([".gitignore", ".gitmodules", "admin/.gitignore", "admin/src/main.js", "admin/src/new.js", "index.js"]);
+    expect(files.repositories).toEqual(["admin"]);
+    expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
+  });
+
+  it("sends a repository committed without .gitmodules, but not its empty directory in a clone", async () => {
+    const root = repo({ "index.js": "x" });
+    repo({ "lib.js": "x" }, path.join(root, "lib"));
+    git(root, "add", "lib");
+    git(root, "commit", "-q", "-m", "lib");
+    expect((await collectFiles(root)).files).toEqual(["index.js", "lib/lib.js"]);
+
+    const clone = path.join(tempDir(), "clone");
+    git(root, "clone", "-q", root, clone);
+    const files = await collectFiles(clone);
+    expect(files.files).toEqual(["index.js"]);
+    expect(files.repositories).toEqual([]);
+    expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
+  });
+
+  it("goes down the repositories cloned in cloned repositories, with upload.include", async () => {
+    const root = repo({ "index.js": "x" });
+    const api = repo({ ".gitignore": ".env.preview\ncerts/\n", "server.js": "x" }, path.join(root, "services/api"));
+    write(api, ".env.preview", "included");
+    write(api, ".env.local", "local secret");
+    write(api, "certs/dev.pem", "included");
+    repo({ "plugin.js": "x" }, path.join(api, "plugins/auth"));
+
+    const files = await collectFiles(root, ["services/api/.env.preview", "**/*.pem"]);
+    expect(files.files).toEqual([
+      "index.js",
+      "services/api/.env.preview",
+      "services/api/.gitignore",
+      "services/api/certs/dev.pem",
+      "services/api/plugins/auth/plugin.js",
+      "services/api/server.js",
+    ]);
+    expect(files.repositories).toEqual(["services/api", "services/api/plugins/auth"]);
+  });
+
+  it("sends a worktree of another repository, not one of its own", async () => {
+    const root = repo({ "index.js": "x" });
+    git(root, "worktree", "add", "-q", "-b", "other", "wt");
+    git(repo({ "server.js": "x" }), "worktree", "add", "-q", "-b", "feature", path.join(root, "api"));
+
+    const files = await collectFiles(root);
+    expect(files.files).toEqual(["api/server.js", "index.js"]);
+    expect(files.repositories).toEqual(["api"]);
+    expect(files.skipped).toEqual([{ path: "wt", reason: "git worktree (not sent)" }]);
+  });
+
+  it("never runs the fsmonitor a repository's config names", async () => {
+    const root = repo({ "index.js": "x" });
+    const admin = repo({ "main.js": "x" }, path.join(root, "admin"));
+    const marker = path.join(tempDir(), "ran");
+    for (const dir of [root, admin]) {
+      git(dir, "config", "core.fsmonitor", `touch '${marker}' #`);
+    }
+
+    expect((await collectFiles(root)).files).toEqual(["admin/main.js", "index.js"]);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("tells submodules from cloned repositories in the directory of a monorepo", async () => {
+    const root = repo({ "apps/api/server.js": "x" });
+    git(root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", repo({ "lib.js": "x" }), "apps/api/lib");
+    repo({ "client.js": "x" }, path.join(root, "apps/api/client"));
+
+    const files = await collectFiles(path.join(root, "apps/api"));
+    expect(files.files).toEqual(["client/client.js", "server.js"]);
+    expect(files.repositories).toEqual(["client"]);
+    expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
+  });
+});
+
+describe("globUnder", () => {
+  it.each([
+    [".env.preview", "", ".env.preview"],
+    ["admin/.env.preview", "admin/", ".env.preview"],
+    ["./admin/config/", "admin/", "config"],
+    ["*/.env.preview", "admin/", ".env.preview"],
+    ["api/.env", "admin/", null],
+    ["*.pem", "admin/", null],
+    ["admin", "admin/", "**"],
+    ["services", "services/api/", "**"],
+    ["**/*.pem", "admin/", "**"],
+  ])("%s under %s: %s", (pattern, prefix, expected) => {
+    expect(globUnder(pattern, prefix)).toBe(expected);
+  });
 });
 
 describe("checkSourceFiles", () => {
@@ -116,6 +217,22 @@ describe("checkSourceFiles", () => {
     }
     expect(failure?.code).toBe("upload_too_large");
     expect(failure?.hint).toContain("assets/ (2.0 KiB)");
+  });
+
+  it("counts the repositories cloned inside toward the limits", async () => {
+    const root = repo({ "a.txt": "x" });
+    repo({ "big.bin": "x".repeat(2000) }, path.join(root, "admin"));
+    const files = await collectFiles(root);
+    expect(files.bytes).toBe(2001);
+    expect(() => checkSourceFiles(files, ".", { maxFiles: 1, maxExtractedBytes: 1024 * 1024 }, "app")).toThrow(/2 files/);
+    let failure: CliError | undefined;
+    try {
+      checkSourceFiles(files, ".", { maxFiles: 1000, maxExtractedBytes: 1000 }, "app");
+    } catch (error) {
+      failure = error as CliError;
+    }
+    expect(failure?.code).toBe("upload_too_large");
+    expect(failure?.hint).toContain("admin/ (2.0 KiB)");
   });
 });
 
