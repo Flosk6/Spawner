@@ -23,7 +23,7 @@ const INSTRUCTIONS = `Spawner runs preview environments of this project on a ser
 const target = {
   env: z.string().optional().describe("Environment name; by default, the branch of the worktree (feat/login gives feat-login)"),
   project: z.string().optional().describe("Project slug; by default, the project of .spawner/spawner.yaml"),
-  path: z.string().optional().describe("Absolute path of the worktree; by default, the directory the MCP server runs in"),
+  path: z.string().optional().describe("Absolute path of the worktree; by default, the first root the client shares, else the directory the MCP server runs in"),
 };
 
 type Json = Record<string, unknown> | unknown[];

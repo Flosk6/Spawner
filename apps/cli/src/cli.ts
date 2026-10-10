@@ -240,6 +240,7 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
         output.print("");
         output.print(`Next: an admin registers the project ${output.out.bold(result.project)} in the dashboard (Projects), then:`);
         output.print("  spawner up --wait");
+        output.print(output.out.dim("Step by step: https://spawner.run/docs/quickstart/"));
       }),
     );
 
@@ -552,7 +553,7 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
 
   program
     .command("url")
-    .description("print the URL of an environment; --with-token adds the header that opens it")
+    .description("print the URL of an environment; --with-token adds the preview token header that opens it")
     .argument("[env]", "environment (default: from the branch)")
     .argument("[exposure]", "exposure of spawner.yaml (default: the entrypoint)")
     .addOption(projectOption())
@@ -750,8 +751,9 @@ export function buildProgram(io: Io, setExit: (code: number) => void): Command {
     "after",
     `
 Exit codes: 0 ok, 1 error, 2 usage, 3 authentication, 4 environment failed,
-5 timeout, 6 capacity, 7 spawner.yaml or compose file refused.
-Environment: SPAWNER_URL and SPAWNER_TOKEN replace spawner login; SPAWNER_PROJECT names the project.`,
+5 timeout, 6 quota or capacity, 7 spawner.yaml or compose file refused.
+Environment: SPAWNER_URL and SPAWNER_TOKEN replace spawner login; SPAWNER_PROJECT names the project.
+Documentation: https://spawner.run/docs/cli/`,
   );
   return program;
 }
