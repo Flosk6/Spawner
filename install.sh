@@ -43,7 +43,7 @@
 
 set -euo pipefail
 
-DEFAULT_VERSION="2.1.0"
+DEFAULT_VERSION="2.2.0"
 # The digest of the image of DEFAULT_VERSION, which the release workflow
 # writes into the install.sh it publishes: installing or upgrading to that
 # version runs the image the release built, whatever its tag points to later.

@@ -1,6 +1,6 @@
 {
   "name": "@spawner/api",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "Spawner API - Environment management system",
   "main": "dist/main.js",

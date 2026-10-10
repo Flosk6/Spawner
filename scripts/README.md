@@ -94,8 +94,8 @@ scripts/release.sh 2.1.0-rc.1   # a prerelease: only the tag
 Write the `CHANGELOG.md` section of the version first: the release notes come
 from it. Bump the digests of `POSTGRES_IMAGE` and `TRAEFIK_IMAGE` in
 `install.sh` too (`docker buildx imagetools inspect postgres:17-alpine` gives
-the digest of the index), since nothing updates them. The script sets the version of every `package.json` and the default
-version of `install.sh`, commits, and makes an annotated tag. The tag must be
+the digest of the index), since nothing updates them. The script sets the version of every `package.json`, of `server.json` and the
+default version of `install.sh`, commits, and makes an annotated tag. The tag must be
 on a commit of `master`: merge the branch with a merge commit (squash and
 rebase rewrite the tagged commit), then push the tag. It starts
 `.github/workflows/release.yml`, which refuses a tag that is not on `master`,
