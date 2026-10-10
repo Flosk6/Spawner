@@ -28,7 +28,9 @@ RUN pnpm --filter @spawner/api --prod deploy /out \
 FROM base AS runtime
 ARG SPAWNER_VERSION=
 LABEL org.opencontainers.image.title="Spawner" \
-      org.opencontainers.image.description="Preview environments for every branch, on your own server" \
+      org.opencontainers.image.description="Spawner is an open source, self-hosted preview environment manager: a copy of your app for each git branch, on your own server, with its own URLs, database and logs, for teams and their coding agents." \
+      org.opencontainers.image.url="https://spawner.run" \
+      org.opencontainers.image.documentation="https://spawner.run/docs/" \
       org.opencontainers.image.source="https://github.com/Flosk6/Spawner" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${SPAWNER_VERSION}"
