@@ -10,6 +10,13 @@ name: Release
 # of its image, so that it installs what this workflow built.
 # scripts/release.sh prepares the versions and the tag.
 #
+# Once the GitHub release of a stable version exists, the release job asks
+# the website (Flosk6/spawner-site) to rebuild, since it builds its docs from
+# the latest release. It does so with SITE_DISPATCH_TOKEN, a secret of the
+# "release" environment: a fine-grained token that can write the contents of
+# that repository only (repository_dispatch needs it), which no other job
+# reads. Without it, the website follows at its daily build.
+#
 # Once npm has a stable version, its server.json goes to the official MCP
 # Registry, which trusts this repository's OIDC token for the names
 # io.github.Flosk6/* (the owner's case: the registry compares it as is). That
@@ -324,6 +331,18 @@ jobs:
           gh release create "v$VERSION" release/install.sh release/spawner release/SHA256SUMS \
             --title "Spawner $VERSION" --notes-file release/notes.md \
             ${{ needs.version.outputs.prerelease == 'true' && '--prerelease' || '--latest' }}
+      - name: Ask spawner.run to rebuild its docs
+        if: env.PRERELEASE == 'false'
+        continue-on-error: true
+        env:
+          SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$SITE_DISPATCH_TOKEN" ]; then
+            echo "::notice::no SITE_DISPATCH_TOKEN: spawner.run follows this release at its daily build"
+            exit 0
+          fi
+          GH_TOKEN="$SITE_DISPATCH_TOKEN" gh api --method POST repos/Flosk6/spawner-site/dispatches \
+            -f event_type=spawner-release -f "client_payload[version]=$VERSION"
 
   mcp-registry:
     name: MCP server on the MCP Registry
