@@ -782,11 +782,32 @@ start() {
     compose pull --quiet postgres traefik
   fi
   configure_firewall
+  make_routes_readable
   STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   REPLACED=true
   compose up -d --remove-orphans
   wait_healthy
   wait_served
+}
+
+# Makes Traefik's routes readable before the stack starts. Traefik is root
+# without the capabilities of root, so it reads them as any other user
+# would, and Spawner 2.1 and before wrote them for its own user only (0640).
+# Traefik does not start its file provider when it cannot read the route
+# directory or a route, and never tries again: every URL, the dashboard's
+# included, then answers its own 404 until it restarts. So when one was not
+# readable, Traefik is stopped, for the stack to start it again. Spawner's
+# entrypoint makes them readable too, but Traefik starts first: Spawner
+# waits for Postgres.
+make_routes_readable() {
+  local dir="$DATA_DIR/traefik" unreadable
+  [ -d "$dir" ] || return 0
+  unreadable=$(find "$dir" -maxdepth 0 ! -perm -o=rx; find "$dir" -maxdepth 1 -type f -name '*.yaml' ! -perm -o=r)
+  chmod 755 "$dir"
+  find "$dir" -maxdepth 1 -type f -name '*.yaml' -exec chmod 644 {} +
+  [ -n "$unreadable" ] || return 0
+  docker stop spawner-traefik >/dev/null 2>&1 || true
+  ok "the routes in $dir made readable by Traefik, which starts again with the stack"
 }
 
 # Copies the rules of the image to firewall.nft, and has Docker load them
@@ -842,14 +863,22 @@ wait_healthy() {
   die "Spawner did not start: its last logs are above"
 }
 
-# Waits until Traefik serves the dashboard, with a certificate over HTTPS.
+# Waits until Traefik serves the dashboard, then, over HTTPS, for its
+# certificate. The first wait takes any certificate: a Traefik that routes
+# nothing (it answers its own 404, as when it cannot read its routes) fails
+# the installation, and puts an upgrade back, rather than pass for a
+# certificate still on its way.
 wait_served() {
+  local url="http://spawner.$DOMAIN" port=80 served=false
+  [ "$TLS" = off ] || { url="https://spawner.$DOMAIN"; port=443; }
+  for _ in $(seq 1 30); do
+    curl -fksS -o /dev/null --max-time 5 --resolve "spawner.$DOMAIN:$port:127.0.0.1" "$url/api/v1/healthz" 2>/dev/null && { served=true; break; }
+    sleep 2
+  done
+  [ "$served" = true ] || die "Traefik does not serve the dashboard: docker logs spawner-traefik"
   if [ "$TLS" = off ]; then
-    for _ in $(seq 1 30); do
-      curl -fsS -o /dev/null --max-time 5 -H "Host: spawner.$DOMAIN" "http://127.0.0.1/api/v1/healthz" && { ok "the dashboard answers on http://spawner.$DOMAIN"; return 0; }
-      sleep 2
-    done
-    die "Traefik does not serve the dashboard: docker logs spawner-traefik"
+    ok "the dashboard answers on $url"
+    return 0
   fi
   say "Waiting for the certificate (up to 3 minutes)"
   for _ in $(seq 1 90); do

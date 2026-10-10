@@ -8,6 +8,7 @@ are described in [docs/operations.md](../docs/operations.md).
 |---|---|---|
 | `e2e-engine.sh` | End-to-end test of the engine, access, the CLI, MCP, supervision and the lifecycle, on a local stack | A developer machine with Docker, and CI |
 | `e2e-installer.sh` | End-to-end test of `install.sh`: install, both examples (two branches at once), upgrade, second run, removal | A throwaway Ubuntu machine with sudo: the CI runner |
+| `e2e-upgrade.sh` | End-to-end test of the upgrade from the latest release to this build, with `install.sh --upgrade` and from the dashboard | A throwaway Ubuntu machine with sudo: the CI runner |
 | `capacity-check.sh` | Fills a real server up to the capacity it announces, checks it holds, then cleans up | Any machine with Node.js, against a server you may fill |
 | `release.sh` | Sets the versions, commits and tags a release | A clean checkout |
 
@@ -59,6 +60,33 @@ installer again without options, and removes everything with `--uninstall
 
 It changes the machine: Docker settings, `/opt/spawner`, `/var/lib/spawner`.
 Run it on a throwaway machine only; CI runs it on every pull request.
+
+## e2e-upgrade.sh
+
+```bash
+IMAGE=spawner:ci scripts/e2e-upgrade.sh
+```
+
+Tests the upgrade servers take at the next release: from the latest release
+GitHub lists when it starts (its `install.sh` downloaded from that tag and
+checked against the release's `SHA256SUMS`) to an image built beforehand. It
+installs the release with its own installer, deploys `examples/node-postgres`
+twice with the CLI that server serves, adds a row to each database and puts
+one environment to sleep, then upgrades. It does it twice: with this
+checkout's `install.sh --upgrade`, on a server whose Traefik answers its own
+404 everywhere because it cannot read its routes (as Spawner 2.1 wrote them),
+which the upgrade must repair; then, on a new installation, from the
+dashboard, the release's Spawner starting this build's installer as its next
+version. After each upgrade, it checks through Traefik, never the API's own
+port: the dashboard answers, the awake environment gives a 401 without a token
+and its page with one, the sleeping one gets the waiting page and wakes up,
+both with their data, and the database was backed up. Then it removes
+everything. The comment at the top of the script lists every check.
+
+What it does before an upgrade runs on the release: when this build changes
+the CLI or the API, keep that part to what the latest release can do. It
+changes the machine as `e2e-installer.sh` does: run it on a throwaway machine
+only; CI runs it on every pull request.
 
 ## capacity-check.sh
 

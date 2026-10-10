@@ -148,7 +148,7 @@ The credentials go to `/opt/spawner/dns.env`, readable by root only, and only Tr
 - **zram**, if you accept it (or with `--yes`): `zram-tools`, half of the memory, zstd.
 - **nftables** (`nft`), if it is missing, and **`/etc/systemd/system/docker.service.d/spawner-firewall.conf`**: Docker loads the rules of `/opt/spawner/firewall.nft` before it starts any container, so that after a reboot no environment runs a moment without them ([security](security.md#isolation)). The rules sit in a table of their own (`inet spawner`), which Docker, ufw and firewalld leave alone.
 - **`/opt/spawner`**: `compose.yaml`, `.env` (settings and secrets), `dns.env`, `spawner.env` (settings of your own, never overwritten), `firewall.nft`, `backups/`; mode 700.
-- **`/var/lib/spawner`**: the data directory (repository mirrors, environment sources, routes, job logs, deploy keys), mode 700.
+- **`/var/lib/spawner`**: the data directory (repository mirrors, environment sources, routes, job logs, deploy keys), mode 700; the routes in `traefik/` readable by Traefik (755 and 644).
 
 Nothing else: no Node.js on the host, no system upgrade, no cron. Spawner itself, Postgres and Traefik run as containers named `spawner`, `spawner-postgres` and `spawner-traefik`; `spawner-firewall` loads the rules of the environments again every minute.
 

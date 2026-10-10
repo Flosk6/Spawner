@@ -2,8 +2,9 @@
 
 The smallest useful Spawner project: an HTTP app, a PostgreSQL database seeded
 on the first deploy, one URL. The end-to-end tests (`scripts/e2e-engine.sh`,
-`scripts/e2e-installer.sh`) and the capacity check (`scripts/capacity-check.sh`)
-deploy it. [The examples page](../../docs/examples.md) describes both examples.
+`scripts/e2e-installer.sh`, `scripts/e2e-upgrade.sh`) and the capacity check
+(`scripts/capacity-check.sh`) deploy it. [The examples page](../../docs/examples.md)
+describes both examples.
 
 ```text
 .spawner/spawner.yaml   the project (example), one URL (web), the seed
