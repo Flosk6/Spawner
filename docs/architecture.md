@@ -263,4 +263,4 @@ Messages for people go to stderr and results to stdout (only JSON with `--json`)
 
 ## Releases
 
-`scripts/release.sh` versions and tags a release, and a tag starts `.github/workflows/release.yml`: images on GHCR for amd64 and arm64, the CLI on npm through trusted publishing, and a GitHub release with `install.sh` (the digest of the image written into it), the CLI bundle and their checksums; the images, `install.sh` and the bundle get build provenance attestations. See [scripts](../scripts/README.md#releasesh).
+`scripts/release.sh` versions and tags a release, and a tag starts `.github/workflows/release.yml`: images on GHCR for amd64 and arm64, the CLI on npm through trusted publishing, and a GitHub release with `install.sh` (the digest of the image written into it), the CLI bundle and their checksums; the images, `install.sh` and the bundle get build provenance attestations, and the website is asked to rebuild its docs. See [scripts](../scripts/README.md#releasesh).

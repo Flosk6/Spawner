@@ -104,7 +104,12 @@ publishes the images on GHCR (`linux/amd64`, `linux/arm64`), the CLI on npm
 (`spawner-cli`) and the GitHub release with `install.sh`, the CLI bundle and
 their checksums. The published `install.sh` gets the digest of the image
 (`IMAGE_DIGEST`, empty in the repository) unless it is a prerelease, and the
-images, `install.sh` and the bundle get build provenance attestations.
+images, `install.sh` and the bundle get build provenance attestations. For a stable
+version, the release job then asks the website (`Flosk6/spawner-site`) to
+rebuild its docs at once, with `SITE_DISPATCH_TOKEN`, a secret of the `release`
+environment: a fine-grained token limited to that repository, with Contents
+in read and write. Without it, or once it expires, the website follows at its
+daily build, and the release goes on.
 
 npm publishes through trusted publishing: the settings of the `spawner-cli`
 package on npmjs.com trust this repository's `release.yml`, so no token is
