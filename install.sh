@@ -52,7 +52,7 @@ IMAGE_REPOSITORY="ghcr.io/flosk6/spawner"
 # Postgres and Traefik, pinned by digest: bumped by hand before a release
 # (scripts/README.md).
 POSTGRES_IMAGE="postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
-TRAEFIK_IMAGE="traefik:v3.5@sha256:16acb89c6db341182970d6fdafece31303b0a380a8ed7aa51682e225229bf1d2"
+TRAEFIK_IMAGE="traefik:v3.7@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c"
 RELEASES_API="https://api.github.com/repos/Flosk6/Spawner/releases/latest"
 INSTALL_DIR="${SPAWNER_INSTALL_DIR:-/opt/spawner}"
 DATA_DIR="${SPAWNER_DATA_DIR:-}"
@@ -118,7 +118,7 @@ Spawner installer: sets up a server dedicated to preview environments.
   install.sh --uninstall [--purge]                     stop Spawner (--purge: delete everything)
 
 Without an option, the installer asks what it needs. Documentation:
-https://github.com/Flosk6/Spawner/blob/master/docs/install.md
+https://spawner.run/docs/install/
 EOF
   exit "${1:-0}"
 }
@@ -215,14 +215,15 @@ parse_args() {
   fi
 }
 
-# Values of a previous installation, kept unless an option changes them.
+# Values of a previous installation, kept unless an option changes them. The
+# .env alone is enough, as on a new server restored from a backup.
 load_previous() {
   if [ ! -f "$ENV_FILE" ]; then
     DATA_DIR=${DATA_DIR:-/var/lib/spawner}
     check_directory SPAWNER_DATA_DIR "$DATA_DIR"
     return 0
   fi
-  head -1 "$COMPOSE_FILE" 2>/dev/null | grep -q "^$MARKER" ||
+  head -1 "$ENV_FILE" | grep -q "^$MARKER" ||
     die "$INSTALL_DIR holds an installation this installer did not make (an older Spawner?): back it up and remove it first"
   local line key value previous_data_dir=""
   while IFS= read -r line || [ -n "$line" ]; do
@@ -293,8 +294,10 @@ check_system() {
   esac
 
   MEMORY_GB=$(awk '/^MemTotal:/ { printf "%d", $2 / 1024 / 1024 + 0.5 }' /proc/meminfo)
-  [ "$MEMORY_GB" -ge 2 ] || die "${MEMORY_GB} GiB of memory: 2 GiB at least, 8 advised"
-  if [ "$MEMORY_GB" -lt 8 ]; then
+  [ "$MEMORY_GB" -ge 2 ] || die "${MEMORY_GB} GiB of memory: 4 GiB needed, 8 advised"
+  if [ "$MEMORY_GB" -lt 4 ]; then
+    warn "$(small_memory)"
+  elif [ "$MEMORY_GB" -lt 8 ]; then
     warn "${MEMORY_GB} GiB of memory: it runs, 8 GiB are advised for several environments at once"
   else
     ok "${MEMORY_GB} GiB of memory"
@@ -317,6 +320,13 @@ check_system() {
   ok "ports $ports free"
 }
 
+# Below 4 GiB, the defaults leave no memory for a single environment: what to
+# lower instead.
+small_memory() {
+  printf '%s GiB of memory: with the default settings, no environment starts below 4 GiB. Lower the memory of an environment (SPAWNER_ENV_MEMORY, 2g by default) and the memory a build waits for (MIN_REQUIRED_FREE_MEMORY_GB, 2 by default), on the Settings page of the dashboard or in %s. 8 GiB are advised' \
+    "$MEMORY_GB" "$SETTINGS_FILE"
+}
+
 # --- Questions ----------------------------------------------------------------
 
 ask_questions() {
@@ -334,7 +344,7 @@ ask_questions() {
     ask DOMAIN "Domain of the previews, such as preview.example.com"
   fi
   [[ "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die "\"$DOMAIN\" is not a domain name"
-  [ -n "$EMAIL" ] || ask EMAIL "E-mail for Let's Encrypt (expiry notices)"
+  [ -n "$EMAIL" ] || ask EMAIL "E-mail of the Let's Encrypt account"
   [[ "$EMAIL" == *@*.* ]] || die "\"$EMAIL\" is not an e-mail address"
 
   if [ -z "$DNS_PROVIDER" ]; then
@@ -446,7 +456,7 @@ install_docker() {
     curl -fsSL https://get.docker.com | sh >/dev/null
     DOCKER_INSTALLED_NOW=true
   fi
-  docker compose version >/dev/null 2>&1 || die "the Docker Compose plugin is missing: apt-get install docker-compose-plugin"
+  docker compose version >/dev/null 2>&1 || die "the Docker Compose plugin is missing: apt-get install docker-compose-plugin with Docker's packages, or docker-compose-v2 with Ubuntu's docker.io"
   ok "$(docker --version), $(docker compose version --short 2>/dev/null || echo compose)"
   configure_docker
 }
@@ -504,7 +514,7 @@ PY
 configure_zram() {
   [ "$MEMORY_GB" -lt 8 ] || return 0
   if [ -z "$ZRAM" ]; then
-    if confirm "Below 8 GiB of memory, compressed swap in memory (zram) gives room for idle pages. Enable it?" y; then ZRAM=yes; else ZRAM=no; fi
+    if confirm "Below 8 GiB of memory, compressed swap in memory (zram) keeps idle pages compressed. Enable it?" y; then ZRAM=yes; else ZRAM=no; fi
   fi
   [ "$ZRAM" = yes ] || return 0
   command -v apt-get >/dev/null 2>&1 || { warn "zram needs apt-get: skipped"; return 0; }
@@ -606,6 +616,10 @@ SETTINGS
   umask 022
   chmod 600 "$ENV_FILE" "$DNS_ENV_FILE" "$SETTINGS_FILE"
 
+  # Every entry point drops the request headers whose name has a character
+  # other than a letter, a digit or a dash (aliasheadersstrategy=delete):
+  # PHP or CGI read X_Spawner_Preview or X.Forwarded.For as the dashed name,
+  # which Traefik's middlewares remove or set.
   local scheme=https ports='      - "80:80"
       - "443:443"' traefik_tls=""
   if [ "$TLS" = off ]; then
@@ -616,6 +630,7 @@ SETTINGS
     traefik_tls='      - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.aliasheadersstrategy=delete
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json'
     if [ "$wildcard" = true ]; then
@@ -672,6 +687,7 @@ services:
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
+      - --entrypoints.web.http.aliasheadersstrategy=delete
 $traefik_tls
       - --ping=true
       - --global.checknewversion=false
@@ -860,6 +876,7 @@ summary() {
   say "  spawner login $scheme://spawner.$DOMAIN"
   say ""
   say "Files in $INSTALL_DIR, data in $DATA_DIR. Upgrade: rerun this installer with --upgrade."
+  [ "${MEMORY_GB:-8}" -ge 4 ] || warn "$(small_memory)"
 }
 
 # --- Upgrade and removal ------------------------------------------------------
@@ -891,6 +908,7 @@ backup_database() {
 
 upgrade() {
   [ -f "$ENV_FILE" ] || die "Spawner is not installed in $INSTALL_DIR: run the installer without --upgrade"
+  [ -f "$COMPOSE_FILE" ] || die "$COMPOSE_FILE is missing: run the installer without --upgrade, which writes it again"
   check_system false
   resolve_version
   step "Upgrading from ${PREVIOUS_VERSION:-an unknown version} to $VERSION"
@@ -925,7 +943,7 @@ roll_back() {
       gunzip -c "$BACKUP_FILE" | docker exec -i spawner-postgres psql -q -U spawner -d spawner >/dev/null; then
       ok "database restored from $BACKUP_FILE"
     else
-      warn "the database could not be restored: restore $BACKUP_FILE by hand (docs/operations.md)"
+      warn "the database could not be restored: restore $BACKUP_FILE by hand (https://spawner.run/docs/operations/#restoring)"
     fi
   fi
   compose up -d --remove-orphans >/dev/null 2>&1 || true
@@ -939,7 +957,7 @@ roll_back() {
 uninstall() {
   [ "$(id -u)" -eq 0 ] || die "run it as root"
   if [ "$PURGE" = true ]; then
-    say "This deletes Spawner, every environment it runs with their data, its database, $DATA_DIR, and $INSTALL_DIR with the backups of the database."
+    say "This deletes Spawner, every environment it runs with their data, its database, $DATA_DIR, and $INSTALL_DIR with the backups of the database and the secrets."
     if [ "$ASSUME_YES" != true ]; then
       local answer=""
       [ -r /dev/tty ] || die "confirm with --yes"
