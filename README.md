@@ -17,7 +17,7 @@ Spawner builds preview environments (also called review apps or ephemeral enviro
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/dashboard-dark.png">
-  <img src=".github/assets/dashboard-light.png" alt="The Environments page of the Spawner dashboard: one row per environment, with its status, its source, who started it, its memory, and when it sleeps and expires.">
+  <img src=".github/assets/dashboard-light.png" alt="The Environments page of the Spawner dashboard: five environments of two projects, owned by three people, two of them started by coding agents, one building and one asleep. Each row shows its status, its source, who started it, its memory, and when it sleeps and expires.">
 </picture>
 
 ```text
