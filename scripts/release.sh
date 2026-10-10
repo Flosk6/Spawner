@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Prepares a release: sets the version of every package.json and the
-# default version of install.sh, commits, and tags. Pushing the tag starts
+# Prepares a release: sets the version of every package.json, of server.json
+# and the default version of install.sh, commits, and tags. Pushing the tag starts
 # the Release workflow (.github/workflows/release.yml), which publishes the
 # images, the CLI and the GitHub release. The workflow refuses a tag whose
 # commit is not on master: merge the branch into master with a merge commit
@@ -34,7 +34,17 @@ if [[ "$version" != *-* ]]; then
     ' "$file" "$version"
   done
   sed -i.bak "s/^DEFAULT_VERSION=\"[^\"]*\"$/DEFAULT_VERSION=\"$version\"/" install.sh && rm install.sh.bak
-  git add package.json apps/*/package.json packages/*/package.json install.sh
+  # The MCP Registry's entry: the workflow publishes it at the version of the tag, this keeps the file in step.
+  # shellcheck disable=SC2016 # JavaScript, not shell
+  node -e '
+    const fs = require("fs");
+    const version = process.argv[1];
+    const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+    server.version = version;
+    for (const pkg of server.packages) pkg.version = version;
+    fs.writeFileSync("server.json", `${JSON.stringify(server, null, 2)}\n`);
+  ' "$version"
+  git add package.json apps/*/package.json packages/*/package.json install.sh server.json
   git diff --cached --quiet || git commit -q -m "chore(release): $version"
 fi
 
