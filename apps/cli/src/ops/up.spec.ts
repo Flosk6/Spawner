@@ -80,6 +80,17 @@ describe("up", () => {
     expect(progress).toEqual(expect.arrayContaining(["Creating feat-login in example", "building...", expect.stringMatching(/^Ready in/)]));
   });
 
+  it("names the repositories cloned inside that it sends", async () => {
+    repo({ "server.js": "x" }, path.join(root, "api"));
+    const progress: string[] = [];
+    const result = await up(fakeContext(root, routes()), { onProgress: (message) => progress.push(message) });
+
+    const create = calls.find((call) => call.method === "POST" && call.path === "/envs")!;
+    expect(await archiveEntries(create.form!, "primary")).toContain("api/server.js");
+    expect(result.uploads).toEqual([expect.objectContaining({ source: "app", files: 6, repositories: ["api"] })]);
+    expect(progress).toEqual(expect.arrayContaining([expect.stringMatching(/^Packing app: 6 files, .*, with the repositories cloned in api\/$/)]));
+  });
+
   it("updates an existing environment, with fresh and reseed", async () => {
     const result = await up(
       fakeContext(root, routes({ "GET /envs": () => [environment("ready")], "POST /envs/env-1/update": () => ({ environment: environment("queued"), job: job("queued", { type: "update" }) }) })),

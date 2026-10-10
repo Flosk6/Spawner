@@ -39,6 +39,8 @@ export interface UploadSummary {
   files: number;
   bytes: number;
   archiveBytes: number;
+  /** The git repositories cloned inside the source and sent with it ("api", "services/web"). */
+  repositories: string[];
 }
 
 /** What `spawner up --json` prints. */
@@ -124,7 +126,8 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
       const files = await collectFiles(root, include);
       files.skipped.forEach((skip) => warnings.push(`${name}: ${skip.path} skipped (${skip.reason})`));
       checkSourceFiles(files, prefix, info.limits.upload, name);
-      progress(`Packing ${name}: ${files.files.length} files, ${formatBytes(files.bytes)}`);
+      const clones = files.repositories.length > 0 ? `, with the repositories cloned in ${files.repositories.map((dir) => `${dir}/`).join(", ")}` : "";
+      progress(`Packing ${name}: ${files.files.length} files, ${formatBytes(files.bytes)}${clones}`);
       const target = path.join(temporary, `${field.replace(":", "-")}.tar.gz`);
       const archiveBytes = await packFiles(files, prefix, target);
       if (archiveBytes > info.limits.upload.maxBytes) {
@@ -134,7 +137,7 @@ export async function up(ctx: Context, options: UpOptions): Promise<UpResult> {
         });
       }
       form.append(field, await fileBlob(target), `${field.replace(":", "-")}.tar.gz`);
-      uploads.push({ source: name, files: files.files.length, bytes: files.bytes, archiveBytes });
+      uploads.push({ source: name, files: files.files.length, bytes: files.bytes, archiveBytes, repositories: files.repositories });
     };
 
     if (primaryFromGit) {

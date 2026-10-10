@@ -100,6 +100,7 @@ describe("collectFiles", () => {
 
     const files = await collectFiles(root);
     expect(files.files).toEqual([".gitignore", ".gitmodules", "admin/.gitignore", "admin/src/main.js", "admin/src/new.js", "index.js"]);
+    expect(files.repositories).toEqual(["admin"]);
     expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
   });
 
@@ -114,6 +115,7 @@ describe("collectFiles", () => {
     git(root, "clone", "-q", root, clone);
     const files = await collectFiles(clone);
     expect(files.files).toEqual(["index.js"]);
+    expect(files.repositories).toEqual([]);
     expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
   });
 
@@ -134,6 +136,7 @@ describe("collectFiles", () => {
       "services/api/plugins/auth/plugin.js",
       "services/api/server.js",
     ]);
+    expect(files.repositories).toEqual(["services/api", "services/api/plugins/auth"]);
   });
 
   it("sends a worktree of another repository, not one of its own", async () => {
@@ -143,7 +146,20 @@ describe("collectFiles", () => {
 
     const files = await collectFiles(root);
     expect(files.files).toEqual(["api/server.js", "index.js"]);
+    expect(files.repositories).toEqual(["api"]);
     expect(files.skipped).toEqual([{ path: "wt", reason: "git worktree (not sent)" }]);
+  });
+
+  it("never runs the fsmonitor a repository's config names", async () => {
+    const root = repo({ "index.js": "x" });
+    const admin = repo({ "main.js": "x" }, path.join(root, "admin"));
+    const marker = path.join(tempDir(), "ran");
+    for (const dir of [root, admin]) {
+      git(dir, "config", "core.fsmonitor", `touch '${marker}' #`);
+    }
+
+    expect((await collectFiles(root)).files).toEqual(["admin/main.js", "index.js"]);
+    expect(fs.existsSync(marker)).toBe(false);
   });
 
   it("tells submodules from cloned repositories in the directory of a monorepo", async () => {
@@ -153,6 +169,7 @@ describe("collectFiles", () => {
 
     const files = await collectFiles(path.join(root, "apps/api"));
     expect(files.files).toEqual(["client/client.js", "server.js"]);
+    expect(files.repositories).toEqual(["client"]);
     expect(files.skipped).toEqual([{ path: "lib", reason: "git submodule (not sent)" }]);
   });
 });

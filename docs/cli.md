@@ -166,7 +166,7 @@ In the dashboard, an update is **Redeploy**; **Redeploy and replay the seed** is
 
 Before sending anything, `up` checks `spawner.yaml` and the compose file with the same code and the same limits as the server: a refused file fails in a second, with every issue and its path (exit code 7, [the issues](manifest.md#when-spawner-is-refused)). It also stops when the project is not registered on the server (`project "blog" is not registered on https://...`), and when `spawner.yaml` is not where the project expects it, its directory for a monorepo (`spawner.yaml is in apps/blog, but project blog expects it in the root`, exit code 2).
 
-What is sent: the files git sees in the worktree (`git ls-files --cached --others --exclude-standard`), so uncommitted work is included and ignored files are not. A git repository cloned inside the project (a directory with its own `.git`, neither a submodule nor ignored by the project) is sent the same way, as its own git sees it: a workspace holding clones of `api/` and `web/` sends them along, and its compose file builds `../api` without a source per clone.
+What is sent: the files git sees in the worktree (`git ls-files --cached --others --exclude-standard`), so uncommitted work is included and ignored files are not. A git repository cloned inside the project (a directory with its own `.git`, neither a submodule nor ignored by the project) is sent the same way, as its own git sees it: a workspace holding clones of `api/` and `web/` sends them along, and its compose file builds `../api` without a source per clone. `up` names the clones it sends (`Packing blog: 1387 files, 11.0 MiB, with the repositories cloned in api/, web/`), and runs git there with `core.fsmonitor` off, so that the config of a clone cannot name a command to run.
 
 - Untracked `node_modules/` and `vendor/` directories and local secrets are not sent: `.env` files (`.env.local`, `.env-staging`...), `.npmrc`, `.yarnrc.yml`, `.pypirc`, `.netrc`, `.git-credentials`, `.pgpass`, `.dockercfg`, private SSH keys (`id_ed25519`...) and `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`. `upload.include` in `spawner.yaml` names ignored files to send anyway (globs: `config/*.local.php`, `**/*.pem`).
 - A file the compose file uses, such as an `env_file`, must be sent too: commit it, or add it to `upload.include`. The local check reads the worktree, where the file exists, so only the server notices it is missing.
@@ -362,7 +362,7 @@ With `--json`, stdout carries one JSON document (or one object per line for `log
 
 | Command | Output |
 |---|---|
-| `up` | `{ action: "created" \| "updated", environment, job, uploads: [{ source, files, bytes, archiveBytes }], warnings, waited, timedOut, logTail? }`. `environment.url` is the entrypoint's URL, `environment.urls` every URL by exposure |
+| `up` | `{ action: "created" \| "updated", environment, job, uploads: [{ source, files, bytes, archiveBytes, repositories }], warnings, waited, timedOut, logTail? }`. `environment.url` is the entrypoint's URL, `environment.urls` every URL by exposure |
 | `status` | `{ environment, services: ServiceState[], events: TimelineEvent[], crashLoops: CrashLoop[] }` |
 | `ls` | `{ environments: Environment[] }` |
 | `stats` | `{ environment, services: ServiceUsage[] }` |

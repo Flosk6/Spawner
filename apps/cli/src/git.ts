@@ -8,7 +8,9 @@ let gitPath: string | null | undefined;
 /**
  * Runs git with an argument array (never through a shell), without
  * prompts, and returns its standard output. git runs by its absolute path
- * from the PATH, never from the worktree it works in (see findProgram).
+ * from the PATH, never from the worktree it works in (see findProgram), and
+ * with core.fsmonitor off: git runs in the repositories cloned inside a
+ * project too, whose config could otherwise name a command to run.
  */
 export function git(args: string[], cwd: string): Promise<string> {
   if (gitPath === undefined) {
@@ -22,7 +24,7 @@ export function git(args: string[], cwd: string): Promise<string> {
     }
     execFile(
       program,
-      args,
+      ["-c", "core.fsmonitor=false", ...args],
       { cwd, maxBuffer: 512 * 1024 * 1024, encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } },
       (error, stdout, stderr) => {
         if (error) {

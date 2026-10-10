@@ -12,6 +12,8 @@ export interface SourceFiles {
   files: string[];
   /** Total size of the regular files. */
   bytes: number;
+  /** The git repositories cloned inside and sent with it, relative to root, sorted. */
+  repositories: string[];
   /** Paths left out, and why (submodules, worktrees, sockets). */
   skipped: { path: string; reason: string }[];
 }
@@ -98,13 +100,14 @@ export function globUnder(pattern: string, prefix: string): string | null {
 export async function collectFiles(root: string, include: string[] = []): Promise<SourceFiles> {
   const included = include.map(globToRegExp);
   const isIncluded = (file: string) => included.some((pattern) => pattern.test(file));
-  const source: SourceFiles = { root, files: [], bytes: 0, skipped: [] };
+  const source: SourceFiles = { root, files: [], bytes: 0, repositories: [], skipped: [] };
   if (await gitTopLevel(root)) {
     await addRepository(source, "", include, isIncluded);
   } else {
     addFiles(source, walk(root, include).filter((file) => !isExcludedByDefault(file) || isIncluded(file)));
   }
   source.files.sort();
+  source.repositories.sort();
   return source;
 }
 
@@ -136,6 +139,7 @@ async function addRepository(source: SourceFiles, prefix: string, include: strin
     } else if (nested.gitDir === repository.gitDir) {
       source.skipped.push({ path: directory, reason: "git worktree (not sent)" });
     } else {
+      source.repositories.push(directory);
       await addRepository(source, `${directory}/`, include, isIncluded);
     }
   }
