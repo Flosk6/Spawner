@@ -10,13 +10,13 @@
     "subfolder": "apps/cli"
   },
   "websiteUrl": "https://spawner.run/docs/agents/",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "spawner-cli",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "transport": {
         "type": "stdio"
       },
