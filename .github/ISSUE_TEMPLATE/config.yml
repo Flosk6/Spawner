@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/Flosk6/Spawner/security/advisories/new
     about: Report it privately, never in an issue
   - name: Documentation
-    url: https://github.com/Flosk6/Spawner#documentation
+    url: https://spawner.run/docs/
     about: Installing, the manifest, the CLI, agents, security, operations

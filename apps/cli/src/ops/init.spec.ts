@@ -6,7 +6,7 @@ import { checkProject } from "../check";
 import { INFO } from "../testing/fake-api";
 import { repo, tempDir, write } from "../testing/repo";
 import { loadWorkspace } from "../workspace";
-import { AGENTS_HEADING, detectDatabase, detectPort, init, projectSlug } from "./init";
+import { AGENTS_HEADING, MANIFEST_DOCS, detectDatabase, detectPort, init, projectSlug } from "./init";
 
 describe("init", () => {
   it.each(["postgres", "mysql", "none"] as const)("writes files the server accepts (database: %s)", async (db) => {
@@ -19,6 +19,15 @@ describe("init", () => {
     expect(check.services).toEqual(db === "none" ? ["app"] : ["app", "db"]);
   });
 
+  it("points spawner.yaml to the documentation site, not to a branch of the repository", async () => {
+    const dir = repo({ Dockerfile: "FROM node:22\n" });
+    await init({ dir, project: "shop", db: "none", agentsFile: null });
+    const manifest = fs.readFileSync(path.join(dir, ".spawner/spawner.yaml"), "utf8");
+    expect(MANIFEST_DOCS).toBe("https://spawner.run/docs/manifest/");
+    expect(manifest).toContain(`# Reference: ${MANIFEST_DOCS}\n`);
+    expect(manifest).not.toMatch(/github\.com/);
+  });
+
   it("adds the agent instructions once, after the existing content", async () => {
     const dir = repo({ "CLAUDE.md": "# Project\n", Dockerfile: "FROM x" });
     expect((await init({ dir, project: "shop", db: "postgres", agentsFile: "CLAUDE.md" })).agentsFile).toBe("CLAUDE.md");
@@ -28,6 +37,7 @@ describe("init", () => {
     expect(content.startsWith("# Project\n\n## Preview environments (Spawner)")).toBe(true);
     expect(content.split(AGENTS_HEADING)).toHaveLength(2);
     expect(content).toContain("spawner exec <env> db -- <command>");
+    expect(content).toContain("Code 6 means your quota or the server's capacity is reached");
   });
 
   it("keeps existing files unless forced, and warns without a Dockerfile", async () => {

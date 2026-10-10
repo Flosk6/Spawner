@@ -1,24 +1,29 @@
 # Architecture
 
-How Spawner is built, for those who read or change its code. [Concepts](concepts.md) describes what it does from the user's side, and [security](security.md) what it protects and why; this page says where each part lives.
+How Spawner is built, for those who read or change its code: the pieces, the API, the engine, the dashboard, the CLI and the releases.
+
+[Concepts](concepts.md) describes what it does from the user's side, and [security](security.md) what it protects and why; this page says where each part lives.
 
 ## The pieces
 
 ```text
-                    ports 80 and 443
-                           |
-                    spawner-traefik           file provider, no Docker socket
-                     |           |
-       spawner-core network    one network per environment
-             |                   |
-          spawner                web, api, db of each environment
-   API, dashboard, CLI bundle    (a Compose project: spn-<project>--<env>)
-   Docker socket, data directory
-             |
-       spawner-postgres
+             ports 80 and 443
+                    |
+             spawner-traefik
+     file provider, no Docker socket
+         |                    |
+  spawner-core network    one network per environment
+         |                    |
+      spawner             web, api, db of each environment,
+  API, dashboard,         a Compose project:
+  CLI bundle;             spn-<project>--<env>
+  Docker socket,
+  data directory
+         |
+  spawner-postgres
 ```
 
-- **One image** (the root `Dockerfile`) runs the API and serves the dashboard (`WEB_DIST_PATH=/app/web`) and the CLI bundle (`SPAWNER_CLI_PATH=/app/cli/spawner`) on the same origin. It carries git, ssh, the Docker CLI with the compose plugin, and the installer (`/app/install.sh`) for updates. Its entrypoint gives the `node` user access to the Docker socket and the data directory, applies the Prisma migrations, then drops root.
+- **One image** (the root `Dockerfile`) runs the API and serves the dashboard (`WEB_DIST_PATH=/app/web`) and the CLI bundle (`SPAWNER_CLI_PATH=/app/cli/spawner`) on the same origin. It carries git, ssh, the Docker CLI with the compose plugin, and the installer (`/app/install.sh`) for updates. Its entrypoint, started as root, gives the `node` user access to the Docker socket and the data directory, then drops root: the Prisma migrations and the API run as `node`.
 - **Postgres** holds Spawner's state, including the job queue and the sessions.
 - **Traefik** v3 reads its routes from files Spawner writes into `<data dir>/traefik/` (file provider, watched). It has no Docker socket: Spawner attaches it to each environment's network.
 - **The firewall** (`spawner-firewall`, the same image on the host's network with `NET_ADMIN` only) loads `firewall.nft` every minute: the containers of Docker's bridge networks reach neither the metadata services of the clouds nor the host's services but DNS, HTTP and HTTPS. `install.sh` also has Docker load the file before it starts (a drop-in of `docker.service`). The development stack starts it with `--profile firewall` only, since it changes the host's rules.
@@ -83,7 +88,7 @@ A pnpm workspace built with Turborepo. `build` depends on the build of the depen
 
 ### Routes
 
-Everything is under `/api/v1`, in the modules of `apps/api/src/modules/`. The shapes the routes answer are in `packages/types`, shared by the dashboard and the CLI.
+Everything is under `/api/v1`, in the modules of `apps/api/src/modules/`, but one redirect: `/api/auth/github/callback` (`LegacyGithubCallbackController` in `auth/auth.controller.ts`), the GitHub callback of earlier versions, which OAuth apps created for them still call, forwards to `/api/v1/auth/github/callback`. The shapes the routes answer are in `packages/types`, shared by the dashboard and the CLI.
 
 | Prefix | Where |
 |---|---|
@@ -160,7 +165,7 @@ An environment is ready once Traefik serves its hosts.
 - `lifecycle.service.ts`, every minute: an awake environment (`ready` or `degraded`) idle for longer than its idle time gets a `sleep` job (its status is `sleeping` from the start, its URLs lead to the waiting page, then its containers stop); expired environments are deleted, by the actor "Spawner (expired)". A visit to a team URL of a sleeping environment queues a `wake` job when the server has the memory; a wake-up recreates the containers from their images if they are gone.
 - `reconcile.service.ts`, at startup and every minute: an awake environment with a service exited, restarting or unhealthy is `degraded` with the reason, and `ready` again once all run; one whose containers are gone, or left in a transitional status without a job, fails.
 - `cleanup.service.ts`: what deleted environments left (containers, volumes, networks, images, routes, directories), images of previous builds that no container runs, and uploads older than a day go automatically. Resources labelled for environments this installation does not know, and unused git mirrors, wait for an admin (`POST /api/v1/system/cleanup`). Spawner never runs a global prune.
-- Creating an environment needs the person's quota (409, code `quota`) and room for a typical environment of the project (503, code `capacity`); starting and waking need the memory.
+- Creating an environment needs the person's quota (409, code `quota`) and the capacity for a typical environment of the project (503, code `capacity`); starting and waking need the memory.
 
 ### Supervision
 
@@ -185,18 +190,23 @@ An environment is ready once Traefik serves its hosts.
 
 ```text
 <SPAWNER_DATA_DIR>/
-  mirrors/<hash>/                    bare partial mirror of a repository (--filter=blob:none), shared
-  envs/<id>/src/_primary/            the project repository: git worktree or extracted upload
-  envs/<id>/src/<source>/            the other sources
+  mirrors/<hash>.git/        bare partial mirror of a repository, shared
+  envs/<id>/src/_primary/    the project repository: git worktree or upload
+  envs/<id>/src/<source>/    the other sources
   envs/<id>/compose.rendered.yaml
-  traefik/<id>.yaml                  routes of an environment; traefik/_spawner.yaml for the dashboard
-  jobs/<id>.log                      job logs (the last 5 jobs of each environment)
-  archives/<id>/<service>.jsonl.gz   last 1 MiB of each service's output, after a delete (7 days)
-  terminals/<session>.log            terminal recordings (30 days)
-  uploads/                           archives waiting for their job
-  keys/                              deploy keys and known_hosts
-  secret.key                         the master secret, when SPAWNER_SECRET is not set
+  traefik/<id>.yaml          routes of an environment
+  traefik/_spawner.yaml      the dashboard and the preview middlewares
+  jobs/<id>.log              job log; the last 5 jobs of each environment
+  archives/<id>/<service>.jsonl.gz
+                             a deleted environment's last logs (7 days)
+  terminals/<session>.log    terminal recordings (30 days)
+  uploads/                   archives waiting for their job
+  home/                      HOME and working directory of git and compose
+  keys/                      deploy keys and known_hosts
+  secret.key                 master secret, when SPAWNER_SECRET is unset
 ```
+
+Mirrors are partial clones (`--filter=blob:none`); an archive keeps the last 1 MiB of each service's output, compressed.
 
 It is mounted at the same path inside the Spawner container: the compose files Spawner renders use these paths.
 
@@ -220,18 +230,20 @@ The look comes from one set of tokens, so the light and dark themes cannot drift
 
 The shell: `AppSidebar.vue` (navigation, the server's domain and version, the update an admin can install, the theme, the account), `AppTopbar.vue` (breadcrumbs: a route's `meta.crumbs`, or what a page sets with `setBreadcrumbs` once its subject is loaded; the update too where the sidebar is a drawer, both from `useAvailableUpdate`), and `CommandPalette.vue` (Ctrl+K or Cmd+K: environments, projects, pages and a few actions). Sign-in pages and the CLI approval have `meta.layout: 'focus'` and stand alone; the approval names the account the CLI will act as. Shared pieces: `ActionMenu.vue` (a PrimeVue popup menu with Lucide icons), `SegmentedControl.vue`, `EnvironmentStatus.vue`, `SourceLabel.vue`, `UserAvatar.vue`, `Logo.vue` (the mark, drawn in SVG, and the wordmark). Confirmations go through `useNotification`'s `confirmAction`, rendered by the dialog in `App.vue`.
 
-| View | |
+Each page, with its name in the sidebar in parentheses:
+
+| View | What it shows |
 |---|---|
-| `Home.vue` | Live environments by status, the reader's quota, free memory, how many more environments fit, recent environments, projects, the CLI |
-| `ProjectList.vue`, `ProjectDetail.vue` | Projects (created and edited by admins in `ProjectDialog.vue`); what a project uses, what one environment costs, how many more fit, its variables |
-| `EnvironmentList.vue` | A table of the environments, filtered by name, branch or owner, by owner, project and status, and those deleted in the last 7 days; created in `EnvironmentDialog.vue` (also from the palette, through `?new=1`), which reads `spawner.yaml` to offer a branch per source and shows the URL to come |
+| `Home.vue` (Overview) | Live environments by status, the reader's quota, free memory, how many more environments fit, recent environments, projects, the CLI |
+| `ProjectList.vue`, `ProjectDetail.vue` (Projects) | Projects (created and edited by admins in `ProjectDialog.vue`); what a project uses, what one environment costs, how many more fit, its variables |
+| `EnvironmentList.vue` (Environments) | A table of the environments, filtered by name, branch or owner, by owner, project and status, and those deleted in the last 7 days; created in `EnvironmentDialog.vue` (also from the palette, through `?new=1`), which reads `spawner.yaml` to offer a branch per source and shows the URL to come |
 | `EnvironmentDetail.vue` | Banners for crash loops, sleep, failures and running jobs above the tabs: overview (services with their memory, URLs, sources, lifecycle, share links, disk), logs (`LogViewer.vue`), resources (`ResourcePanel.vue`, `UsageChart.vue`), timeline (`TimelinePanel.vue`), jobs (`JobsPanel.vue`, `JobLog.vue`, with the phase a deploy is at or failed in), terminal; a deleted environment opens read-only, with its archived logs |
 | `Login.vue`, `InviteAccept.vue` | Passkey login, GitHub when configured; an invitation link: a name, then a passkey |
 | `DeviceApproval.vue` | Approves a CLI login: the user types the code, which the page never reads from the URL |
-| `Account.vue` | Name, passkeys, linked GitHub, installing the CLI and the MCP server, API tokens |
-| `Team.vue` | Members, roles and reactivations (each confirmed first), deactivation, links for a new passkey, invitations |
-| `Settings.vue`, `Audit.vue`, `GitSettings.vue` | Limits (`LimitsSettings.vue`), GitHub login; the audit trail and terminal recordings; deploy keys |
-| `SystemOverview.vue` | Alerts, the host now and over time, the disk breakdown, capacity per project, every container, updates, cleanup |
+| `Account.vue` (Account and tokens, in the user menu) | Name, passkeys, linked GitHub, installing the CLI and the MCP server, API tokens |
+| `Team.vue` (Team) | Members, roles and reactivations (each confirmed first), deactivation, links for a new passkey, invitations |
+| `Settings.vue`, `Audit.vue`, `GitSettings.vue` (Settings, Audit, Git keys) | Limits (`LimitsSettings.vue`), GitHub login; the audit trail and terminal recordings; deploy keys |
+| `SystemOverview.vue` (System) | Alerts, the host now and over time, the disk breakdown, capacity per project, every container, updates, cleanup |
 
 ## The CLI (apps/cli)
 

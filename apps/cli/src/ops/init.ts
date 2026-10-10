@@ -29,6 +29,13 @@ export interface InitResult {
 export const AGENTS_HEADING = "## Preview environments (Spawner)";
 
 /**
+ * The reference of spawner.yaml, written into every manifest `init` creates:
+ * the documentation site, which follows the latest release, rather than a
+ * branch of the repository that may fall behind or disappear.
+ */
+export const MANIFEST_DOCS = "https://spawner.run/docs/manifest/";
+
+/**
  * The instructions `spawner init` adds to CLAUDE.md or AGENTS.md, so that a
  * coding agent knows how to test its work on a preview environment.
  */
@@ -41,13 +48,14 @@ This project runs preview environments on Spawner: one per branch, with its own 
 - To test end to end, run \`spawner up --wait --json\` from the worktree root. It creates or updates the
   environment of the current branch and prints its name and URLs. Add \`--source <name>=<path>\` to send
   another repository of spawner.yaml from a local worktree.
-- Use the returned URLs. For curl or Playwright, get the auth header with
+- Use the returned URLs. For curl or Playwright, get the preview token header with
   \`spawner url <env> --with-token --json\`.
 - Commands in ${database}: \`spawner exec <env> ${db === "none" ? "<service>" : "db"} -- <command>\` (\`-i\` sends stdin, such as a SQL file).
 - Debugging: \`spawner logs <env> <service> --errors\`, and \`spawner status <env> --json\` for restarts and
   out-of-memory kills.
 - If \`spawner up\` exits with code 4, read the log tail it printed, fix the cause, then retry. Code 7 means
-  .spawner/ was refused: fix what it lists.
+  .spawner/ was refused: fix what it lists. Code 6 means your quota or the server's capacity is reached:
+  \`spawner ls --all --mine --json\` lists your environments; delete those whose work is done, or ask a person.
 - To show the result to someone without an account: \`spawner share <env>\`.
 - When the task is done and validated, run \`spawner down <env>\`.
 `;
@@ -157,7 +165,7 @@ const DATABASE_SERVICES: Record<Exclude<Database, "none">, { service: string; ur
 
 function manifestTemplate(project: string, port: number): string {
   return `# Spawner runs one preview environment of this project per branch.
-# Reference: https://github.com/Flosk6/Spawner/blob/v1/docs/manifest.md
+# Reference: ${MANIFEST_DOCS}
 version: 1
 project: ${project}          # slug of the project on Spawner
 compose: compose.yaml         # relative to .spawner/

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Flosk6/spawner",
+  "title": "Spawner",
+  "description": "Preview environments on your self-hosted Spawner server: a copy of your app for each git branch",
+  "repository": {
+    "url": "https://github.com/Flosk6/Spawner",
+    "source": "github",
+    "id": "1105425637",
+    "subfolder": "apps/cli"
+  },
+  "websiteUrl": "https://spawner.run/docs/agents/",
+  "version": "2.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "spawner-cli",
+      "version": "2.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "SPAWNER_URL",
+          "description": "Address of your Spawner server's dashboard, such as https://spawner.preview.example.com. Without it, the server of spawner login",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "SPAWNER_TOKEN",
+          "description": "Personal API token (spn_...), from spawner token create or the dashboard. Without it, the token of spawner login",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

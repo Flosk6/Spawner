@@ -27,8 +27,9 @@ export function formatDuration(seconds: number): string {
     const minutes = Math.floor((s % 3600) / 60);
     return minutes === 0 || s >= 10 * 3600 ? `${Math.round(s / 3600)}h` : `${Math.floor(s / 3600)}h ${minutes}m`;
   }
-  const hours = Math.round((s % 86400) / 3600);
-  return hours === 0 ? `${Math.floor(s / 86400)}d` : `${Math.floor(s / 86400)}d ${hours}h`;
+  const totalHours = Math.round(s / 3600);
+  const hours = totalHours % 24;
+  return hours === 0 ? `${Math.floor(totalHours / 24)}d` : `${Math.floor(totalHours / 24)}d ${hours}h`;
 }
 
 /**

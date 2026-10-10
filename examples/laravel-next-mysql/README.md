@@ -3,6 +3,7 @@
 A Laravel API, a Next.js front and a MySQL database, in one repository: what a
 team typically previews. The end-to-end test of the installer
 (`scripts/e2e-installer.sh`) deploys it from two branches at once.
+[The examples page](../../docs/examples.md) describes both examples.
 
 ```text
 .spawner/spawner.yaml   the project, two URLs (web, api) and the seed
@@ -13,11 +14,12 @@ web/                    Next.js 16: one page that lists the posts through the AP
 
 ## Try it
 
-On a Spawner server, an admin creates the project `blog` (Projects, New):
-repository `https://github.com/Flosk6/Spawner.git`, root directory
-`examples/laravel-next-mysql`. Then, in a clone of the repository, from this
-directory (the CLI sends the clone with your changes; a copy of this directory
-alone would need a project whose root directory is `.`):
+On a Spawner server, an admin creates the project `blog` (Projects, New
+project): repository `https://github.com/Flosk6/Spawner.git`, default branch
+`master`, directory `examples/laravel-next-mysql`. Then, in a clone of the
+repository, from this directory (the CLI sends this directory with your
+changes; a copy of it in a repository of its own would need a project whose
+directory is `.`):
 
 ```bash
 spawner up demo --wait        # without a name, the environment is named after the branch
@@ -38,10 +40,10 @@ spawner down demo
 - **Shared dependencies**: both Dockerfiles copy `composer.lock` and
   `package-lock.json`, install the dependencies, and only then copy the code.
   Environments with the same lock files share the `vendor` and `node_modules`
-  layers: on the Disk tab of an environment, its own part is a few megabytes
-  (the code and the build), the dependencies are in the shared part. The
-  front is not built in `standalone` mode, which would copy the dependencies
-  into each environment's own part.
+  layers: on the Disk card of an environment (Overview tab), its own part is a
+  few megabytes (the code and the build), the dependencies are in the shared
+  part. The front is not built in `standalone` mode, which would copy the
+  dependencies into each environment's own part.
 - **A database for previews**: MySQL without binary log or performance schema,
   with small buffers: about 220 MiB of memory once seeded, and the whole
   environment about 320 MiB. A preview may lose its last transactions if the
@@ -53,8 +55,10 @@ spawner down demo
   key. An application that does would add `APP_KEY: ${APP_KEY}` to the `api`
   service and set `APP_KEY` as a secret variable of the project (Projects,
   the project, Variables): `php artisan key:generate --show` prints one.
-- **Behind Traefik**: the API trusts the proxy (`trustProxies(at: '*')`), so the
-  URLs it builds keep `https`. Only Traefik can reach it.
+- **Behind Traefik**: both servers listen on `0.0.0.0`, where Traefik reaches
+  them, and the API trusts the proxy (`trustProxies(at: '*')`), so the URLs it
+  builds keep `https`. Only Traefik and the other services of the environment
+  reach it.
 
 ## Two repositories instead of one
 

@@ -10,12 +10,18 @@ name: Release
 # of its image, so that it installs what this workflow built.
 # scripts/release.sh prepares the versions and the tag.
 #
+# Once npm has a stable version, its server.json goes to the official MCP
+# Registry, which trusts this repository's OIDC token for the names
+# io.github.Flosk6/* (the owner's case: the registry compares it as is). That
+# job comes last and may fail without undoing or holding back anything else.
+#
 # The jobs that publish (image, npm, release) run in the "release"
 # environment, whose reviewers approve twice per tag: first the image and npm
 # together (both wait for the CLI build), then the GitHub release, which waits
 # for the image. Nothing here reads a cache that another workflow could have
 # written. Actions are pinned by commit (updated by Dependabot); the binfmt
-# and BuildKit images by digest (updated by hand).
+# and BuildKit images by digest, mcp-publisher by version and checksum
+# (updated by hand).
 #
 # GitHub runs the workflow of the tagged commit: these guards hold for tags
 # on commits that carry them, so creating v* tags is restricted to admins by
@@ -30,6 +36,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/flosk6/spawner
+  DESCRIPTION: "Spawner is an open source, self-hosted preview environment manager: a copy of your app for each git branch, on your own server, with its own URLs, database and logs, for teams and their coding agents."
 
 jobs:
   version:
@@ -94,10 +101,15 @@ jobs:
             fs.writeFileSync("release/npm/package.json", JSON.stringify({
               name: "spawner-cli",
               version: process.env.SPAWNER_VERSION,
-              description: "Spawner CLI and MCP server: preview environments from a worktree, on your own server",
-              keywords: ["preview", "environments", "docker", "compose", "mcp", "coding agents"],
-              homepage: "https://github.com/Flosk6/Spawner",
+              description: "The CLI and MCP server of Spawner, an open source, self-hosted preview environment manager: a copy of your app for each git branch, on your own server, with its own URLs, database and logs.",
+              keywords: [
+                "preview-environments", "ephemeral-environments", "review-apps", "self-hosted", "docker-compose",
+                "mcp", "mcp-server", "coding-agents", "claude-code", "codex", "cursor", "devops", "cli",
+              ],
+              homepage: "https://spawner.run",
               repository: { type: "git", url: "git+https://github.com/Flosk6/Spawner.git", directory: "apps/cli" },
+              bugs: { url: "https://github.com/Flosk6/Spawner/issues" },
+              mcpName: require("./server.json").name,
               license: "Apache-2.0",
               bin: { spawner: "spawner.cjs" },
               files: ["spawner.cjs", "README.md", "LICENSE", "NOTICE"],
@@ -143,14 +155,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The labels and the annotations replace those of the Dockerfile and
+      # of the repository's settings; the annotations of the index are what
+      # GHCR shows for an image of several platforms.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+          labels: |
+            org.opencontainers.image.title=Spawner
+            org.opencontainers.image.description=${{ env.DESCRIPTION }}
+            org.opencontainers.image.url=https://spawner.run
+            org.opencontainers.image.documentation=https://spawner.run/docs/
+          annotations: |
+            org.opencontainers.image.title=Spawner
+            org.opencontainers.image.description=${{ env.DESCRIPTION }}
+            org.opencontainers.image.url=https://spawner.run
+            org.opencontainers.image.documentation=https://spawner.run/docs/
       - name: Build and push linux/amd64 and linux/arm64
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -160,6 +187,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           build-args: SPAWNER_VERSION=${{ needs.version.outputs.version }}
       - name: Attest the provenance of the images
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -239,17 +267,39 @@ jobs:
           awk -v version="$VERSION" '
             $0 ~ "^## " { if (found) exit; found = ($2 == version) ; next }
             found { print }
-          ' CHANGELOG.md > release/notes.md
-          [ -s release/notes.md ] || echo "Spawner $VERSION." > release/notes.md
-          cat >> release/notes.md <<EOF
+          ' CHANGELOG.md > release/changes.md
+          [ -s release/changes.md ] || echo "Spawner $VERSION." > release/changes.md
+          download="https://github.com/Flosk6/Spawner/releases/download/v$VERSION"
+          {
+            echo "$DESCRIPTION [Documentation](https://spawner.run/docs/), [changelog](https://spawner.run/changelog/)."
+            echo
+            cat release/changes.md
+            cat <<EOF
 
-          ## Install or upgrade
+          ## Install
+
+          On a new server:
 
           \`\`\`bash
-          curl -fsSL https://github.com/Flosk6/Spawner/releases/download/v$VERSION/install.sh | sudo bash -s -- --version $VERSION
+          curl -fsSL $download/install.sh | sudo bash -s -- --version $VERSION
           \`\`\`
 
-          Image: \`${IMAGE}:${VERSION}\` (\`${DIGEST}\`, linux/amd64, linux/arm64). CLI: \`npm install -g spawner-cli@$VERSION\`, or the \`spawner\` file below.
+          ## Upgrade
+
+          From the dashboard: **Update to $VERSION** on the System page. From the server:
+
+          \`\`\`bash
+          curl -fsSL $download/install.sh | sudo bash -s -- --upgrade --version $VERSION
+          \`\`\`
+
+          Both back the database up first, and go back to the previous version if the new one does not start.
+
+          ## Files
+
+          - \`install.sh\`: the installer of this version.
+          - \`spawner\`: the CLI and MCP server in one file, for Node.js 20 or later. Or \`npm install -g spawner-cli@$VERSION\`.
+          - \`SHA256SUMS\`: their checksums.
+          - Image: \`${IMAGE}:${VERSION}\` (\`${DIGEST}\`, linux/amd64, linux/arm64).
 
           ## Verify
 
@@ -259,7 +309,10 @@ jobs:
           gh attestation verify install.sh -R Flosk6/Spawner
           gh attestation verify oci://${IMAGE}:$VERSION -R Flosk6/Spawner
           \`\`\`
+
+          Or compare the files with their checksums: \`curl -fsSL -O $download/install.sh -O $download/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS\`
           EOF
+          } > release/notes.md
       - name: Attest the provenance of install.sh and the CLI bundle
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -271,3 +324,44 @@ jobs:
           gh release create "v$VERSION" release/install.sh release/spawner release/SHA256SUMS \
             --title "Spawner $VERSION" --notes-file release/notes.md \
             ${{ needs.version.outputs.prerelease == 'true' && '--prerelease' || '--latest' }}
+
+  mcp-registry:
+    name: MCP server on the MCP Registry
+    needs: [version, npm]
+    if: needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      MCP_PUBLISHER_VERSION: 1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mcp-publisher, checked against its checksum
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/v$MCP_PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$MCP_PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Wait until npm serves spawner-cli@${{ needs.version.outputs.version }} with its mcpName
+        run: |
+          name="$(jq -r .name server.json)"
+          for _ in $(seq 1 30); do
+            [ "$(curl -fsS "https://registry.npmjs.org/spawner-cli/$VERSION" 2>/dev/null | jq -r .mcpName)" = "$name" ] && exit 0
+            sleep 10
+          done
+          echo "::error::spawner-cli@$VERSION on npm has no mcpName $name: the MCP Registry would refuse it"
+          exit 1
+      - name: Publish server.json at version ${{ needs.version.outputs.version }}
+        run: |
+          jq --arg version "$VERSION" '.version = $version | .packages[].version = $version' server.json > release-server.json
+          name="$(jq -r .name release-server.json)"
+          if curl -fsS -o /dev/null "https://registry.modelcontextprotocol.io/v0.1/servers/$(jq -rn --arg name "$name" '$name | @uri')/versions/$VERSION"; then
+            echo "::notice::$name $VERSION is already on the MCP Registry"
+            exit 0
+          fi
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish release-server.json

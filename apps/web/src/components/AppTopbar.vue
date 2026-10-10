@@ -24,21 +24,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { BookOpen, CircleArrowUp, Menu as MenuIcon } from 'lucide-vue-next';
 import { useAvailableUpdate } from '../composables/useAvailableUpdate';
 import { useBreadcrumbs } from '../composables/useBreadcrumbs';
-import { useServerInfo } from '../composables/useServerInfo';
 
 const emit = defineEmits<{ menu: [] }>();
 
 const route = useRoute();
 const crumbs = useBreadcrumbs();
-const info = useServerInfo();
 /** On screens where the sidebar is a drawer, the top bar tells admins about a newer Spawner. */
 const availableUpdate = useAvailableUpdate();
 
-/** The documentation of the version running, which may differ from the latest one. */
-const docsUrl = computed(() => `https://github.com/Flosk6/Spawner/tree/${info.value ? `v${info.value.version}` : 'master'}/docs`);
+/** The documentation site, which describes the latest release: the version running may be older. */
+const docsUrl = 'https://spawner.run/docs/';
 </script>
