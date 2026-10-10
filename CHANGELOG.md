@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`spawner up` sends the git repositories cloned inside the project**: a directory with its own `.git`, such as the clones of a workspace repository, was skipped as a submodule, so that a compose file building `../api` passed the check of `spawner up` and failed on the server (`compose.path_not_found`), and each clone needed a source in `spawner.yaml` and a `--source` at every `spawner up`. Such a clone is now sent with the project, as its own git sees it: tracked files and untracked ones that are not ignored, without untracked `node_modules/`, `vendor/` and `.env` files, plus what `upload.include` names; it counts toward the upload limits. Submodules are still skipped, and so are the other worktrees of the repository checked out inside it.
+
 ## 2.2.0
 
 A harder Spawner: environments kept from the cloud's metadata and the server's services, source repositories chosen by admins, Traefik 3.7 and releases you can verify. And its documentation, now on https://spawner.run.

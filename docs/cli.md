@@ -166,14 +166,15 @@ In the dashboard, an update is **Redeploy**; **Redeploy and replay the seed** is
 
 Before sending anything, `up` checks `spawner.yaml` and the compose file with the same code and the same limits as the server: a refused file fails in a second, with every issue and its path (exit code 7, [the issues](manifest.md#when-spawner-is-refused)). It also stops when the project is not registered on the server (`project "blog" is not registered on https://...`), and when `spawner.yaml` is not where the project expects it, its directory for a monorepo (`spawner.yaml is in apps/blog, but project blog expects it in the root`, exit code 2).
 
-What is sent: the files git sees in the worktree (`git ls-files --cached --others --exclude-standard`), so uncommitted work is included and ignored files are not.
+What is sent: the files git sees in the worktree (`git ls-files --cached --others --exclude-standard`), so uncommitted work is included and ignored files are not. A git repository cloned inside the project (a directory with its own `.git`, neither a submodule nor ignored by the project) is sent the same way, as its own git sees it: a workspace holding clones of `api/` and `web/` sends them along, and its compose file builds `../api` without a source per clone.
 
 - Untracked `node_modules/` and `vendor/` directories and local secrets are not sent: `.env` files (`.env.local`, `.env-staging`...), `.npmrc`, `.yarnrc.yml`, `.pypirc`, `.netrc`, `.git-credentials`, `.pgpass`, `.dockercfg`, private SSH keys (`id_ed25519`...) and `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`. `upload.include` in `spawner.yaml` names ignored files to send anyway (globs: `config/*.local.php`, `**/*.pem`).
 - A file the compose file uses, such as an `env_file`, must be sent too: commit it, or add it to `upload.include`. The local check reads the worktree, where the file exists, so only the server notices it is missing.
 - Outside git, every file is sent but `.git/`, `node_modules/`, `vendor/` and the local secrets above.
-- Git submodules are skipped with a warning. Symbolic links stay links; a link pointing outside the repository is refused before upload.
+- Git submodules are skipped with a warning, and so are the other worktrees of the repository checked out inside it. Symbolic links stay links; a link pointing outside the repository is refused before upload.
+- Only `spawner up` sends the clones: a deploy from git (`--ref`, a branch in the dashboard) has what the repository commits.
 - For a monorepo, only the project's directory (the one holding `.spawner/`) is sent, at its place in the repository.
-- Limits come from the server: 100 MiB compressed, 50,000 files and 1 GiB extracted by default.
+- Limits come from the server, clones included: 100 MiB compressed, 50,000 files and 1 GiB extracted by default.
 
 `--wait` follows the job and prints the URLs. When the job fails, the end of its log goes to stderr, and `spawner logs <env> --job` prints all of it.
 

@@ -24,10 +24,11 @@ export function git(cwd: string, ...args: string[]): string {
 }
 
 /**
- * A git repository on branch main with the files committed.
+ * A git repository on branch main with the files committed, in a new
+ * temporary directory or in root.
  */
-export function repo(files: Record<string, string>): string {
-  const root = tempDir();
+export function repo(files: Record<string, string>, root = tempDir()): string {
+  fs.mkdirSync(root, { recursive: true });
   git(root, "init", "-q", "-b", "main");
   for (const [file, content] of Object.entries(files)) {
     write(root, file, content);
