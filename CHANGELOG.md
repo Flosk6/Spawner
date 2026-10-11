@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.2.1
+
+Updates from 2.1 that keep every URL answering, and `spawner up` sending the clones a workspace holds. A server that answers `404 page not found` everywhere since its update to 2.2.0 gets its URLs back with `install.sh --upgrade`, run once on the server: its dashboard cannot be reached to update it.
 
 - **An upgrade checks that Traefik serves the dashboard**, over HTTPS too, and goes back to the previous version when it does not, rather than ending with a warning about the certificate. The installer also makes Traefik's routes readable before it starts the stack, and starts Traefik again when it could not read them: the update from 2.1 to 2.2 could leave Traefik, which runs without capabilities since 2.2, unable to read the routes 2.1 wrote, every URL answering `404 page not found`.
 - **`spawner up` sends the git repositories cloned inside the project**: a directory with its own `.git`, such as the clones of a workspace repository, was skipped as a submodule, so that a compose file building `../api` passed the check of `spawner up` and failed on the server (`compose.path_not_found`), and each clone needed a source in `spawner.yaml` and a `--source` at every `spawner up`. Such a clone is now sent with the project, as its own git sees it: tracked files and untracked ones that are not ignored, without untracked `node_modules/`, `vendor/` and `.env` files, plus what `upload.include` names; it counts toward the upload limits. Submodules are still skipped, and so are the other worktrees of the repository checked out inside it. `spawner up` names the clones it sends, and runs git with `core.fsmonitor` off, so that the config of a clone cannot name a command to run.
