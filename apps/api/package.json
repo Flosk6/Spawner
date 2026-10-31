@@ -41,7 +41,7 @@
     "dockerode": "^5.0.1",
     "dotenv": "^16.6.1",
     "express-session": "^1.18.2",
-    "multer": "2.4.0",
+    "multer": "2.5.0",
     "pg": "^8.11.3",
     "prisma": "5.22.0",
     "reflect-metadata": "^0.1.13",
